@@ -1,0 +1,32 @@
+services:
+  fontsync:
+    build: .
+    ports:
+      - "8080:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fontsync:fontsync@db:5432/fontsync
+      STORAGE_BACKEND: filesystem
+      FONT_STORAGE_PATH: /data/fonts
+    volumes:
+      - font_data:/data/fonts
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fontsync
+      POSTGRES_PASSWORD: fontsync
+      POSTGRES_DB: fontsync
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fontsync"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  font_data:
+  pg_data:
