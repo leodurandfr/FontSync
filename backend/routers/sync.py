@@ -15,6 +15,7 @@ from backend.schemas.sync import DeltaSyncRequest, DeltaSyncResponse, PushRespon
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
 from backend.services.sync_manager import compute_delta, register_device_font
+from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,29 @@ async def push_font(
         db=db,
     )
     await db.commit()
+
+    # Notifications WebSocket
+    if not is_duplicate:
+        # Notifier les clients frontend
+        await ws_manager.broadcast_to_clients({
+            "type": "font.added",
+            "data": {
+                "id": str(font.id),
+                "familyName": font.family_name,
+                "originalFilename": font.original_filename,
+                "fileFormat": font.file_format,
+            },
+        })
+        # Notifier les autres agents qu'une nouvelle font est disponible
+        await ws_manager.broadcast_to_agents({
+            "type": "font.available",
+            "data": {
+                "fontId": str(font.id),
+                "familyName": font.family_name,
+                "originalFilename": font.original_filename,
+                "fileFormat": font.file_format,
+            },
+        })
 
     return PushResponse(
         font_id=font.id,

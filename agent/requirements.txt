@@ -1,3 +1,8 @@
 httpx>=0.27.0
 pyyaml>=6.0
+watchdog>=4.0.0
+websockets>=14.0
 pyobjc-framework-CoreText>=10.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pystray>=0.19.5; sys_platform == "darwin"
+Pillow>=10.0.0
