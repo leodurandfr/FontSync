@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from backend.database import get_db
 from backend.models.device import Device
 from backend.schemas.device import DeviceRegister, DeviceResponse, DeviceUpdate
+from backend.services.ws_manager import ws_manager
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -74,6 +75,24 @@ async def update_device(
     await db.commit()
     await db.refresh(device)
     return DeviceResponse.model_validate(device)
+
+
+@router.post("/{device_id}/rescan", status_code=202)
+async def rescan_device(
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demande un re-scan de fonts à l'agent via WebSocket."""
+    await _get_device_or_404(device_id, db)
+    sent = await ws_manager.send_to_agent(
+        str(device_id), {"type": "rescan.request"}
+    )
+    if not sent:
+        raise HTTPException(
+            status_code=503,
+            detail="L'agent n'est pas connecté.",
+        )
+    return {"status": "requested"}
 
 
 @router.delete("/{device_id}", status_code=204)
