@@ -1,0 +1,87 @@
+"""Router pour la gestion des devices."""
+
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from backend.database import get_db
+from backend.models.device import Device
+from backend.schemas.device import DeviceRegister, DeviceResponse, DeviceUpdate
+
+router = APIRouter(prefix="/api/devices", tags=["devices"])
+
+
+async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
+    """Récupère un device par ID ou lève 404."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device non trouvé.")
+    return device
+
+
+@router.post("/register", response_model=DeviceResponse, status_code=201)
+async def register_device(
+    body: DeviceRegister,
+    db: AsyncSession = Depends(get_db),
+) -> DeviceResponse:
+    """Enregistre un nouveau device (agent)."""
+    device = Device(
+        name=body.name,
+        hostname=body.hostname,
+        os=body.os,
+        os_version=body.os_version,
+        agent_version=body.agent_version,
+        font_directories=body.font_directories,
+        auto_pull=body.auto_pull,
+        last_seen_at=datetime.now(timezone.utc),
+    )
+    db.add(device)
+    await db.commit()
+    await db.refresh(device)
+    return DeviceResponse.model_validate(device)
+
+
+@router.get("", response_model=list[DeviceResponse])
+async def list_devices(
+    db: AsyncSession = Depends(get_db),
+) -> list[DeviceResponse]:
+    """Liste tous les devices enregistrés."""
+    result = await db.execute(
+        select(Device).order_by(Device.created_at.desc())
+    )
+    devices = result.scalars().all()
+    return [DeviceResponse.model_validate(d) for d in devices]
+
+
+@router.patch("/{device_id}", response_model=DeviceResponse)
+async def update_device(
+    device_id: uuid.UUID,
+    body: DeviceUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> DeviceResponse:
+    """Met à jour un device."""
+    device = await _get_device_or_404(device_id, db)
+    update_data = body.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Aucun champ à modifier.")
+    for field, value in update_data.items():
+        setattr(device, field, value)
+    device.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(device)
+    return DeviceResponse.model_validate(device)
+
+
+@router.delete("/{device_id}", status_code=204)
+async def delete_device(
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Supprime un device et ses associations."""
+    device = await _get_device_or_404(device_id, db)
+    await db.delete(device)
+    await db.commit()

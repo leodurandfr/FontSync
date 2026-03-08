@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 
-from backend.routers import fonts, stats
+from backend.routers import devices, fonts, stats, sync
 
 app = FastAPI(title="FontSync", version="0.1.0")
 app.include_router(fonts.router)
+app.include_router(devices.router)
+app.include_router(sync.router)
 app.include_router(stats.router)
 
 
