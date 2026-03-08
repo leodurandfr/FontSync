@@ -73,7 +73,7 @@ async def upload_fonts(
     for font_resp in imported:
         message = {
             "type": "font.added",
-            "data": font_resp.model_dump(mode="json"),
+            "data": font_resp.model_dump(mode="json", by_alias=True),
         }
         await ws_manager.broadcast_to_clients(message)
         await ws_manager.broadcast_to_agents(message)

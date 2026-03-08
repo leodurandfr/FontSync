@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from backend.schemas.base import CamelModel
 
 
 class FontSortField(str, Enum):
@@ -20,7 +22,7 @@ class SortOrder(str, Enum):
     desc = "desc"
 
 
-class FontResponse(BaseModel):
+class FontResponse(CamelModel):
     """Schéma de réponse pour une font."""
 
     id: uuid.UUID
@@ -70,10 +72,14 @@ class FontResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True,
+        "alias_generator": CamelModel.model_config["alias_generator"],
+        "populate_by_name": True,
+    }
 
 
-class FontListResponse(BaseModel):
+class FontListResponse(CamelModel):
     """Réponse paginée pour la liste des fonts."""
 
     items: list[FontResponse]
@@ -83,7 +89,7 @@ class FontListResponse(BaseModel):
     pages: int
 
 
-class FontUpdate(BaseModel):
+class FontUpdate(CamelModel):
     """Schéma pour la modification des métadonnées d'une font."""
 
     family_name: str | None = None
@@ -95,7 +101,7 @@ class FontUpdate(BaseModel):
     manufacturer: str | None = None
 
 
-class FontFilters(BaseModel):
+class FontFilters(CamelModel):
     """Filtres pour la recherche de fonts."""
 
     search: str | None = None
@@ -111,7 +117,7 @@ class FontFilters(BaseModel):
     per_page: int = Field(50, ge=1, le=200)
 
 
-class FontUploadResponse(BaseModel):
+class FontUploadResponse(CamelModel):
     """Réponse pour un upload de fonts (un ou plusieurs fichiers)."""
 
     imported: list[FontResponse]
@@ -119,22 +125,22 @@ class FontUploadResponse(BaseModel):
     errors: list[dict]
 
 
-class ClassificationStat(BaseModel):
+class ClassificationStat(CamelModel):
     classification: str | None
     count: int
 
 
-class FormatStat(BaseModel):
+class FormatStat(CamelModel):
     format: str
     count: int
 
 
-class ScriptStat(BaseModel):
+class ScriptStat(CamelModel):
     script: str
     count: int
 
 
-class StatsResponse(BaseModel):
+class StatsResponse(CamelModel):
     """Statistiques globales de la bibliothèque."""
 
     total_fonts: int

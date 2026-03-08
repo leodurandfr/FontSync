@@ -11,6 +11,7 @@ from sqlalchemy.future import select
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.font import Font
+from backend.schemas.font import FontResponse
 from backend.schemas.sync import DeltaSyncRequest, DeltaSyncResponse, PushResponse
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
@@ -105,25 +106,17 @@ async def push_font(
 
     # Notifications WebSocket
     if not is_duplicate:
+        font_resp = FontResponse.model_validate(font)
+        font_data = font_resp.model_dump(mode="json", by_alias=True)
         # Notifier les clients frontend
         await ws_manager.broadcast_to_clients({
             "type": "font.added",
-            "data": {
-                "id": str(font.id),
-                "familyName": font.family_name,
-                "originalFilename": font.original_filename,
-                "fileFormat": font.file_format,
-            },
+            "data": font_data,
         })
         # Notifier les autres agents qu'une nouvelle font est disponible
         await ws_manager.broadcast_to_agents({
             "type": "font.available",
-            "data": {
-                "fontId": str(font.id),
-                "familyName": font.family_name,
-                "originalFilename": font.original_filename,
-                "fileFormat": font.file_format,
-            },
+            "data": font_data,
         })
 
     return PushResponse(

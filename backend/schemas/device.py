@@ -3,10 +3,12 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from backend.schemas.base import CamelModel
 
 
-class DeviceRegister(BaseModel):
+class DeviceRegister(CamelModel):
     """Schéma d'enregistrement d'un device."""
 
     name: str = Field(..., max_length=200)
@@ -18,7 +20,7 @@ class DeviceRegister(BaseModel):
     auto_pull: bool = False
 
 
-class DeviceUpdate(BaseModel):
+class DeviceUpdate(CamelModel):
     """Schéma de mise à jour d'un device."""
 
     name: str | None = Field(None, max_length=200)
@@ -28,7 +30,7 @@ class DeviceUpdate(BaseModel):
     sync_status: str | None = Field(None, pattern=r"^(idle|syncing|error)$")
 
 
-class DeviceResponse(BaseModel):
+class DeviceResponse(CamelModel):
     """Schéma de réponse pour un device."""
 
     id: uuid.UUID
@@ -44,4 +46,8 @@ class DeviceResponse(BaseModel):
     auto_pull: bool
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True,
+        "alias_generator": CamelModel.model_config["alias_generator"],
+        "populate_by_name": True,
+    }

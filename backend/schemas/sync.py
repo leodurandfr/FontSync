@@ -2,24 +2,26 @@
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from backend.schemas.base import CamelModel
 
 
-class DeviceFontEntry(BaseModel):
+class DeviceFontEntry(CamelModel):
     """Entrée d'une font côté agent : hash + nom de fichier."""
 
     hash: str = Field(..., min_length=64, max_length=64)
     filename: str
 
 
-class DeltaSyncRequest(BaseModel):
+class DeltaSyncRequest(CamelModel):
     """Requête delta sync envoyée par un agent."""
 
     device_id: uuid.UUID
     fonts: list[DeviceFontEntry]
 
 
-class FontRef(BaseModel):
+class FontRef(CamelModel):
     """Référence minimale à une font pour la réponse delta."""
 
     id: uuid.UUID
@@ -30,7 +32,7 @@ class FontRef(BaseModel):
     file_size: int
 
 
-class DeltaSyncResponse(BaseModel):
+class DeltaSyncResponse(CamelModel):
     """Réponse du delta sync."""
 
     unknown_to_server: list[str]
@@ -43,7 +45,7 @@ class DeltaSyncResponse(BaseModel):
     """Nombre de fonts déjà synchronisées."""
 
 
-class PushResponse(BaseModel):
+class PushResponse(CamelModel):
     """Réponse après un push de font depuis un agent."""
 
     font_id: uuid.UUID
