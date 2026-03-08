@@ -1,60 +1,26 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useFontsStore } from '@/stores/fonts'
+import { ref } from "vue";
+import FilterPanel from "@/components/fonts/FilterPanel.vue";
+import PreviewToolbar from "@/components/fonts/PreviewToolbar.vue";
+import FontGrid from "@/components/fonts/FontGrid.vue";
 
-const fontsStore = useFontsStore()
-
-onMounted(() => {
-  fontsStore.fetchFonts()
-})
+const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
 </script>
 
 <template>
-  <div>
-    <h1 class="text-3xl font-bold tracking-tight">Polices</h1>
-    <p class="text-muted-foreground mt-1">
-      Parcourez et gérez votre bibliothèque de polices.
-    </p>
+  <div class="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <FilterPanel />
 
-    <div class="mt-8">
-      <div
-        v-if="fontsStore.loading"
-        class="text-muted-foreground text-sm"
-      >
-        Chargement...
-      </div>
-      <div
-        v-else-if="fontsStore.fonts.length === 0"
-        class="rounded-xl border border-dashed p-12 text-center"
-      >
-        <p class="text-muted-foreground">
-          Aucune police dans la bibliothèque.
-        </p>
-        <p class="text-sm text-muted-foreground mt-1">
-          Uploadez des fichiers ou connectez un agent pour commencer.
+    <main class="flex-1 overflow-y-auto p-6">
+      <div class="mb-6">
+        <h1 class="text-3xl font-bold tracking-tight">Polices</h1>
+        <p class="text-muted-foreground mt-1">
+          Parcourez et gérez votre bibliothèque de polices.
         </p>
       </div>
-      <div
-        v-else
-        class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <RouterLink
-          v-for="font in fontsStore.fonts"
-          :key="font.id"
-          :to="{ name: 'font-detail', params: { id: font.id } }"
-          class="group rounded-xl border bg-card p-5 transition-colors hover:border-foreground/20"
-        >
-          <p
-            class="text-2xl font-semibold tracking-tight truncate"
-            :title="font.familyName ?? font.originalFilename"
-          >
-            {{ font.familyName ?? font.originalFilename }}
-          </p>
-          <p class="text-sm text-muted-foreground mt-1">
-            {{ font.subfamilyName ?? font.fileFormat.toUpperCase() }}
-          </p>
-        </RouterLink>
-      </div>
-    </div>
+
+      <PreviewToolbar v-model="previewText" />
+      <FontGrid :preview-text="previewText" />
+    </main>
   </div>
 </template>
