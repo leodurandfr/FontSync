@@ -23,6 +23,7 @@ from backend.schemas.font import (
 )
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
+from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,15 @@ async def upload_fonts(
         except Exception:
             logger.exception("Erreur inattendue lors de l'import de %s", filename)
             errors.append({"filename": filename, "detail": "Erreur interne du serveur."})
+
+    # Notification WebSocket pour chaque font importée
+    for font_resp in imported:
+        message = {
+            "type": "font.added",
+            "data": font_resp.model_dump(mode="json"),
+        }
+        await ws_manager.broadcast_to_clients(message)
+        await ws_manager.broadcast_to_agents(message)
 
     return FontUploadResponse(
         imported=imported,
