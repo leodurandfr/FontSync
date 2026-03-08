@@ -4,7 +4,6 @@ import { RouterLink } from "vue-router";
 import { Download } from "lucide-vue-next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { Font } from "@/types/api";
 
 const props = defineProps<{

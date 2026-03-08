@@ -9,7 +9,6 @@ services:
       FONT_STORAGE_PATH: /data/fonts
     volumes:
       - font_data:/data/fonts
-      - .:/app
     depends_on:
       db:
         condition: service_healthy

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted } from "vue";
 import {
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
   ChevronDown,
-  Check,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -26,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useFiltersStore } from "@/stores/filters";
+import type { AcceptableValue } from "reka-ui";
 import type { FontFilters } from "@/types/api";
 
 const filtersStore = useFiltersStore();
@@ -91,24 +91,29 @@ function toggleScript(script: string) {
   }
 }
 
-function setClassification(value: string) {
+function setClassification(value: AcceptableValue) {
+  if (typeof value !== 'string') return;
   filtersStore.classification =
     filtersStore.classification === value ? undefined : value;
 }
 
-function setFormat(value: string) {
+function setFormat(value: AcceptableValue) {
+  if (typeof value !== 'string') return;
   filtersStore.format = filtersStore.format === value ? undefined : value;
 }
 
-function setWeightMin(value: string) {
-  filtersStore.weightMin = value === "any" ? undefined : Number(value);
+function setWeightMin(value: AcceptableValue) {
+  const v = String(value);
+  filtersStore.weightMin = v === "any" ? undefined : Number(v);
 }
 
-function setWeightMax(value: string) {
-  filtersStore.weightMax = value === "any" ? undefined : Number(value);
+function setWeightMax(value: AcceptableValue) {
+  const v = String(value);
+  filtersStore.weightMax = v === "any" ? undefined : Number(v);
 }
 
-function setSort(value: string) {
+function setSort(value: AcceptableValue) {
+  if (typeof value !== 'string') return;
   filtersStore.sort = value as FontFilters["sort"];
 }
 

@@ -25,7 +25,6 @@ watch(searchInput, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     filtersStore.search = val
-    filtersStore.page = 1
   }, 300)
 })
 </script>
