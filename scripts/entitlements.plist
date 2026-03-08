@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime : nécessaire pour la notarisation Apple -->
+
+    <!-- Autorise le chargement de bibliothèques non signées (dylibs PyInstaller) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Autorise les connexions réseau sortantes (HTTP/WebSocket vers le serveur) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>
