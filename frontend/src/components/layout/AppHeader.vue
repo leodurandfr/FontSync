@@ -1,73 +1,60 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Search, Wifi, WifiOff, Loader2 } from 'lucide-vue-next'
-import { SidebarTrigger } from '@/components/ui/sidebar'
-import { Separator } from '@/components/ui/separator'
-import { Input } from '@/components/ui/input'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { useWsStore } from '@/stores/ws'
-import { useFiltersStore } from '@/stores/filters'
-import { storeToRefs } from 'pinia'
+  LayoutDashboard,
+  Type,
+  Monitor,
+  Settings,
+} from 'lucide-vue-next'
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  navigationMenuTriggerStyle,
+} from '@/components/ui/navigation-menu'
 
-const wsStore = useWsStore()
-const filtersStore = useFiltersStore()
-const { status } = storeToRefs(wsStore)
+const route = useRoute()
 
-const searchInput = ref(filtersStore.search)
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
+const navItems = [
+  { label: 'Dashboard', icon: LayoutDashboard, to: '/' },
+  { label: 'Polices', icon: Type, to: '/fonts' },
+  { label: 'Appareils', icon: Monitor, to: '/devices' },
+  { label: 'Paramètres', icon: Settings, to: '/settings' },
+]
 
-watch(searchInput, (val) => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    filtersStore.search = val
-  }, 300)
+const isActive = computed(() => (path: string) => {
+  if (path === '/') return route.path === '/'
+  return route.path.startsWith(path)
 })
 </script>
 
 <template>
-  <header class="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-    <SidebarTrigger class="-ml-1" />
-    <Separator orientation="vertical" class="h-5" />
+  <header class="flex h-14 shrink-0 items-center border-b px-4">
+    <!-- Logo -->
+    <RouterLink to="/" class="flex items-center gap-2 shrink-0">
+      <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
+        <Type class="h-3.5 w-3.5" />
+      </div>
+      <span class="text-base font-bold tracking-tight hidden sm:inline">FontSync</span>
+    </RouterLink>
 
-    <div class="relative flex-1 max-w-md">
-      <Search class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        v-model="searchInput"
-        type="search"
-        placeholder="Rechercher une police..."
-        class="pl-9 h-9"
-      />
-    </div>
-
-    <div class="ml-auto flex items-center gap-2">
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-full transition-colors"
-              :class="{
-                'text-emerald-500': status === 'connected',
-                'text-destructive': status === 'disconnected',
-                'text-muted-foreground': status === 'connecting',
-              }"
+    <!-- Navigation (centered) -->
+    <NavigationMenu class="mx-auto">
+      <NavigationMenuList>
+        <NavigationMenuItem v-for="item in navItems" :key="item.to">
+          <NavigationMenuLink as-child :active="isActive(item.to)">
+            <RouterLink
+              :to="item.to"
+              :class="navigationMenuTriggerStyle()"
             >
-              <Wifi v-if="status === 'connected'" class="h-4 w-4" />
-              <Loader2 v-else-if="status === 'connecting'" class="h-4 w-4 animate-spin" />
-              <WifiOff v-else class="h-4 w-4" />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p v-if="status === 'connected'">Connecté au serveur</p>
-            <p v-else-if="status === 'connecting'">Connexion en cours...</p>
-            <p v-else>Déconnecté du serveur</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
+              <component :is="item.icon" class="h-4 w-4 mr-1.5" />
+              <span class="hidden md:inline">{{ item.label }}</span>
+            </RouterLink>
+          </NavigationMenuLink>
+        </NavigationMenuItem>
+      </NavigationMenuList>
+    </NavigationMenu>
   </header>
 </template>

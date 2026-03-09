@@ -372,7 +372,7 @@ function toggleVariable(checked: boolean | "indeterminate") {
     v-if="collapsed"
     variant="ghost"
     size="icon-sm"
-    class="fixed left-14 top-[4.5rem] z-10"
+    class="fixed left-0 top-[4.5rem] z-10"
     @click="collapsed = false"
   >
     <PanelLeftOpen class="h-4 w-4" />
