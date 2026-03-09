@@ -193,9 +193,9 @@ class FontSyncAgent:
             print(f"  ✗ Erreur delta sync : {e}")
             return
 
-        unknown = set(delta.get("unknown_to_server", []))
-        missing = delta.get("missing_on_device", [])
-        already = delta.get("already_synced", 0)
+        unknown = set(delta.get("unknownToServer", []))
+        missing = delta.get("missingOnDevice", [])
+        already = delta.get("alreadySynced", 0)
 
         print(f"  Nouvelles pour le serveur : {len(unknown)}")
         print(f"  Déjà synchronisées : {already}")
@@ -228,8 +228,9 @@ class FontSyncAgent:
 
             for i, font_ref in enumerate(missing):
                 try:
+                    font_id = font_ref.get("id", font_ref.get("fontId", ""))
                     filename, data = await asyncio.to_thread(
-                        self.client.pull_font, font_ref["id"]
+                        self.client.pull_font, font_id
                     )
                     dest = install_font(filename, data)
                     if dest:
@@ -358,16 +359,15 @@ class FontSyncAgent:
     async def _handle_ws_connected(self) -> None:
         """Appelé quand la connexion WebSocket est (re)établie.
 
-        Déclenche un delta sync pour rattraper les changements manqués.
+        Déclenche un sync complet pour rattraper les changements manqués.
         """
         self._ws_connected = True
         self._push_tray_state()
-        logger.info("WebSocket connecté — delta sync de rattrapage...")
+        logger.info("WebSocket connecté — sync de rattrapage...")
         try:
-            entries = [{"hash": h, "filename": ""} for h in self.known_hashes]
-            self.client.delta_sync_hashes(self.device_id, entries)
+            await self._initial_sync()
         except Exception:
-            logger.exception("Erreur delta sync de rattrapage")
+            logger.exception("Erreur sync de rattrapage")
 
     async def _handle_ws_disconnected(self) -> None:
         """Appelé quand la connexion WebSocket est perdue."""
