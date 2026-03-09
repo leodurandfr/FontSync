@@ -15,7 +15,7 @@ from pathlib import Path
 
 from agent.config import AgentConfig
 from agent.discovery import discover_fonts
-from agent.font_installer import install_font
+from agent.font_installer import activate_font, deactivate_font, install_font, uninstall_font
 from agent.notifier import notify
 from agent.scanner import (
     ScannedFont,
@@ -109,6 +109,10 @@ class FontSyncAgent:
             config=self.config,
             device_id=self.device_id,
             on_font_available=self._handle_font_available,
+            on_font_install=self._handle_font_install,
+            on_font_uninstall=self._handle_font_uninstall,
+            on_font_activate=self._handle_font_activate,
+            on_font_deactivate=self._handle_font_deactivate,
             on_sync_request=self._handle_sync_request,
             on_connected=self._handle_ws_connected,
             on_disconnected=self._handle_ws_disconnected,
@@ -230,7 +234,7 @@ class FontSyncAgent:
                 try:
                     font_id = font_ref.get("id", font_ref.get("fontId", ""))
                     filename, data = await asyncio.to_thread(
-                        self.client.pull_font, font_id
+                        self.client.pull_font, font_id, self.device_id
                     )
                     dest = install_font(filename, data)
                     if dest:
@@ -287,7 +291,7 @@ class FontSyncAgent:
             if self.config.auto_push:
                 try:
                     result = self.client.push_font(self.device_id, font)
-                    dup = result.get("is_duplicate", False)
+                    dup = result.get("isDuplicate", False)
                     family = result.get("family_name", font.filename)
                     if dup:
                         logger.info("Push %s : doublon existant", font.filename)
@@ -322,7 +326,9 @@ class FontSyncAgent:
             logger.info("Auto-pull : téléchargement de %s...", filename)
             await self._send_status("syncing")
             try:
-                dl_filename, dl_data = self.client.pull_font(font_id)
+                dl_filename, dl_data = await asyncio.to_thread(
+                    self.client.pull_font, font_id, self.device_id
+                )
                 dest = install_font(dl_filename, dl_data)
                 if dest:
                     self.known_hashes.add(hash_file(dest))
@@ -348,6 +354,87 @@ class FontSyncAgent:
                     "FontSync",
                     f"Nouvelle police disponible : {family_name}",
                 )
+
+    async def _handle_font_install(self, data: dict) -> None:
+        """Gère un ordre d'installation d'une font depuis le frontend."""
+        font_id = data.get("fontId")
+        if not font_id:
+            return
+
+        logger.info("Installation demandée par le frontend : %s", font_id)
+        try:
+            filename, file_data = await asyncio.to_thread(
+                self.client.pull_font, font_id, self.device_id
+            )
+            dest = install_font(filename, file_data)
+            if dest:
+                self.known_hashes.add(hash_file(dest))
+                logger.info("Installée (demande frontend) : %s", filename)
+                if self.config.show_notifications:
+                    notify("FontSync", f"Police {filename} installée")
+            else:
+                logger.warning("Format non installable : %s", filename)
+        except Exception:
+            logger.exception("Erreur installation demandée pour %s", font_id)
+
+    async def _handle_font_uninstall(self, data: dict) -> None:
+        """Gère un ordre de désinstallation d'une font depuis le frontend."""
+        filename = data.get("filename")
+        if not filename:
+            return
+
+        font_id = data.get("fontId")
+        logger.info("Désinstallation demandée par le frontend : %s", filename)
+        removed = await asyncio.to_thread(uninstall_font, filename)
+        if removed:
+            # Confirmer la désinstallation au serveur
+            if font_id and self._ws_client:
+                await self._ws_client.send_message({
+                    "type": "font.uninstalled",
+                    "data": {"fontId": font_id},
+                })
+            if self.config.show_notifications:
+                notify("FontSync", f"Police {filename} désinstallée")
+
+    async def _handle_font_activate(self, data: dict) -> None:
+        """Gère un ordre d'activation d'une font depuis le frontend."""
+        font_id = data.get("fontId")
+        local_path = data.get("localPath")
+        if not font_id or not local_path:
+            return
+
+        logger.info("Activation demandée par le frontend : %s", font_id)
+        try:
+            success = await asyncio.to_thread(activate_font, local_path)
+            if success and self._ws_client:
+                await self._ws_client.send_message({
+                    "type": "font.activated",
+                    "data": {"fontId": font_id},
+                })
+                if self.config.show_notifications:
+                    notify("FontSync", "Police activée")
+        except Exception:
+            logger.exception("Erreur activation %s", font_id)
+
+    async def _handle_font_deactivate(self, data: dict) -> None:
+        """Gère un ordre de désactivation d'une font depuis le frontend."""
+        font_id = data.get("fontId")
+        local_path = data.get("localPath")
+        if not font_id or not local_path:
+            return
+
+        logger.info("Désactivation demandée par le frontend : %s", font_id)
+        try:
+            success = await asyncio.to_thread(deactivate_font, local_path)
+            if success and self._ws_client:
+                await self._ws_client.send_message({
+                    "type": "font.deactivated",
+                    "data": {"fontId": font_id},
+                })
+                if self.config.show_notifications:
+                    notify("FontSync", "Police désactivée")
+        except Exception:
+            logger.exception("Erreur désactivation %s", font_id)
 
     async def _handle_sync_request(self) -> None:
         """Gère une demande de re-scan du serveur."""

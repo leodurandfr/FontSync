@@ -81,6 +81,19 @@ class FontResponse(CamelModel):
     }
 
 
+class FontDeviceStatus(CamelModel):
+    """Statut d'installation d'une font sur un appareil."""
+
+    device_id: uuid.UUID
+    device_name: str
+    hostname: str
+    is_online: bool = False
+    installed: bool
+    activated: bool = False
+    local_path: str | None = None
+    installed_at: datetime | None = None
+
+
 class FontListResponse(CamelModel):
     """Réponse paginée pour la liste des fonts."""
 

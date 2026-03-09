@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, watch, onBeforeUnmount } from "vue";
 import { Search } from "lucide-vue-next";
 import { Input } from "@/components/ui/input";
-import { useFiltersStore } from "@/stores/filters";
+import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import FilterPanel from "@/components/fonts/FilterPanel.vue";
 import PreviewToolbar from "@/components/fonts/PreviewToolbar.vue";
-import FontGrid from "@/components/fonts/FontGrid.vue";
+import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 
-const filtersStore = useFiltersStore();
+const filtersStore = useFamilyFiltersStore();
 const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
 
 const searchInput = ref(filtersStore.search);
@@ -18,6 +18,10 @@ watch(searchInput, (val) => {
   debounceTimer = setTimeout(() => {
     filtersStore.search = val;
   }, 300);
+});
+
+onBeforeUnmount(() => {
+  if (debounceTimer) clearTimeout(debounceTimer);
 });
 </script>
 
@@ -34,7 +38,9 @@ watch(searchInput, (val) => {
           </p>
         </div>
         <div class="relative shrink-0 mt-1">
-          <Search class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search
+            class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
             v-model="searchInput"
             type="search"
@@ -45,7 +51,7 @@ watch(searchInput, (val) => {
       </div>
 
       <PreviewToolbar v-model="previewText" />
-      <FontGrid :preview-text="previewText" />
+      <FontFamilyList :preview-text="previewText" />
     </main>
   </div>
 </template>

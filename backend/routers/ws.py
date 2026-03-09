@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -9,6 +10,7 @@ from sqlalchemy.future import select
 
 from backend.database import async_session
 from backend.models.device import Device
+from backend.models.device_font import DeviceFont
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -60,11 +62,61 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
             if msg_type == "heartbeat":
                 await websocket.send_json({"type": "heartbeat.ack"})
 
+            elif msg_type == "font.uninstalled":
+                # L'agent confirme la désinstallation d'une font
+                font_id_str = message.get("data", {}).get("fontId")
+                if font_id_str:
+                    try:
+                        font_uuid = uuid.UUID(font_id_str)
+                    except ValueError:
+                        continue
+                    async with async_session() as db:
+                        df_result = await db.execute(
+                            select(DeviceFont).where(
+                                DeviceFont.font_id == font_uuid,
+                                DeviceFont.device_id == uuid.UUID(device_id),
+                            )
+                        )
+                        df = df_result.scalar_one_or_none()
+                        if df:
+                            await db.delete(df)
+                            await db.commit()
+                    # Notifier les clients frontend
+                    await ws_manager.broadcast_to_clients({
+                        "type": "font.uninstalled",
+                        "data": {"fontId": font_id_str, "deviceId": device_id},
+                    })
+
+            elif msg_type in ("font.activated", "font.deactivated"):
+                # L'agent confirme l'activation/désactivation d'une font
+                font_id_str = message.get("data", {}).get("fontId")
+                if font_id_str:
+                    try:
+                        font_uuid = uuid.UUID(font_id_str)
+                    except ValueError:
+                        continue
+                    activated = msg_type == "font.activated"
+                    async with async_session() as db:
+                        df_result = await db.execute(
+                            select(DeviceFont).where(
+                                DeviceFont.font_id == font_uuid,
+                                DeviceFont.device_id == uuid.UUID(device_id),
+                            )
+                        )
+                        df = df_result.scalar_one_or_none()
+                        if df:
+                            df.activated = activated
+                            await db.commit()
+                    await ws_manager.broadcast_to_clients({
+                        "type": msg_type,
+                        "data": {"fontId": font_id_str, "deviceId": device_id, "activated": activated},
+                    })
+
             elif msg_type == "sync.status":
                 new_status = message.get("status", "idle")
                 async with async_session() as db:
                     result = await db.execute(
-                        select(Device).where(Device.id == device_id)
+                        select(Device).where(Device.id == uuid.UUID(device_id))
                     )
                     device = result.scalar_one_or_none()
                     if device:
@@ -83,7 +135,7 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
         # Remettre le syncStatus à idle si l'agent se déconnecte en plein scan/sync
         async with async_session() as db:
             result = await db.execute(
-                select(Device).where(Device.id == device_id)
+                select(Device).where(Device.id == uuid.UUID(device_id))
             )
             device = result.scalar_one_or_none()
             if device and device.sync_status != "idle":

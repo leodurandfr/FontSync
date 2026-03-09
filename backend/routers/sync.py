@@ -131,6 +131,7 @@ async def push_font(
 @router.get("/pull/{font_id}")
 async def pull_font(
     font_id: uuid.UUID,
+    device_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
 ) -> Response:
@@ -141,6 +142,16 @@ async def pull_font(
     font = result.scalar_one_or_none()
     if font is None:
         raise HTTPException(status_code=404, detail="Font non trouvée.")
+
+    # Enregistrer l'association device ↔ font si device_id fourni
+    if device_id is not None:
+        await register_device_font(
+            device_id=device_id,
+            font_id=font.id,
+            local_path=font.original_filename,
+            db=db,
+        )
+        await db.commit()
 
     try:
         data = await storage.retrieve(font.file_hash, font.file_format)

@@ -14,9 +14,11 @@ from sqlalchemy.future import select
 
 from backend.database import get_db
 from backend.models.device import Device
+from backend.models.device_font import DeviceFont
 from backend.models.font import Font
 from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
+    FontDeviceStatus,
     FontListResponse,
     FontResponse,
     FontSortField,
@@ -295,6 +297,157 @@ async def update_font(
     await db.commit()
     await db.refresh(font)
     return FontResponse.model_validate(font)
+
+
+# ---------- Statut par appareil ----------
+
+
+@router.get("/{font_id}/devices", response_model=list[FontDeviceStatus])
+async def get_font_device_status(
+    font_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[FontDeviceStatus]:
+    """Retourne le statut d'installation de cette font sur chaque appareil."""
+    await _get_font_or_404(font_id, db)
+
+    # Tous les devices
+    devices_result = await db.execute(
+        select(Device).order_by(Device.name)
+    )
+    devices = devices_result.scalars().all()
+
+    # Associations device_fonts pour cette font
+    df_result = await db.execute(
+        select(DeviceFont).where(DeviceFont.font_id == font_id)
+    )
+    device_fonts = {df.device_id: df for df in df_result.scalars().all()}
+
+    online_ids = set(ws_manager.connected_agents)
+
+    statuses = []
+    for device in devices:
+        df = device_fonts.get(device.id)
+        statuses.append(FontDeviceStatus(
+            device_id=device.id,
+            device_name=device.name,
+            hostname=device.hostname,
+            is_online=str(device.id) in online_ids,
+            installed=df is not None,
+            activated=df.activated if df else False,
+            local_path=df.local_path if df else None,
+            installed_at=df.installed_at if df else None,
+        ))
+
+    return statuses
+
+
+@router.post("/{font_id}/install/{device_id}", status_code=202)
+async def install_font_on_device(
+    font_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demande l'installation d'une font sur un appareil via WebSocket."""
+    font = await _get_font_or_404(font_id, db)
+    sent = await ws_manager.send_to_agent(
+        str(device_id),
+        {"type": "font.install", "data": {"fontId": str(font_id)}},
+    )
+    if not sent:
+        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
+    return {"status": "requested"}
+
+
+@router.post("/{font_id}/uninstall/{device_id}", status_code=202)
+async def uninstall_font_on_device(
+    font_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demande la désinstallation d'une font sur un appareil via WebSocket."""
+    font = await _get_font_or_404(font_id, db)
+
+    # Trouver le local_path pour envoyer le filename à l'agent
+    df_result = await db.execute(
+        select(DeviceFont).where(
+            DeviceFont.font_id == font_id,
+            DeviceFont.device_id == device_id,
+        )
+    )
+    df = df_result.scalar_one_or_none()
+    # Utiliser le filename original si pas d'association device_font
+    filename = font.original_filename
+    if df:
+        # Le local_path peut être un chemin complet, on veut juste le nom
+        from pathlib import PurePosixPath
+        filename = PurePosixPath(df.local_path).name
+
+    sent = await ws_manager.send_to_agent(
+        str(device_id),
+        {"type": "font.uninstall", "data": {"fontId": str(font_id), "filename": filename}},
+    )
+    if not sent:
+        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
+
+    # Note : le DeviceFont est supprimé quand l'agent confirme la désinstallation
+    # via le message WebSocket "font.uninstalled" (géré dans ws.py)
+
+    return {"status": "requested"}
+
+
+# ---------- Activation / Désactivation ----------
+
+
+async def _get_device_font_or_400(
+    font_id: uuid.UUID, device_id: uuid.UUID, db: AsyncSession
+) -> DeviceFont:
+    """Récupère l'association device_font ou lève 400."""
+    df_result = await db.execute(
+        select(DeviceFont).where(
+            DeviceFont.font_id == font_id,
+            DeviceFont.device_id == device_id,
+        )
+    )
+    df = df_result.scalar_one_or_none()
+    if df is None:
+        raise HTTPException(status_code=400, detail="La font n'est pas installée sur cet appareil.")
+    return df
+
+
+@router.post("/{font_id}/activate/{device_id}", status_code=202)
+async def activate_font_on_device(
+    font_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demande l'activation d'une font sur un appareil via WebSocket."""
+    await _get_font_or_404(font_id, db)
+    df = await _get_device_font_or_400(font_id, device_id, db)
+    sent = await ws_manager.send_to_agent(
+        str(device_id),
+        {"type": "font.activate", "data": {"fontId": str(font_id), "localPath": df.local_path}},
+    )
+    if not sent:
+        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
+    return {"status": "requested"}
+
+
+@router.post("/{font_id}/deactivate/{device_id}", status_code=202)
+async def deactivate_font_on_device(
+    font_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Demande la désactivation d'une font sur un appareil via WebSocket."""
+    await _get_font_or_404(font_id, db)
+    df = await _get_device_font_or_400(font_id, device_id, db)
+    sent = await ws_manager.send_to_agent(
+        str(device_id),
+        {"type": "font.deactivate", "data": {"fontId": str(font_id), "localPath": df.local_path}},
+    )
+    if not sent:
+        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
+    return {"status": "requested"}
 
 
 # ---------- Soft delete ----------

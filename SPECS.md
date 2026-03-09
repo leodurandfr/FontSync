@@ -43,7 +43,7 @@ Machine A                    Serveur FontSync                Machine B
 ### Principes directeurs
 
 - Le **serveur est la source de vérité** pour la bibliothèque et les métadonnées
-- L'agent **ne supprime jamais** de fonts localement de manière automatique
+- L'agent peut **désinstaller** des fonts localement sur ordre explicite de l'utilisateur (via le frontend), mais la font reste toujours sur le serveur
 - L'utilisateur a toujours le **contrôle explicite** sur ce qui est installé sur sa machine
 - La communication est **temps réel** : WebSocket entre serveur, agents et frontend
 - Le code dans ce document est **purement illustratif** — Claude Code implémente selon les meilleures pratiques
@@ -435,9 +435,10 @@ Après installation, l'agent peut afficher une notification système : "Font Int
 
 ### 6.6 Comportement de suppression
 
-**L'agent ne supprime JAMAIS de fonts localement de manière automatique.**
-- Font supprimée sur le serveur → les devices ne sont pas affectés, notification informative uniquement
-- Font supprimée localement par l'utilisateur → l'agent notifie le serveur (événement `font.removed`), mais le serveur ne supprime pas la font de sa bibliothèque
+**L'agent ne supprime jamais de fonts localement de manière automatique.**
+- L'utilisateur peut désinstaller une font d'un appareil via le frontend (commande WebSocket `font.uninstall`). La font reste toujours sur le serveur — seule l'installation locale est supprimée.
+- Font supprimée sur le serveur (soft delete) → les devices ne sont pas affectés, notification informative uniquement
+- Font supprimée localement par l'utilisateur (hors FontSync) → l'agent notifie le serveur (événement `font.removed`), mais le serveur ne supprime pas la font de sa bibliothèque
 
 ### 6.7 Communication WebSocket
 
@@ -785,7 +786,7 @@ fontsync/
 - **Soft delete** (`deleted_at`) pour toutes les suppressions
 - **UUID** pour toutes les PK
 - **Le serveur est la source de vérité**
-- **L'agent ne supprime jamais automatiquement** de fonts locales
+- **L'agent peut désinstaller** des fonts locales sur ordre explicite de l'utilisateur via le frontend, mais la font reste sur le serveur
 - **WebSocket** pour tout le temps réel (pas SSE)
 - **File watcher** (watchdog) comme mode principal de détection, scan périodique en backup
 - **Per-user font installation** — jamais de droits admin nécessaires

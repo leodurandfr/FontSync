@@ -12,6 +12,7 @@ class DeviceFontEntry(CamelModel):
 
     hash: str = Field(..., min_length=64, max_length=64)
     filename: str
+    local_path: str | None = None
 
 
 class DeltaSyncRequest(CamelModel):

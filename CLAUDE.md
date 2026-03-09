@@ -105,7 +105,7 @@ fontsync/
 - **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.
 - **Robustesse du parsing fonttools** : toujours wrapper dans try/except. Une font malformée doit être stockée avec des métadonnées partielles, jamais rejetée.
 - **Pas d'authentification dans le MVP** (Phases 1-3).
-- **L'agent ne supprime jamais de fonts localement de manière automatique.**
+- **L'agent peut désinstaller des fonts localement sur ordre explicite de l'utilisateur** (via le frontend), mais la font reste toujours sur le serveur.
 - **Formats WOFF/WOFF2** : acceptés au stockage et prévisualisables, mais jamais proposés à l'installation système.
 
 ## Commandes utiles

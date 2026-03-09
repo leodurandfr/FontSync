@@ -25,7 +25,10 @@ async def compute_delta(
     Returns:
         DeltaSyncResponse avec unknown_to_server, missing_on_device, already_synced.
     """
-    device_hashes = {entry.hash for entry in device_fonts}
+    device_hash_map: dict[str, DeviceFontEntry] = {
+        entry.hash: entry for entry in device_fonts
+    }
+    device_hashes = set(device_hash_map.keys())
 
     # Récupérer toutes les fonts actives du serveur
     result = await db.execute(
@@ -53,12 +56,24 @@ async def compute_delta(
         for h in missing_hashes
     ]
 
-    already_synced = len(device_hashes & server_hashes)
+    # Fonts en commun → enregistrer les associations device_fonts
+    synced_hashes = device_hashes & server_hashes
+    for h in synced_hashes:
+        entry = device_hash_map[h]
+        server_row = server_hash_map[h]
+        await register_device_font(
+            device_id=device_id,
+            font_id=server_row.id,
+            local_path=entry.local_path or entry.filename,
+            db=db,
+        )
+    if synced_hashes:
+        await db.commit()
 
     return DeltaSyncResponse(
         unknown_to_server=unknown_to_server,
         missing_on_device=missing_on_device,
-        already_synced=already_synced,
+        already_synced=len(synced_hashes),
     )
 
 

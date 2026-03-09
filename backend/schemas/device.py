@@ -29,7 +29,7 @@ class DeviceUpdate(CamelModel):
     font_directories: list[str] | None = None
     auto_pull: bool | None = None
     auto_push: bool | None = None
-    sync_status: str | None = Field(None, pattern=r"^(idle|syncing|error)$")
+    sync_status: str | None = Field(None, pattern=r"^(idle|scanning|syncing|error)$")
 
 
 class DeviceResponse(CamelModel):

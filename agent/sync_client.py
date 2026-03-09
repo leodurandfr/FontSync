@@ -84,7 +84,14 @@ class SyncClient:
         """
         return self.delta_sync_hashes(
             device_id,
-            [{"hash": f.file_hash, "filename": f.filename} for f in fonts],
+            [
+                {
+                    "hash": f.file_hash,
+                    "filename": f.filename,
+                    "localPath": str(f.path),
+                }
+                for f in fonts
+            ],
         )
 
     def delta_sync_hashes(
@@ -172,14 +179,20 @@ class SyncClient:
 
     # ---- Pull ----
 
-    def pull_font(self, font_id: str) -> tuple[str, bytes]:
+    def pull_font(
+        self, font_id: str, device_id: str | None = None
+    ) -> tuple[str, bytes]:
         """Télécharge une font depuis le serveur.
 
         GET /api/sync/pull/{font_id}
         Retourne (filename, data).
         """
+        params = {}
+        if device_id:
+            params["device_id"] = device_id
         resp = self._client.get(
             f"{self.base_url}/api/sync/pull/{font_id}",
+            params=params,
             timeout=UPLOAD_TIMEOUT,
         )
         resp.raise_for_status()
@@ -219,6 +232,10 @@ class WebSocketClient:
         config: AgentConfig,
         device_id: str,
         on_font_available: Callable[[dict[str, Any]], Any] | None = None,
+        on_font_install: Callable[[dict[str, Any]], Any] | None = None,
+        on_font_uninstall: Callable[[dict[str, Any]], Any] | None = None,
+        on_font_activate: Callable[[dict[str, Any]], Any] | None = None,
+        on_font_deactivate: Callable[[dict[str, Any]], Any] | None = None,
         on_sync_request: Callable[[], Any] | None = None,
         on_connected: Callable[[], Any] | None = None,
         on_disconnected: Callable[[], Any] | None = None,
@@ -226,6 +243,10 @@ class WebSocketClient:
         self._config = config
         self._device_id = device_id
         self._on_font_available = on_font_available
+        self._on_font_install = on_font_install
+        self._on_font_uninstall = on_font_uninstall
+        self._on_font_activate = on_font_activate
+        self._on_font_deactivate = on_font_deactivate
         self._on_sync_request = on_sync_request
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
@@ -297,6 +318,38 @@ class WebSocketClient:
                 )
                 if self._on_font_available:
                     await self._on_font_available(data)
+
+            elif msg_type == "font.install":
+                logger.info(
+                    "WebSocket : installation demandée — %s",
+                    data.get("fontId", "?"),
+                )
+                if self._on_font_install:
+                    await self._on_font_install(data)
+
+            elif msg_type == "font.uninstall":
+                logger.info(
+                    "WebSocket : désinstallation demandée — %s",
+                    data.get("filename", "?"),
+                )
+                if self._on_font_uninstall:
+                    await self._on_font_uninstall(data)
+
+            elif msg_type == "font.activate":
+                logger.info(
+                    "WebSocket : activation demandée — %s",
+                    data.get("fontId", "?"),
+                )
+                if self._on_font_activate:
+                    await self._on_font_activate(data)
+
+            elif msg_type == "font.deactivate":
+                logger.info(
+                    "WebSocket : désactivation demandée — %s",
+                    data.get("fontId", "?"),
+                )
+                if self._on_font_deactivate:
+                    await self._on_font_deactivate(data)
 
             elif msg_type == "sync.request":
                 logger.info("WebSocket : re-scan demandé par le serveur")

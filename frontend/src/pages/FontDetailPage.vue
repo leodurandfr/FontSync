@@ -1,18 +1,51 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { RouterLink } from "vue-router";
-import { ArrowLeft, Download, ChevronLeft, ChevronRight, Monitor, Upload, Calendar } from "lucide-vue-next";
+import {
+  ArrowLeft,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  Monitor,
+  Upload,
+  Calendar,
+  Loader2,
+} from "lucide-vue-next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import type { Font } from "@/types/api";
+
+interface DeviceStatus {
+  deviceId: string;
+  deviceName: string;
+  hostname: string;
+  isOnline: boolean;
+  installed: boolean;
+  activated: boolean;
+  localPath: string | null;
+  installedAt: string | null;
+}
 
 const props = defineProps<{ id: string }>();
 
 const font = ref<Font | null>(null);
 const loading = ref(true);
+const deviceStatuses = ref<DeviceStatus[]>([]);
+const devicesLoading = ref(false);
+const actionInProgress = ref<Set<string>>(new Set());
 const error = ref<string | null>(null);
 const fontLoaded = ref(false);
 const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
@@ -143,6 +176,116 @@ function formatDate(dateStr: string): string {
   });
 }
 
+async function fetchDeviceStatuses() {
+  devicesLoading.value = true;
+  try {
+    const res = await fetch(`/api/fonts/${props.id}/devices`);
+    if (res.ok) {
+      deviceStatuses.value = await res.json();
+    }
+  } catch (e) {
+    console.error("Failed to fetch device statuses:", e);
+  } finally {
+    devicesLoading.value = false;
+  }
+}
+
+async function handleInstall(deviceId: string) {
+  actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
+  try {
+    const res = await fetch(`/api/fonts/${props.id}/install/${deviceId}`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      // Mise à jour optimiste
+      const status = deviceStatuses.value.find((s) => s.deviceId === deviceId);
+      if (status) {
+        status.installed = true;
+        status.activated = true;
+      }
+      // Rafraîchir le statut après un court délai (laisser le temps à l'agent)
+      setTimeout(() => fetchDeviceStatuses(), 2000);
+    }
+  } catch (e) {
+    console.error("Install error:", e);
+  } finally {
+    const next = new Set(actionInProgress.value);
+    next.delete(deviceId);
+    actionInProgress.value = next;
+  }
+}
+
+async function handleUninstall(deviceId: string) {
+  actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
+  try {
+    const res = await fetch(`/api/fonts/${props.id}/uninstall/${deviceId}`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      // Mettre à jour immédiatement côté frontend
+      const status = deviceStatuses.value.find((s) => s.deviceId === deviceId);
+      if (status) {
+        status.installed = false;
+        status.activated = false;
+        status.localPath = null;
+        status.installedAt = null;
+      }
+    }
+  } catch (e) {
+    console.error("Uninstall error:", e);
+  } finally {
+    const next = new Set(actionInProgress.value);
+    next.delete(deviceId);
+    actionInProgress.value = next;
+  }
+}
+
+const activationInProgress = ref<Set<string>>(new Set());
+
+function isSystemFont(localPath: string | null): boolean {
+  if (!localPath) return false;
+  return localPath.startsWith("/Library/Fonts") || localPath.startsWith("/System/Library/Fonts");
+}
+
+async function handleActivate(deviceId: string) {
+  activationInProgress.value = new Set([...activationInProgress.value, deviceId]);
+  try {
+    const res = await fetch(`/api/fonts/${props.id}/activate/${deviceId}`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      setTimeout(() => fetchDeviceStatuses(), 2000);
+    }
+  } catch (e) {
+    console.error("Activate error:", e);
+  } finally {
+    const next = new Set(activationInProgress.value);
+    next.delete(deviceId);
+    activationInProgress.value = next;
+  }
+}
+
+async function handleDeactivate(deviceId: string) {
+  activationInProgress.value = new Set([...activationInProgress.value, deviceId]);
+  try {
+    const res = await fetch(`/api/fonts/${props.id}/deactivate/${deviceId}`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      const status = deviceStatuses.value.find((s) => s.deviceId === deviceId);
+      if (status) {
+        status.activated = false;
+      }
+    }
+  } catch (e) {
+    console.error("Deactivate error:", e);
+  } finally {
+    const next = new Set(activationInProgress.value);
+    next.delete(deviceId);
+    activationInProgress.value = next;
+  }
+}
+
 onMounted(async () => {
   await fetchFont();
   if (font.value) loadFontFace();
@@ -215,10 +358,112 @@ onUnmounted(() => {
             <Badge v-if="font.isVariable" variant="outline">Variable</Badge>
           </div>
         </div>
-        <Button @click="handleDownload">
-          <Download class="mr-2 h-4 w-4" />
-          Télécharger
-        </Button>
+        <div class="flex items-center gap-2">
+          <Sheet>
+            <SheetTrigger as-child>
+              <Button variant="outline" @click="fetchDeviceStatuses">
+                <Monitor class="mr-2 h-4 w-4" />
+                Appareils
+              </Button>
+            </SheetTrigger>
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Installation par appareil</SheetTitle>
+                <SheetDescription>
+                  Gérez l'installation de cette police sur chaque machine connectée.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div class="mt-6 space-y-4">
+                <!-- Loading -->
+                <div v-if="devicesLoading" class="space-y-4">
+                  <Skeleton v-for="i in 2" :key="i" class="h-28 w-full rounded-lg" />
+                </div>
+
+                <!-- Empty -->
+                <p
+                  v-else-if="deviceStatuses.length === 0"
+                  class="text-sm text-muted-foreground text-center py-8"
+                >
+                  Aucun appareil enregistré.
+                </p>
+
+                <!-- Device list -->
+                <template v-else>
+                  <div
+                    v-for="status in deviceStatuses"
+                    :key="status.deviceId"
+                    class="rounded-lg border p-4 space-y-4"
+                  >
+                    <!-- Device header -->
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="h-2 w-2 shrink-0 rounded-full"
+                        :class="status.isOnline ? 'bg-green-500' : 'bg-muted-foreground/40'"
+                      />
+                      <span class="text-sm font-medium truncate">{{ status.deviceName }}</span>
+                      <span v-if="!status.isOnline" class="text-xs text-muted-foreground ml-auto">Hors ligne</span>
+                    </div>
+
+                    <!-- Install toggle -->
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="space-y-0.5">
+                        <Label class="text-sm">Installer la police</Label>
+                        <p class="text-xs text-muted-foreground">
+                          {{ status.installed ? 'Fichier présent sur l\'appareil' : 'Non installée' }}
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <Loader2
+                          v-if="actionInProgress.has(status.deviceId)"
+                          class="h-4 w-4 animate-spin text-muted-foreground"
+                        />
+                        <Switch
+                          :model-value="status.installed"
+                          :disabled="!status.isOnline || actionInProgress.has(status.deviceId)"
+                          @update:model-value="status.installed ? handleUninstall(status.deviceId) : handleInstall(status.deviceId)"
+                        />
+                      </div>
+                    </div>
+
+                    <!-- Activate toggle -->
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="space-y-0.5">
+                        <Label class="text-sm" :class="!status.installed && 'text-muted-foreground'">Activer sur le système</Label>
+                        <p class="text-xs text-muted-foreground">
+                          <template v-if="!status.installed">Installez d'abord la police</template>
+                          <template v-else-if="isSystemFont(status.localPath)">Police système (non modifiable)</template>
+                          <template v-else-if="status.activated">Disponible dans les applications</template>
+                          <template v-else>Désactivée — invisible pour les applications</template>
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <Loader2
+                          v-if="activationInProgress.has(status.deviceId)"
+                          class="h-4 w-4 animate-spin text-muted-foreground"
+                        />
+                        <Switch
+                          :model-value="status.activated"
+                          :disabled="!status.installed || !status.isOnline || isSystemFont(status.localPath) || activationInProgress.has(status.deviceId)"
+                          @update:model-value="status.activated ? handleDeactivate(status.deviceId) : handleActivate(status.deviceId)"
+                        />
+                      </div>
+                    </div>
+
+                    <p v-if="status.installed && status.installedAt" class="text-xs text-muted-foreground">
+                      Installée le {{ formatDate(status.installedAt) }}
+                    </p>
+                  </div>
+                </template>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Button @click="handleDownload">
+            <Download class="mr-2 h-4 w-4" />
+            Télécharger
+          </Button>
+        </div>
       </div>
     </div>
 

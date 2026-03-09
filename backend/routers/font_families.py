@@ -200,19 +200,29 @@ async def merge_families(
         # Supprimer la famille source (les membres sont déjà déplacés)
         await db.delete(source_family)
 
-    # Recalculer style_count depuis les données réelles
+    # Recalculer style_count depuis les données réelles (hors soft-deleted)
     count_result = await db.execute(
-        select(func.count()).where(FontFamilyMember.family_id == survivor.id)
+        select(func.count())
+        .select_from(FontFamilyMember)
+        .join(FontFamilyMember.font)
+        .where(
+            FontFamilyMember.family_id == survivor.id,
+            Font.deleted_at.is_(None),
+        )
     )
     survivor.style_count = count_result.scalar() or 0
     survivor.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    return MergeResult(
+    result = MergeResult(
         surviving_family_id=survivor.id,
         fonts_moved=fonts_moved,
         families_deleted=len(to_merge),
     )
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.merged", "data": result.model_dump(mode="json", by_alias=True)}
+    )
+    return result
 
 
 # ---------- Regroupement (avant /{family_id} pour éviter les conflits de route) ----------
@@ -322,7 +332,11 @@ async def create_family(
     db.add(family)
     await db.commit()
     await db.refresh(family)
-    return await _build_family_response(family, db)
+    response = await _build_family_response(family, db)
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.created", "data": response.model_dump(mode="json", by_alias=True)}
+    )
+    return response
 
 
 # ---------- Modification ----------
@@ -350,7 +364,11 @@ async def update_family(
     family.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(family)
-    return await _build_family_response(family, db)
+    response = await _build_family_response(family, db)
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+    )
+    return response
 
 
 # ---------- Suppression ----------
@@ -369,8 +387,12 @@ async def delete_family(
             FontFamilyMember.family_id == family.id
         )
     )
+    family_id_str = str(family.id)
     await db.delete(family)
     await db.commit()
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.deleted", "data": {"id": family_id_str}}
+    )
 
 
 # ---------- Gestion des fonts dans une famille ----------
@@ -424,6 +446,11 @@ async def add_fonts_to_family(
     await db.commit()
     await db.refresh(family)
 
+    response = await _build_family_response(family, db)
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+    )
+
     # Retourner le détail complet
     return await get_family(family_id, db)
 
@@ -454,3 +481,8 @@ async def remove_font_from_family(
     family.style_count = max(0, family.style_count - 1)
     family.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    response = await _build_family_response(family, db)
+    await ws_manager.broadcast_to_clients(
+        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+    )
