@@ -18,7 +18,7 @@ from backend.models.font_family import FontFamily, FontFamilyMember
 logger = logging.getLogger(__name__)
 
 
-def _slugify(text: str) -> str:
+def slugify(text: str) -> str:
     """Génère un slug URL-friendly à partir d'un nom de famille."""
     # Normaliser les caractères Unicode (accents → base)
     normalized = unicodedata.normalize("NFKD", text)
@@ -31,7 +31,7 @@ def _slugify(text: str) -> str:
     return slug
 
 
-def _compute_sort_order(weight_class: int | None, is_italic: bool) -> int:
+def compute_sort_order(weight_class: int | None, is_italic: bool) -> int:
     """Calcule le sort_order pour classer les styles logiquement.
 
     Ordre : Thin → Light → Regular → Medium → Semi-Bold → Bold → Extra-Bold → Black,
@@ -50,7 +50,7 @@ def _compute_sort_order(weight_class: int | None, is_italic: bool) -> int:
     return base * 2 + (1 if is_italic else 0)
 
 
-async def _ensure_unique_slug(db: AsyncSession, base_slug: str) -> str:
+async def ensure_unique_slug(db: AsyncSession, base_slug: str) -> str:
     """S'assure que le slug est unique, ajoute un suffixe numérique si nécessaire."""
     slug = base_slug
     counter = 2
@@ -86,7 +86,7 @@ async def group_font(font: Font, db: AsyncSession) -> FontFamily | None:
 
     if family is None:
         # Créer la famille
-        slug = await _ensure_unique_slug(db, _slugify(font.family_name))
+        slug = await ensure_unique_slug(db, slugify(font.family_name))
         family = FontFamily(
             name=font.family_name,
             slug=slug,
@@ -108,7 +108,7 @@ async def group_font(font: Font, db: AsyncSession) -> FontFamily | None:
     if member is not None:
         if member.family_id == family.id:
             # Déjà dans la bonne famille, mettre à jour le sort_order
-            member.sort_order = _compute_sort_order(font.weight_class, font.is_italic)
+            member.sort_order = compute_sort_order(font.weight_class, font.is_italic)
             await db.flush()
             return family
         else:
@@ -125,7 +125,7 @@ async def group_font(font: Font, db: AsyncSession) -> FontFamily | None:
     new_member = FontFamilyMember(
         font_id=font.id,
         family_id=family.id,
-        sort_order=_compute_sort_order(font.weight_class, font.is_italic),
+        sort_order=compute_sort_order(font.weight_class, font.is_italic),
     )
     db.add(new_member)
     family.style_count += 1
@@ -183,7 +183,7 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
         assert family_name is not None  # garanti par le filtre SQL
 
         if family_name not in family_cache:
-            slug = await _ensure_unique_slug(db, _slugify(family_name))
+            slug = await ensure_unique_slug(db, slugify(family_name))
             family = FontFamily(
                 name=family_name,
                 slug=slug,
@@ -202,7 +202,7 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
         member = FontFamilyMember(
             font_id=font.id,
             family_id=family.id,
-            sort_order=_compute_sort_order(font.weight_class, font.is_italic),
+            sort_order=compute_sort_order(font.weight_class, font.is_italic),
         )
         db.add(member)
         family.style_count += 1

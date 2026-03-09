@@ -7,79 +7,79 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.services.family_grouper import (
-    _compute_sort_order,
-    _slugify,
+    compute_sort_order,
     group_font,
+    slugify,
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 
-# --- Tests _slugify ---
+# --- Tests slugify ---
 
 
 class TestSlugify:
     def test_simple_name(self) -> None:
-        assert _slugify("Suisse Intl") == "suisse-intl"
+        assert slugify("Suisse Intl") == "suisse-intl"
 
     def test_accented_characters(self) -> None:
-        assert _slugify("Hélvética Nüe") == "helvetica-nue"
+        assert slugify("Hélvética Nüe") == "helvetica-nue"
 
     def test_special_characters(self) -> None:
-        assert _slugify("Font Name (Pro)") == "font-name-pro"
+        assert slugify("Font Name (Pro)") == "font-name-pro"
 
     def test_multiple_spaces(self) -> None:
-        assert _slugify("TT   Hoves   Pro") == "tt-hoves-pro"
+        assert slugify("TT   Hoves   Pro") == "tt-hoves-pro"
 
     def test_leading_trailing_special(self) -> None:
-        assert _slugify("--My Font--") == "my-font"
+        assert slugify("--My Font--") == "my-font"
 
     def test_single_word(self) -> None:
-        assert _slugify("Roboto") == "roboto"
+        assert slugify("Roboto") == "roboto"
 
     def test_cjk_name_gets_fallback(self) -> None:
-        slug = _slugify("蘋方-簡")
+        slug = slugify("蘋方-簡")
         assert slug.startswith("family-")
         assert len(slug) > 7
 
     def test_empty_string_gets_fallback(self) -> None:
-        slug = _slugify("")
+        slug = slugify("")
         assert slug.startswith("family-")
 
 
-# --- Tests _compute_sort_order ---
+# --- Tests compute_sort_order ---
 
 
 class TestComputeSortOrder:
     def test_weight_ordering(self) -> None:
         """Les poids plus lourds doivent avoir un sort_order plus élevé."""
-        thin = _compute_sort_order(100, False)
-        light = _compute_sort_order(300, False)
-        regular = _compute_sort_order(400, False)
-        medium = _compute_sort_order(500, False)
-        semibold = _compute_sort_order(600, False)
-        bold = _compute_sort_order(700, False)
-        black = _compute_sort_order(900, False)
+        thin = compute_sort_order(100, False)
+        light = compute_sort_order(300, False)
+        regular = compute_sort_order(400, False)
+        medium = compute_sort_order(500, False)
+        semibold = compute_sort_order(600, False)
+        bold = compute_sort_order(700, False)
+        black = compute_sort_order(900, False)
 
         assert thin < light < regular < medium < semibold < bold < black
 
     def test_italic_after_upright(self) -> None:
         """L'italique d'un poids donné vient juste après l'upright."""
-        regular = _compute_sort_order(400, False)
-        regular_italic = _compute_sort_order(400, True)
-        medium = _compute_sort_order(500, False)
+        regular = compute_sort_order(400, False)
+        regular_italic = compute_sort_order(400, True)
+        medium = compute_sort_order(500, False)
 
         assert regular < regular_italic < medium
 
     def test_bold_italic_after_bold(self) -> None:
-        bold = _compute_sort_order(700, False)
-        bold_italic = _compute_sort_order(700, True)
+        bold = compute_sort_order(700, False)
+        bold_italic = compute_sort_order(700, True)
         assert bold_italic == bold + 1
 
     def test_none_weight_defaults_to_regular(self) -> None:
         """weight_class=None doit être traité comme 400 (Regular)."""
-        default = _compute_sort_order(None, False)
-        regular = _compute_sort_order(400, False)
+        default = compute_sort_order(None, False)
+        regular = compute_sort_order(400, False)
         assert default == regular
 
     def test_full_weight_range(self) -> None:
@@ -87,8 +87,8 @@ class TestComputeSortOrder:
         weights = [100, 200, 300, 400, 500, 600, 700, 800, 900]
         all_orders: list[int] = []
         for w in weights:
-            all_orders.append(_compute_sort_order(w, False))
-            all_orders.append(_compute_sort_order(w, True))
+            all_orders.append(compute_sort_order(w, False))
+            all_orders.append(compute_sort_order(w, True))
 
         # Vérifier que la liste est strictement croissante
         for i in range(1, len(all_orders)):
@@ -150,7 +150,7 @@ class TestSortOrderWithFixtures:
         # Calculer les sort_orders
         orders = []
         for name, meta in fonts_data:
-            order = _compute_sort_order(
+            order = compute_sort_order(
                 meta.get("weight_class"),
                 meta.get("is_italic", False),
             )
@@ -181,11 +181,11 @@ class TestSortOrderWithFixtures:
             upright_meta = analyze(upright_path)
             italic_meta = analyze(italic_path)
 
-            upright_order = _compute_sort_order(
+            upright_order = compute_sort_order(
                 upright_meta.get("weight_class"),
                 upright_meta.get("is_italic", False),
             )
-            italic_order = _compute_sort_order(
+            italic_order = compute_sort_order(
                 italic_meta.get("weight_class"),
                 italic_meta.get("is_italic", False),
             )

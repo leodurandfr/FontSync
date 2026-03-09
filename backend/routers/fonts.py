@@ -13,6 +13,7 @@ from sqlalchemy.future import select
 
 from backend.database import get_db
 from backend.models.font import Font
+from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
     FontListResponse,
     FontResponse,
@@ -97,6 +98,8 @@ async def list_fonts(
     is_variable: bool | None = None,
     weight_min: int | None = None,
     weight_max: int | None = None,
+    family_id: uuid.UUID | None = None,
+    orphan: bool | None = None,
     sort: FontSortField = FontSortField.created_at,
     order: SortOrder = SortOrder.desc,
     page: int = Query(1, ge=1),
@@ -136,6 +139,16 @@ async def list_fonts(
         query = query.where(Font.weight_class >= weight_min)
     if weight_max is not None:
         query = query.where(Font.weight_class <= weight_max)
+
+    # Filtre famille
+    if family_id is not None:
+        query = query.join(FontFamilyMember, Font.id == FontFamilyMember.font_id).where(
+            FontFamilyMember.family_id == family_id
+        )
+    elif orphan is True:
+        # Fonts sans famille
+        member_ids = select(FontFamilyMember.font_id)
+        query = query.where(Font.id.notin_(member_ids))
 
     # Compte total
     count_query = select(func.count()).select_from(query.subquery())
