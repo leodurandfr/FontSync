@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.font import Font
 from backend.services import font_analyzer
+from backend.services.family_grouper import group_font
 from backend.services.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -164,7 +165,18 @@ async def import_font(
     )
 
     db.add(font)
-    await db.commit()
+    await db.flush()
     await db.refresh(font)
+
+    # 8. Regroupement en famille
+    try:
+        await group_font(font, db)
+    except Exception:
+        logger.warning(
+            "Échec du regroupement en famille pour %s (id=%s)", filename, font.id,
+            exc_info=True,
+        )
+
+    await db.commit()
 
     return font, False
