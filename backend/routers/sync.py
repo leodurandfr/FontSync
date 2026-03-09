@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -147,10 +148,11 @@ async def pull_font(
         raise HTTPException(status_code=404, detail="Fichier introuvable dans le stockage.")
 
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
+    encoded = quote(font.original_filename, safe="")
     return Response(
         content=data,
         media_type=content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{font.original_filename}"',
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded}",
         },
     )

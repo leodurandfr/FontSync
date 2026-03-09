@@ -187,7 +187,15 @@ class SyncClient:
         # Extraire le nom de fichier du header Content-Disposition
         cd = resp.headers.get("content-disposition", "")
         filename = "unknown.ttf"
-        if "filename=" in cd:
+        if "filename*=" in cd:
+            # RFC 5987: filename*=UTF-8''encoded_name
+            from urllib.parse import unquote
+            raw = cd.split("filename*=")[-1]
+            # Strip encoding prefix (UTF-8'')
+            if "''" in raw:
+                raw = raw.split("''", 1)[-1]
+            filename = unquote(raw)
+        elif "filename=" in cd:
             filename = cd.split("filename=")[-1].strip('"')
 
         return filename, resp.content

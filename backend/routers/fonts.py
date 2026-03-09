@@ -4,6 +4,7 @@ import logging
 import math
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import Response
@@ -238,11 +239,12 @@ async def download_font_file(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Fichier introuvable dans le stockage.")
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
+    encoded = quote(font.original_filename, safe="")
     return Response(
         content=data,
         media_type=content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{font.original_filename}"',
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded}",
         },
     )
 
