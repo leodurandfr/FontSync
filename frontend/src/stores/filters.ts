@@ -11,6 +11,8 @@ export const useFiltersStore = defineStore("filters", () => {
   const isVariable = ref<boolean | undefined>();
   const weightMin = ref<number | undefined>();
   const weightMax = ref<number | undefined>();
+  const familyId = ref<string | undefined>();
+  const orphan = ref<boolean | undefined>();
   const sort = ref<FontFilters["sort"]>("created_at");
   const order = ref<FontFilters["order"]>("desc");
   const perPage = ref(50);
@@ -23,6 +25,8 @@ export const useFiltersStore = defineStore("filters", () => {
     if (scripts.value.length > 0) count++;
     if (isVariable.value !== undefined) count++;
     if (weightMin.value !== undefined || weightMax.value !== undefined) count++;
+    if (familyId.value) count++;
+    if (orphan.value) count++;
     return count;
   });
 
@@ -35,6 +39,8 @@ export const useFiltersStore = defineStore("filters", () => {
       isVariable: isVariable.value,
       weightMin: weightMin.value,
       weightMax: weightMax.value,
+      familyId: familyId.value,
+      orphan: orphan.value,
       sort: sort.value,
       order: order.value,
       page: 1,
@@ -50,6 +56,8 @@ export const useFiltersStore = defineStore("filters", () => {
     isVariable.value = undefined;
     weightMin.value = undefined;
     weightMax.value = undefined;
+    familyId.value = undefined;
+    orphan.value = undefined;
     sort.value = "created_at";
     order.value = "desc";
   }
@@ -64,6 +72,8 @@ export const useFiltersStore = defineStore("filters", () => {
       isVariable,
       weightMin,
       weightMax,
+      familyId,
+      orphan,
       sort,
       order,
     ],
@@ -82,6 +92,8 @@ export const useFiltersStore = defineStore("filters", () => {
     isVariable,
     weightMin,
     weightMax,
+    familyId,
+    orphan,
     sort,
     order,
     perPage,

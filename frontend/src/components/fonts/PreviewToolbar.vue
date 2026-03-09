@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { Type } from "lucide-vue-next";
 import { Input } from "@/components/ui/input";
-import { useFontsStore } from "@/stores/fonts";
+import { useFamiliesStore } from "@/stores/families";
 
 const previewText = defineModel<string>({ required: true });
 
-const fontsStore = useFontsStore();
+const familiesStore = useFamiliesStore();
 </script>
 
 <template>
@@ -21,7 +21,9 @@ const fontsStore = useFontsStore();
       />
     </div>
     <span class="text-sm text-muted-foreground whitespace-nowrap">
-      {{ fontsStore.total }} police{{ fontsStore.total !== 1 ? "s" : "" }}
+      {{ familiesStore.total }} famille{{
+        familiesStore.total !== 1 ? "s" : ""
+      }}
     </span>
   </div>
 </template>

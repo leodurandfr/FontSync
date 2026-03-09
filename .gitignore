@@ -28,6 +28,9 @@ pg_data/
 Thumbs.db
 .smbdelete*
 
+# Database backups
+*.sql
+
 # Tests
 .pytest_cache/
 .coverage
