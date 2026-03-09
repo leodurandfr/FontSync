@@ -67,6 +67,8 @@ class FontResponse(CamelModel):
 
     # Source
     source: str
+    source_device_id: uuid.UUID | None = None
+    source_device_name: str | None = None
 
     # Timestamps
     created_at: datetime

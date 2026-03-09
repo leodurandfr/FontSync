@@ -27,6 +27,8 @@ export interface Font {
   isVariable: boolean
   variableAxes: unknown[] | null
   source: string
+  sourceDeviceId: string | null
+  sourceDeviceName: string | null
   createdAt: string
   updatedAt: string
 }

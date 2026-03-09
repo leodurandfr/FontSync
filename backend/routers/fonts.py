@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from backend.database import get_db
+from backend.models.device import Device
 from backend.models.font import Font
 from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
@@ -200,7 +201,16 @@ async def get_font(
 ) -> FontResponse:
     """Détail complet d'une font."""
     font = await _get_font_or_404(font_id, db)
-    return FontResponse.model_validate(font)
+    resp = FontResponse.model_validate(font)
+
+    # Résoudre le nom du device source
+    if font.source_device_id:
+        device_result = await db.execute(
+            select(Device.name).where(Device.id == font.source_device_id)
+        )
+        resp.source_device_name = device_result.scalar_one_or_none()
+
+    return resp
 
 
 # ---------- Téléchargement fichier ----------

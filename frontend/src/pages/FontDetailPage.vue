@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { RouterLink } from "vue-router";
-import { ArrowLeft, Download, ChevronLeft, ChevronRight } from "lucide-vue-next";
+import { ArrowLeft, Download, ChevronLeft, ChevronRight, Monitor, Upload, Calendar } from "lucide-vue-next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +125,22 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  upload: "Upload web",
+  local_scan: "Agent (scan local)",
+  google_fonts: "Google Fonts",
+};
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 onMounted(async () => {
@@ -339,6 +355,36 @@ onUnmounted(() => {
             <dt class="text-sm text-muted-foreground">Description</dt>
             <dd class="text-sm font-medium sm:col-span-2">
               {{ font.description }}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- Import info -->
+    <section>
+      <h2 class="text-lg font-semibold mb-3">Import</h2>
+      <div class="rounded-xl border bg-card p-6">
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+          <div>
+            <dt class="text-sm text-muted-foreground">Date d'import</dt>
+            <dd class="text-sm font-medium flex items-center gap-1.5">
+              <Calendar class="h-3.5 w-3.5 text-muted-foreground" />
+              {{ formatDate(font.createdAt) }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Source</dt>
+            <dd class="text-sm font-medium flex items-center gap-1.5">
+              <Upload class="h-3.5 w-3.5 text-muted-foreground" />
+              {{ SOURCE_LABELS[font.source] ?? font.source }}
+            </dd>
+          </div>
+          <div v-if="font.sourceDeviceName">
+            <dt class="text-sm text-muted-foreground">Importée depuis</dt>
+            <dd class="text-sm font-medium flex items-center gap-1.5">
+              <Monitor class="h-3.5 w-3.5 text-muted-foreground" />
+              {{ font.sourceDeviceName }}
             </dd>
           </div>
         </dl>
