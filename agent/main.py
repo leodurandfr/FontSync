@@ -76,6 +76,8 @@ class FontSyncAgent:
         print(f"  Dossiers : {', '.join(self.config.directories)}")
         print()
 
+        self._loop = asyncio.get_running_loop()
+
         # 1. Enregistrement
         if not self._register():
             return
@@ -90,9 +92,6 @@ class FontSyncAgent:
         print("  Ctrl+C pour quitter")
         print()
 
-        loop = asyncio.get_running_loop()
-        self._loop = loop
-
         # Note: signal handlers are managed by the main thread (tray),
         # shutdown is triggered via _request_shutdown() from tray callbacks.
 
@@ -101,7 +100,7 @@ class FontSyncAgent:
             directories=self.config.directories,
             ignore_patterns=self.config.ignore_patterns,
             queue=self._watcher_queue,
-            loop=loop,
+            loop=self._loop,
         )
         self._watcher.start()
 
@@ -153,10 +152,17 @@ class FontSyncAgent:
         return True
 
     async def _initial_sync(self) -> None:
-        """Scan initial : découverte, hash, delta, push."""
+        """Scan initial : découverte, hash, delta, push.
+
+        Les opérations bloquantes (I/O fichiers, HTTP) sont déportées
+        dans un thread via asyncio.to_thread() pour ne pas bloquer
+        la boucle asyncio.
+        """
         # Découverte
         print("→ Scan des polices en cours...")
-        discovered = discover_fonts(self.config.directories, self.config.ignore_patterns)
+        discovered = await asyncio.to_thread(
+            discover_fonts, self.config.directories, self.config.ignore_patterns
+        )
         print(f"  {len(discovered)} fichiers de polices détectés")
         print()
 
@@ -166,9 +172,10 @@ class FontSyncAgent:
 
         # Hash
         print("→ Calcul des empreintes SHA-256...")
-        scanned = scan_fonts(
+        scanned = await asyncio.to_thread(
+            scan_fonts,
             discovered,
-            on_progress=lambda c, t: print_progress(c, t, label="Hash"),
+            lambda c, t: print_progress(c, t, label="Hash"),
         )
         print(f"  ✓ {len(scanned)} polices analysées")
         print()
@@ -179,7 +186,9 @@ class FontSyncAgent:
         # Delta sync
         print("→ Comparaison avec le serveur...")
         try:
-            delta = self.client.delta_sync(self.device_id, scanned)
+            delta = await asyncio.to_thread(
+                self.client.delta_sync, self.device_id, scanned
+            )
         except Exception as e:
             print(f"  ✗ Erreur delta sync : {e}")
             return
@@ -196,11 +205,13 @@ class FontSyncAgent:
         # Push
         if unknown and self.config.auto_push:
             print(f"→ Envoi de {len(unknown)} polices vers le serveur...")
-            pushed, duplicates, errors = self.client.push_fonts(
+            await self._send_status("syncing")
+            pushed, duplicates, errors = await asyncio.to_thread(
+                self.client.push_fonts,
                 self.device_id,
                 scanned,
                 unknown,
-                on_progress=lambda c, t: print_progress(c, t, label="Push"),
+                lambda c, t: print_progress(c, t, label="Push"),
             )
             print(f"  ✓ {pushed} envoyées, {duplicates} doublons, {errors} erreurs")
         elif unknown:
@@ -393,7 +404,9 @@ class FontSyncAgent:
     async def _rescan_requested(self) -> None:
         """Exécute un re-scan complet déclenché depuis le tray."""
         logger.info("Re-scan demandé depuis le tray...")
+        await self._send_status("scanning")
         await self._initial_sync()
+        await self._send_status("idle")
 
     # ---- Shutdown ----
 

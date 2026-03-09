@@ -80,8 +80,23 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 
+        # Remettre le syncStatus à idle si l'agent se déconnecte en plein scan/sync
+        async with async_session() as db:
+            result = await db.execute(
+                select(Device).where(Device.id == device_id)
+            )
+            device = result.scalar_one_or_none()
+            if device and device.sync_status != "idle":
+                device.sync_status = "idle"
+                await db.commit()
+
         # Notifier les clients frontend de la déconnexion
         await ws_manager.broadcast_to_clients({
             "type": "device.disconnected",
             "data": {"deviceId": device_id},
+        })
+        # Aussi envoyer un device.updated pour reset le syncStatus côté frontend
+        await ws_manager.broadcast_to_clients({
+            "type": "device.updated",
+            "data": {"deviceId": device_id, "syncStatus": "idle"},
         })
