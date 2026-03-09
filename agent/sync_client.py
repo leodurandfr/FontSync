@@ -297,11 +297,15 @@ class WebSocketClient:
 
     async def send_heartbeat(self) -> None:
         """Envoie un heartbeat au serveur."""
+        await self.send_message({"type": "heartbeat"})
+
+    async def send_message(self, message: dict[str, Any]) -> None:
+        """Envoie un message JSON au serveur."""
         if self._ws:
             try:
-                await self._ws.send(json.dumps({"type": "heartbeat"}))
+                await self._ws.send(json.dumps(message))
             except Exception:
-                logger.debug("WebSocket : impossible d'envoyer le heartbeat")
+                logger.debug("WebSocket : impossible d'envoyer %s", message.get("type"))
 
     async def stop(self) -> None:
         """Arrête la boucle de reconnexion et ferme la connexion WebSocket."""

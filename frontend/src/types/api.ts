@@ -62,7 +62,7 @@ export interface Device {
   agentVersion: string | null
   lastSeenAt: string | null
   lastSyncAt: string | null
-  syncStatus: 'idle' | 'syncing' | 'error'
+  syncStatus: 'idle' | 'scanning' | 'syncing' | 'error'
   fontDirectories: string[] | null
   autoPull: boolean
   createdAt: string
@@ -81,6 +81,7 @@ export type WsEventType =
   | 'font.updated'
   | 'device.connected'
   | 'device.disconnected'
+  | 'device.updated'
   | 'sync.progress'
   | 'sync.completed'
 

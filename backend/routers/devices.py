@@ -29,18 +29,34 @@ async def register_device(
     body: DeviceRegister,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceResponse:
-    """Enregistre un nouveau device (agent)."""
-    device = Device(
-        name=body.name,
-        hostname=body.hostname,
-        os=body.os,
-        os_version=body.os_version,
-        agent_version=body.agent_version,
-        font_directories=body.font_directories,
-        auto_pull=body.auto_pull,
-        last_seen_at=datetime.now(timezone.utc),
+    """Enregistre un device ou met à jour un existant (upsert par hostname)."""
+    result = await db.execute(
+        select(Device).where(Device.hostname == body.hostname)
     )
-    db.add(device)
+    device = result.scalar_one_or_none()
+
+    if device is not None:
+        # Mise à jour du device existant
+        device.name = body.name
+        device.os = body.os
+        device.os_version = body.os_version
+        device.agent_version = body.agent_version
+        device.font_directories = body.font_directories
+        device.auto_pull = body.auto_pull
+        device.last_seen_at = datetime.now(timezone.utc)
+    else:
+        device = Device(
+            name=body.name,
+            hostname=body.hostname,
+            os=body.os,
+            os_version=body.os_version,
+            agent_version=body.agent_version,
+            font_directories=body.font_directories,
+            auto_pull=body.auto_pull,
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        db.add(device)
+
     await db.commit()
     await db.refresh(device)
     return DeviceResponse.model_validate(device)
@@ -83,15 +99,18 @@ async def rescan_device(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Demande un re-scan de fonts à l'agent via WebSocket."""
-    await _get_device_or_404(device_id, db)
+    device = await _get_device_or_404(device_id, db)
     sent = await ws_manager.send_to_agent(
-        str(device_id), {"type": "rescan.request"}
+        str(device_id), {"type": "sync.request"}
     )
     if not sent:
         raise HTTPException(
             status_code=503,
             detail="L'agent n'est pas connecté.",
         )
+
+    # L'agent enverra sync.status scanning/idle via WebSocket
+
     return {"status": "requested"}
 
 

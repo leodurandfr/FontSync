@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import signal
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -93,18 +93,8 @@ class FontSyncAgent:
         loop = asyncio.get_running_loop()
         self._loop = loop
 
-        # Setup graceful shutdown
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._request_shutdown)
-
-        # Tray icon (thread daemon séparé)
-        self._tray = TrayIcon(
-            loop=loop,
-            on_quit=self._on_quit_from_tray,
-            on_rescan=self._on_rescan_from_tray,
-        )
-        self._tray.start()
-        self._push_tray_state()
+        # Note: signal handlers are managed by the main thread (tray),
+        # shutdown is triggered via _request_shutdown() from tray callbacks.
 
         # File watcher
         self._watcher = WatcherService(
@@ -271,6 +261,11 @@ class FontSyncAgent:
 
     # ---- WebSocket handlers ----
 
+    async def _send_status(self, status: str) -> None:
+        """Envoie un changement d'état au serveur."""
+        if self._ws_client:
+            await self._ws_client.send_message({"type": "sync.status", "status": status})
+
     async def _handle_font_available(self, data: dict) -> None:
         """Gère un événement font.available du serveur."""
         font_id = data.get("fontId")
@@ -283,6 +278,7 @@ class FontSyncAgent:
 
         if self.config.auto_pull:
             logger.info("Auto-pull : téléchargement de %s...", filename)
+            await self._send_status("syncing")
             try:
                 dl_filename, dl_data = self.client.pull_font(font_id)
                 dest = install_font(dl_filename, dl_data)
@@ -301,6 +297,8 @@ class FontSyncAgent:
                     )
             except Exception:
                 logger.exception("Erreur pull/install %s", filename)
+            finally:
+                await self._send_status("idle")
         else:
             logger.info("Nouvelle font disponible : %s (auto_pull désactivé)", family_name)
             if self.config.show_notifications:
@@ -312,7 +310,9 @@ class FontSyncAgent:
     async def _handle_sync_request(self) -> None:
         """Gère une demande de re-scan du serveur."""
         logger.info("Re-scan demandé par le serveur...")
+        await self._send_status("scanning")
         await self._initial_sync()
+        await self._send_status("idle")
 
     async def _handle_ws_connected(self) -> None:
         """Appelé quand la connexion WebSocket est (re)établie.
@@ -369,16 +369,26 @@ class FontSyncAgent:
         self._tray.update_state(state)
 
     def _on_quit_from_tray(self) -> None:
-        """Appelé depuis le thread pystray quand l'utilisateur clique Quitter."""
+        """Appelé depuis le thread principal (pystray) quand l'utilisateur clique Quitter."""
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._request_shutdown)
 
     def _on_rescan_from_tray(self) -> None:
-        """Appelé depuis le thread pystray quand l'utilisateur clique Re-scanner."""
+        """Appelé depuis le thread principal (pystray) quand l'utilisateur clique Re-scanner."""
         if self._loop is not None:
             asyncio.run_coroutine_threadsafe(
                 self._rescan_requested(), self._loop
             )
+
+    def _on_open_from_tray(self) -> None:
+        """Appelé depuis le thread principal (pystray) quand l'utilisateur clique Ouvrir."""
+        import webbrowser
+
+        url = self.config.server_url or "http://localhost:8080"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            logger.warning("Impossible d'ouvrir le navigateur")
 
     async def _rescan_requested(self) -> None:
         """Exécute un re-scan complet déclenché depuis le tray."""
@@ -420,12 +430,43 @@ class FontSyncAgent:
 
 
 def main() -> None:
-    """Point d'entrée principal."""
+    """Point d'entrée principal.
+
+    macOS impose que AppKit (tray icon) tourne sur le thread principal.
+    On lance donc asyncio dans un thread daemon, et le tray sur le main thread.
+    """
     agent = FontSyncAgent()
+
+    # Créer le tray icon (sera lancé sur le main thread)
+    tray = TrayIcon(
+        on_quit=agent._on_quit_from_tray,
+        on_rescan=agent._on_rescan_from_tray,
+        on_open=agent._on_open_from_tray,
+    )
+    agent._tray = tray
+
+    def run_asyncio() -> None:
+        """Lance l'event loop asyncio dans un thread daemon."""
+        try:
+            asyncio.run(agent.run())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            # Quand asyncio se termine, arrêter le tray (débloque le main thread)
+            tray.stop()
+
+    # Lancer asyncio en background
+    asyncio_thread = threading.Thread(target=run_asyncio, name="asyncio", daemon=True)
+    asyncio_thread.start()
+
+    # Bloquer le main thread sur le tray icon (requis par macOS AppKit)
     try:
-        asyncio.run(agent.run())
+        tray.run()
     except KeyboardInterrupt:
-        pass
+        agent._request_shutdown()
+        tray.stop()
+
+    asyncio_thread.join(timeout=5)
 
 
 if __name__ == "__main__":

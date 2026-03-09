@@ -1,15 +1,13 @@
 """Icône de la barre de menu macOS pour l'agent FontSync.
 
-Utilise pystray dans un thread daemon séparé. L'asyncio event loop
-tourne sur le thread principal et communique via threading.Lock.
+Sur macOS, AppKit impose que le tray tourne sur le thread principal.
+L'asyncio event loop tourne dans un thread daemon séparé.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
-import webbrowser
 from dataclasses import dataclass
 from typing import Callable
 
@@ -47,96 +45,79 @@ class TrayState:
 
 
 class TrayIcon:
-    """Icône tray pystray tournant dans un thread daemon.
+    """Icône tray pystray tournant sur le thread principal (requis par macOS).
 
-    Le thread asyncio principal met à jour l'état via update_state().
+    Le thread asyncio met à jour l'état via update_state().
     Les actions utilisateur (Quitter, Re-scanner) sont relayées vers
     la boucle asyncio via les callbacks fournis à la construction.
     """
 
     def __init__(
         self,
-        loop: asyncio.AbstractEventLoop,
         on_quit: Callable[[], None],
         on_rescan: Callable[[], None],
+        on_open: Callable[[], None],
     ) -> None:
-        self._loop = loop
         self._on_quit_cb = on_quit
         self._on_rescan_cb = on_rescan
+        self._on_open_cb = on_open
 
         self._state = TrayState()
         self._state_lock = threading.Lock()
 
         self._icon: pystray.Icon | None = None  # type: ignore[union-attr]
-        self._thread: threading.Thread | None = None
         self._available = _PYSTRAY_AVAILABLE and _PIL_AVAILABLE
 
-    # ---- Public API (appelé depuis le thread asyncio) ----
+    @property
+    def available(self) -> bool:
+        return self._available
 
-    def start(self) -> None:
-        """Lance le thread tray. Retourne immédiatement."""
+    def run(self) -> None:
+        """Lance le tray icon sur le thread courant (doit être le main thread).
+
+        Bloque jusqu'à l'appel de stop().
+        """
         if not self._available:
             logger.warning("Tray icon non disponible (pystray ou Pillow manquant)")
+            # Bloquer indéfiniment pour ne pas quitter le main thread
+            threading.Event().wait()
             return
 
-        self._thread = threading.Thread(
-            target=self._thread_main,
-            name="tray",
-            daemon=True,
+        image = self._make_icon()
+        self._icon = pystray.Icon(  # type: ignore[union-attr]
+            name="FontSync",
+            icon=image,
+            title="FontSync",
+            menu=pystray.Menu(self._build_menu),  # type: ignore[union-attr]
         )
-        self._thread.start()
-        logger.info("Tray icon démarrée")
+        logger.info("Tray icon démarrée (main thread)")
+        self._icon.run()
 
     def stop(self) -> None:
-        """Arrête proprement l'icône tray. Appelé depuis asyncio après cleanup."""
-        with self._state_lock:
-            icon = self._icon
-            self._icon = None
-
+        """Arrête le tray icon. Thread-safe."""
+        icon = self._icon
+        self._icon = None
         if icon is not None:
             try:
                 icon.stop()
             except Exception:
                 logger.debug("Erreur lors de l'arrêt du tray icon", exc_info=True)
 
-        if self._thread is not None:
-            self._thread.join(timeout=3)
-
     def update_state(self, state: TrayState) -> None:
-        """Met à jour l'état affiché. Thread-safe, appelable depuis asyncio."""
+        """Met à jour l'état affiché. Thread-safe."""
         with self._state_lock:
             self._state = state
             icon = self._icon
 
-        # Forcer pystray à reconstruire le menu au prochain clic
         if icon is not None:
             try:
                 icon.update_menu()
             except Exception:
                 logger.debug("Erreur update_menu", exc_info=True)
 
-    # ---- Thread principal pystray ----
-
-    def _thread_main(self) -> None:
-        """Point d'entrée du thread tray. Bloque sur icon.run()."""
-        try:
-            image = self._make_icon()
-            icon = pystray.Icon(  # type: ignore[union-attr]
-                name="FontSync",
-                icon=image,
-                title="FontSync",
-                menu=pystray.Menu(self._build_menu),  # type: ignore[union-attr]
-            )
-            with self._state_lock:
-                self._icon = icon
-            icon.run()
-        except Exception:
-            logger.exception("Erreur fatale du thread tray")
-
-    # ---- Construction du menu (appelé par pystray à chaque ouverture) ----
+    # ---- Construction du menu ----
 
     def _build_menu(self) -> tuple:  # type: ignore[type-arg]
-        """Construit les items du menu à partir du snapshot courant."""
         with self._state_lock:
             state = self._state
 
@@ -156,54 +137,47 @@ class TrayIcon:
             pystray.Menu.SEPARATOR,  # type: ignore[union-attr]
             pystray.MenuItem(  # type: ignore[union-attr]
                 "Ouvrir FontSync",
-                action=self._on_open_browser,
+                action=self._on_open,
             ),
             pystray.MenuItem("Re-scanner", action=self._on_rescan),  # type: ignore[union-attr]
             pystray.Menu.SEPARATOR,  # type: ignore[union-attr]
             pystray.MenuItem("Quitter", action=self._on_quit),  # type: ignore[union-attr]
         )
 
-    # ---- Callbacks du menu (thread pystray) ----
+    # ---- Callbacks ----
 
     def _on_quit(self, icon: object, item: object) -> None:
-        """Relaye la demande de quit vers l'asyncio loop."""
         self._on_quit_cb()
 
     def _on_rescan(self, icon: object, item: object) -> None:
-        """Relaye la demande de re-scan vers l'asyncio loop."""
         self._on_rescan_cb()
 
-    def _on_open_browser(self, icon: object, item: object) -> None:
-        """Ouvre le frontend FontSync dans le navigateur par défaut."""
-        with self._state_lock:
-            url = self._state.server_url or "http://localhost:8080"
+    def _on_open(self, icon: object, item: object) -> None:
+        self._on_open_cb()
 
-        try:
-            webbrowser.open(url)
-        except Exception:
-            logger.warning("Impossible d'ouvrir le navigateur")
-
-    # ---- Génération de l'icône placeholder ----
+    # ---- Icône template macOS ----
 
     @staticmethod
     def _make_icon() -> Image.Image:  # type: ignore[name-defined]
-        """Generate a 64x64 placeholder tray icon using PIL.
+        """Charge l'icône template depuis agent/assets/.
 
-        No external assets required. Will be replaced by a proper
-        .png icon in a later iteration.
+        Icône monochrome noire sur fond transparent — macOS gère
+        automatiquement l'adaptation dark/light mode via le template.
         """
-        size = 64
+        from pathlib import Path
+
+        assets_dir = Path(__file__).parent / "assets"
+        icon_path = assets_dir / "tray_iconTemplate.png"
+
+        if icon_path.exists():
+            return Image.open(icon_path)  # type: ignore[union-attr]
+
+        # Fallback : générer un "F" basique si le fichier manque
+        size = 22
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))  # type: ignore[union-attr]
         draw = ImageDraw.Draw(img)  # type: ignore[union-attr]
-
-        # Fond arrondi sombre
-        draw.rounded_rectangle(
-            [(2, 2), (size - 2, size - 2)],
-            radius=12,
-            fill=(30, 30, 30, 255),
-        )
-
-        # Lettre "F" centrée en blanc (police bitmap PIL par défaut)
-        draw.text((20, 14), "F", fill=(255, 255, 255, 255))
-
+        color = (0, 0, 0, 255)
+        draw.rectangle([(5, 3), (8, 18)], fill=color)
+        draw.rectangle([(5, 3), (17, 6)], fill=color)
+        draw.rectangle([(5, 9), (14, 12)], fill=color)
         return img

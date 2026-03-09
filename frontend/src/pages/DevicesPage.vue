@@ -1,20 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { onMounted } from "vue";
 import { Monitor, RefreshCw, Loader2 } from "lucide-vue-next";
 import { useDevicesStore } from "@/stores/devices";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const devicesStore = useDevicesStore();
-const rescanningIds = ref(new Set<string>());
 
 onMounted(() => {
   devicesStore.fetchDevices();
 });
 
 async function handleRescan(deviceId: string) {
-  rescanningIds.value = new Set([...rescanningIds.value, deviceId]);
   try {
     const res = await fetch(`/api/devices/${deviceId}/rescan`, {
       method: "POST",
@@ -25,10 +22,6 @@ async function handleRescan(deviceId: string) {
     }
   } catch (e) {
     console.error("Rescan error:", e);
-  } finally {
-    const next = new Set(rescanningIds.value);
-    next.delete(deviceId);
-    rescanningIds.value = next;
   }
 }
 
@@ -41,17 +34,6 @@ function formatRelativeTime(dateStr: string | null): string {
   return `Il y a ${Math.floor(diff / 86_400_000)} j`;
 }
 
-const SYNC_STATUS_LABELS: Record<string, string> = {
-  idle: "Inactif",
-  syncing: "Synchronisation",
-  error: "Erreur",
-};
-
-const SYNC_STATUS_VARIANT: Record<string, "secondary" | "default" | "destructive"> = {
-  idle: "secondary",
-  syncing: "default",
-  error: "destructive",
-};
 </script>
 
 <template>
@@ -111,25 +93,26 @@ const SYNC_STATUS_VARIANT: Record<string, "secondary" | "default" | "destructive
 
         <!-- Right: status + actions -->
         <div class="flex items-center gap-3 shrink-0">
-          <Badge :variant="SYNC_STATUS_VARIANT[device.syncStatus] ?? 'secondary'">
-            {{ SYNC_STATUS_LABELS[device.syncStatus] ?? device.syncStatus }}
-          </Badge>
           <Button
+            v-if="device.syncStatus === 'scanning' || device.syncStatus === 'syncing'"
             variant="outline"
             size="sm"
-            :disabled="
-              !devicesStore.isOnline(device.id) ||
-              rescanningIds.has(device.id)
-            "
-            @click="handleRescan(device.id)"
+            disabled
           >
-            <Loader2
-              v-if="rescanningIds.has(device.id)"
-              class="mr-2 h-4 w-4 animate-spin"
-            />
-            <RefreshCw v-else class="mr-2 h-4 w-4" />
-            Re-scan
+            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+            {{ device.syncStatus === 'scanning' ? 'Scan en cours…' : 'Synchronisation…' }}
           </Button>
+          <template v-else>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="!devicesStore.isOnline(device.id)"
+              @click="handleRescan(device.id)"
+            >
+              <RefreshCw class="mr-2 h-4 w-4" />
+              Re-scan
+            </Button>
+          </template>
         </div>
       </div>
     </div>

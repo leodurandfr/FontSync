@@ -40,6 +40,13 @@ export const useDevicesStore = defineStore('devices', () => {
     onlineDeviceIds.value = next
   }
 
+  function updateDeviceFields(deviceId: string, fields: Record<string, unknown>) {
+    const device = devices.value.find((d) => d.id === deviceId)
+    if (device && fields.syncStatus !== undefined) {
+      device.syncStatus = fields.syncStatus as Device['syncStatus']
+    }
+  }
+
   return {
     devices,
     loading,
@@ -50,5 +57,6 @@ export const useDevicesStore = defineStore('devices', () => {
     fetchDevices,
     setDeviceOnline,
     setDeviceOffline,
+    updateDeviceFields,
   }
 })
