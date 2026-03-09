@@ -153,3 +153,4 @@ class RegroupStats(CamelModel):
     families_created: int
     fonts_grouped: int
     fonts_skipped: int
+    fonts_orphaned: int

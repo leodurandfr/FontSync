@@ -9,7 +9,7 @@ import re
 import unicodedata
 import uuid
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.font import Font
@@ -155,7 +155,16 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
     )
     await db.flush()
 
-    # 3. Charger toutes les fonts non-supprimées avec un family_name
+    # 3. Compter les fonts orphelines (sans family_name)
+    orphan_result = await db.execute(
+        select(func.count()).select_from(Font).where(
+            Font.deleted_at.is_(None),
+            or_(Font.family_name.is_(None), Font.family_name == ""),
+        )
+    )
+    fonts_orphaned = orphan_result.scalar() or 0
+
+    # 4. Charger toutes les fonts non-supprimées avec un family_name
     result = await db.execute(
         select(Font)
         .where(Font.deleted_at.is_(None), Font.family_name.isnot(None), Font.family_name != "")
@@ -211,12 +220,13 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
     await db.flush()
 
     logger.info(
-        "Regroupement terminé : %d familles créées, %d fonts groupées, %d ignorées",
-        families_created, fonts_grouped, fonts_skipped,
+        "Regroupement terminé : %d familles créées, %d fonts groupées, %d ignorées, %d orphelines",
+        families_created, fonts_grouped, fonts_skipped, fonts_orphaned,
     )
 
     return {
         "families_created": families_created,
         "fonts_grouped": fonts_grouped,
         "fonts_skipped": fonts_skipped,
+        "fonts_orphaned": fonts_orphaned,
     }

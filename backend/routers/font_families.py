@@ -30,6 +30,7 @@ from backend.schemas.font_family import (
     SortOrder,
 )
 from backend.services.family_grouper import compute_sort_order, ensure_unique_slug, regroup_all, slugify
+from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,13 @@ async def regroup_fonts(
     """
     stats = await regroup_all(db)
     await db.commit()
-    return RegroupStats(**stats)
+
+    regroup_stats = RegroupStats(**stats)
+    event = {"type": "families.regrouped", "data": regroup_stats.model_dump(by_alias=True)}
+    await ws_manager.broadcast_to_clients(event)
+    await ws_manager.broadcast_to_agents(event)
+
+    return regroup_stats
 
 
 # ---------- Détail ----------
