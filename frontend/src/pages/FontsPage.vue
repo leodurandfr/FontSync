@@ -8,7 +8,8 @@ import PreviewToolbar from "@/components/fonts/PreviewToolbar.vue";
 import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 
 const filtersStore = useFamilyFiltersStore();
-const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
+const previewText = ref("");
+const previewSize = ref(20);
 
 const searchInput = ref(filtersStore.search);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,8 +51,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <PreviewToolbar v-model="previewText" />
-      <FontFamilyList :preview-text="previewText" />
+      <PreviewToolbar v-model:preview-text="previewText" v-model:preview-size="previewSize" />
+      <FontFamilyList :preview-text="previewText" :preview-size="previewSize" />
     </main>
   </div>
 </template>

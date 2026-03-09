@@ -1,20 +1,17 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { ChevronRight, RotateCcw } from "lucide-vue-next";
-import { Badge } from "@/components/ui/badge";
+import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import FontStyleRow from "./FontStyleRow.vue";
+import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FontFamily, FamilyMember } from "@/types/api";
 
 const props = defineProps<{
   family: FontFamily;
   previewText: string;
+  previewSize: number;
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
@@ -25,17 +22,21 @@ const members = ref<FamilyMember[]>([]);
 const loadingMembers = ref(false);
 const loaded = ref(false);
 const fetchError = ref(false);
+const wrapperRef = ref<HTMLElement | null>(null);
+const headerRef = ref<HTMLElement | null>(null);
 
 let abortController: AbortController | null = null;
 
-const CLASSIFICATION_LABELS: Record<string, string> = {
-  serif: "Serif",
-  "sans-serif": "Sans-serif",
-  monospace: "Mono",
-  display: "Display",
-  handwriting: "Manuscrite",
-  symbol: "Symbole",
-};
+const isMultiStyle = props.family.styleCount > 1;
+
+const previewFontId = props.family.previewFont?.id ?? null;
+
+const familyFontIds = computed(() => {
+  if (members.value.length > 0) {
+    return members.value.map((m) => m.fontId);
+  }
+  return previewFontId ? [previewFontId] : [];
+});
 
 async function fetchMembers() {
   if (loaded.value || loadingMembers.value) return;
@@ -67,79 +68,132 @@ function retry() {
   fetchMembers();
 }
 
+function toggle() {
+  if (!isMultiStyle) return;
+  open.value = !open.value;
+}
+
 watch(open, (isOpen) => {
   if (isOpen && !loaded.value) {
     fetchMembers();
   }
 });
 
+onMounted(() => {
+  if (previewFontId && headerRef.value) {
+    props.observe(headerRef.value, previewFontId);
+  }
+});
+
 onBeforeUnmount(() => {
   abortController?.abort();
+  if (headerRef.value) {
+    props.unobserve(headerRef.value);
+  }
 });
 </script>
 
 <template>
-  <Collapsible v-model:open="open" class="border-b last:border-b-0">
-    <CollapsibleTrigger
-      class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50"
-    >
-      <ChevronRight
-        class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200"
-        :class="{ 'rotate-90': open }"
-      />
-      <span class="font-semibold tracking-tight truncate">
-        {{ family.name }}
-      </span>
-      <span class="text-sm text-muted-foreground">
-        {{ family.styleCount }} style{{ family.styleCount !== 1 ? "s" : "" }}
-      </span>
-      <Badge
-        v-if="family.classification"
-        variant="secondary"
-        class="ml-auto shrink-0"
+  <div ref="wrapperRef" class="border-b last:border-b-0">
+    <!-- Header row -->
+    <div ref="headerRef" class="flex items-center">
+      <component
+        :is="isMultiStyle ? 'button' : RouterLink"
+        v-bind="
+          isMultiStyle
+            ? { type: 'button' }
+            : {
+                to: {
+                  name: 'font-detail',
+                  params: { id: family.previewFont?.id },
+                },
+              }
+        "
+        class="flex flex-1 min-w-0 flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-accent/50"
+        @click="isMultiStyle ? toggle() : undefined"
       >
-        {{
-          CLASSIFICATION_LABELS[family.classification] ?? family.classification
-        }}
-      </Badge>
-    </CollapsibleTrigger>
+        <!-- Line 1: Family name · N styles -->
+        <span class="text-sm text-muted-foreground truncate">
+          {{ family.name
+          }}<template v-if="isMultiStyle">
+            &middot; {{ family.styleCount }} styles</template
+          >
+        </span>
 
-    <CollapsibleContent>
+        <!-- Line 2: Chevron + Preview -->
+        <div class="flex items-center gap-2">
+          <ChevronRight
+            v-if="isMultiStyle"
+            class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200"
+            :class="{ 'rotate-90': open }"
+          />
+          <div v-else class="w-4 shrink-0" />
+
+          <!-- Preview -->
+          <span
+            class="flex-1 truncate leading-relaxed"
+            :style="{
+              fontSize: `${previewSize}px`,
+              fontFamily: previewFontId
+                ? `'${getFontFamily(previewFontId)}', sans-serif`
+                : 'sans-serif',
+            }"
+          >
+            {{ previewText || family.name }}
+          </span>
+        </div>
+      </component>
+
+      <div class="pr-3 shrink-0">
+        <DeviceInstallSheet
+          v-if="familyFontIds.length > 0"
+          :font-ids="familyFontIds"
+          trigger-variant="icon"
+        />
+      </div>
+    </div>
+
+    <!-- Expanded members -->
+    <div v-if="isMultiStyle && open">
       <!-- Loading skeleton -->
       <div
         v-if="loadingMembers && members.length === 0"
-        class="space-y-1 pb-2 pl-7"
+        class="space-y-1 pb-2"
       >
         <Skeleton
           v-for="i in Math.min(family.styleCount, 4)"
           :key="i"
-          class="mx-4 h-10"
+          class="mx-4 h-14"
         />
       </div>
 
       <!-- Error state -->
       <div
         v-else-if="fetchError"
-        class="flex items-center gap-2 px-4 py-3 pl-11"
+        class="flex items-center gap-2 px-4 py-3 pl-10"
       >
-        <span class="text-sm text-muted-foreground">Erreur de chargement</span>
+        <span class="text-sm text-muted-foreground"
+          >Erreur de chargement</span
+        >
         <Button variant="ghost" size="icon-sm" @click="retry">
           <RotateCcw class="h-3.5 w-3.5" />
         </Button>
       </div>
 
       <!-- Members list -->
-      <div v-else class="pb-2 pl-7">
+      <div v-else class="pb-2">
         <FontStyleRow
           v-for="member in members"
           :key="member.fontId"
           :member="member"
           :preview-text="previewText"
+          :preview-size="previewSize"
+          :family-name="family.name"
           :observe="observe"
           :unobserve="unobserve"
           :get-font-family="getFontFamily"
         />
       </div>
-    </CollapsibleContent>
-  </Collapsible>
+    </div>
+  </div>
 </template>

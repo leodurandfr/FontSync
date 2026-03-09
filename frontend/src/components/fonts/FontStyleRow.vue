@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { RouterLink } from "vue-router";
+import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FamilyMember } from "@/types/api";
 
 const props = defineProps<{
   member: FamilyMember;
   previewText: string;
+  previewSize: number;
+  familyName: string;
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
@@ -47,25 +50,33 @@ function styleName(member: FamilyMember): string {
 </script>
 
 <template>
-  <div ref="rowRef">
+  <div ref="rowRef" class="flex items-center border-t border-dashed">
     <RouterLink
       :to="{ name: 'font-detail', params: { id: member.fontId } }"
-      class="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-accent/50"
+      class="group flex flex-1 min-w-0 flex-col gap-0.5 px-4 py-3 pl-10 transition-colors hover:bg-accent/50"
     >
       <!-- Style name -->
-      <span class="w-40 shrink-0 truncate text-sm text-muted-foreground">
+      <span class="text-sm text-muted-foreground truncate">
         {{ styleName(member) }}
       </span>
 
       <!-- Preview -->
       <span
-        class="flex-1 truncate text-xl leading-relaxed"
+        class="truncate leading-relaxed"
         :style="{
+          fontSize: `${previewSize}px`,
           fontFamily: `'${getFontFamily(member.fontId)}', sans-serif`,
         }"
       >
-        {{ previewText }}
+        {{ previewText || familyName }}
       </span>
     </RouterLink>
+
+    <div class="pr-3 shrink-0">
+      <DeviceInstallSheet
+        :font-ids="[member.fontId]"
+        trigger-variant="icon"
+      />
+    </div>
   </div>
 </template>

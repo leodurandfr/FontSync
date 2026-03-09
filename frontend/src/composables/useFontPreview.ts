@@ -14,9 +14,9 @@ export function useFontPreview() {
   }
 
   async function loadFont(fontId: string) {
-    const family = getFontFamily(fontId);
     if (loadedFonts.has(fontId)) return;
 
+    const family = getFontFamily(fontId);
     try {
       const face = new FontFace(family, `url(${getPreviewUrl(fontId)})`, {
         display: "swap",
@@ -47,10 +47,10 @@ export function useFontPreview() {
           const fontId = entries.get(entry.target);
           if (!fontId) continue;
 
+          // Only load on intersect — never unload via observer.
+          // Fonts are unloaded only on explicit unobserve (component unmount).
           if (entry.isIntersecting) {
             loadFont(fontId);
-          } else {
-            unloadFont(fontId);
           }
         }
       },
@@ -66,16 +66,21 @@ export function useFontPreview() {
 
   function unobserve(el: Element) {
     const fontId = entries.get(el);
-    if (fontId) {
-      unloadFont(fontId);
-      entries.delete(el);
-    }
+    entries.delete(el);
     observer.value?.unobserve(el);
+
+    // Only unload if no other element still references this font
+    if (fontId) {
+      const stillUsed = [...entries.values()].includes(fontId);
+      if (!stillUsed) {
+        unloadFont(fontId);
+      }
+    }
   }
 
   onScopeDispose(() => {
     observer.value?.disconnect();
-    for (const fontId of entries.values()) {
+    for (const fontId of loadedFonts.keys()) {
       unloadFont(fontId);
     }
     entries.clear();

@@ -51,7 +51,7 @@ async def _get_family_or_404(family_id: uuid.UUID, db: AsyncSession) -> FontFami
 
 async def _build_family_response(family: FontFamily, db: AsyncSession) -> FontFamilyResponse:
     """Construit la réponse d'une famille avec le preview font."""
-    # Charger le premier membre non-supprimé (par sort_order) pour le preview
+    # Charger le membre le plus proche de Regular (weight 400) pour le preview
     result = await db.execute(
         select(FontFamilyMember)
         .join(FontFamilyMember.font)
@@ -59,7 +59,10 @@ async def _build_family_response(family: FontFamily, db: AsyncSession) -> FontFa
             FontFamilyMember.family_id == family.id,
             Font.deleted_at.is_(None),
         )
-        .order_by(FontFamilyMember.sort_order)
+        .order_by(
+            func.abs(func.coalesce(Font.weight_class, 400) - 400),
+            Font.is_italic,
+        )
         .limit(1)
         .options(selectinload(FontFamilyMember.font))
     )

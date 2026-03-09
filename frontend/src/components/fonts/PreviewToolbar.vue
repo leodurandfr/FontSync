@@ -1,15 +1,30 @@
 <script setup lang="ts">
 import { Type } from "lucide-vue-next";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { useFamiliesStore } from "@/stores/families";
 
-const previewText = defineModel<string>({ required: true });
+const previewText = defineModel<string>("previewText", { required: true });
+const previewSize = defineModel<number>("previewSize", { required: true });
 
 const familiesStore = useFamiliesStore();
 </script>
 
 <template>
   <div class="flex items-center gap-4 pb-4">
+    <div class="flex items-center gap-2 w-36 shrink-0">
+      <Slider
+        :model-value="[previewSize]"
+        :min="8"
+        :max="48"
+        :step="1"
+        class="flex-1"
+        @update:model-value="previewSize = $event[0]"
+      />
+      <span class="text-xs text-muted-foreground w-8 text-right tabular-nums">
+        {{ previewSize }}px
+      </span>
+    </div>
     <div class="relative flex-1">
       <Type
         class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"

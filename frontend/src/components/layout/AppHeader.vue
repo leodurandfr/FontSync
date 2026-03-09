@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import {
   LayoutDashboard,
   Type,
-  Layers,
   Monitor,
   Settings,
 } from "lucide-vue-next";
@@ -21,7 +20,6 @@ const route = useRoute();
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
   { label: "Polices", icon: Type, to: "/fonts" },
-  { label: "Familles", icon: Layers, to: "/families" },
   { label: "Appareils", icon: Monitor, to: "/devices" },
   { label: "Paramètres", icon: Settings, to: "/settings" },
 ];

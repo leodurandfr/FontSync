@@ -9,6 +9,8 @@ services:
       FONT_STORAGE_PATH: /data/fonts
     volumes:
       - font_data:/data/fonts
+      - ./backend:/app/backend
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/backend"]
     depends_on:
       db:
         condition: service_healthy

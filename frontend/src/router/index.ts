@@ -20,17 +20,6 @@ const router = createRouter({
       props: true,
     },
     {
-      path: "/families",
-      name: "families",
-      component: () => import("@/pages/FamiliesPage.vue"),
-    },
-    {
-      path: "/families/:id",
-      name: "family-detail",
-      component: () => import("@/pages/FamilyDetailPage.vue"),
-      props: true,
-    },
-    {
       path: "/devices",
       name: "devices",
       component: () => import("@/pages/DevicesPage.vue"),

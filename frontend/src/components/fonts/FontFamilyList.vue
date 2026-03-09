@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const props = defineProps<{
   previewText: string;
+  previewSize: number;
 }>();
 
 const familiesStore = useFamiliesStore();
@@ -84,6 +85,7 @@ watch(sentinelRef, (el) => {
         :key="family.id"
         :family="family"
         :preview-text="previewText"
+        :preview-size="previewSize"
         :observe="observe"
         :unobserve="unobserve"
         :get-font-family="getFontFamily"
