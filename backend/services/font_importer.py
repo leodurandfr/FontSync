@@ -23,8 +23,8 @@ ALLOWED_EXTENSIONS: set[str] = {"ttf", "otf", "woff", "woff2", "ttc"}
 
 # Magic bytes par format de font
 _MAGIC_BYTES: dict[str, list[bytes]] = {
-    "ttf": [b"\x00\x01\x00\x00", b"true"],
-    "otf": [b"OTTO"],
+    "ttf": [b"\x00\x01\x00\x00", b"true", b"OTTO"],
+    "otf": [b"OTTO", b"\x00\x01\x00\x00"],
     "woff": [b"wOFF"],
     "woff2": [b"wOF2"],
     "ttc": [b"ttcf"],

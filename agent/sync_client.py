@@ -140,7 +140,12 @@ class SyncClient:
 
         Retourne (pushed, duplicates, errors).
         """
-        to_push = [f for f in fonts if f.file_hash in hashes_to_push]
+        seen_hashes: set[str] = set()
+        to_push: list[ScannedFont] = []
+        for f in fonts:
+            if f.file_hash in hashes_to_push and f.file_hash not in seen_hashes:
+                to_push.append(f)
+                seen_hashes.add(f.file_hash)
         pushed = 0
         duplicates = 0
         errors = 0
@@ -149,7 +154,7 @@ class SyncClient:
         for i, font in enumerate(to_push):
             try:
                 result = self.push_font(device_id, font)
-                if result.get("is_duplicate"):
+                if result.get("isDuplicate"):
                     duplicates += 1
                 else:
                     pushed += 1
