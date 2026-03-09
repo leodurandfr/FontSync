@@ -24,6 +24,9 @@ class Device(UUIDPrimaryKey, Base):
     auto_pull: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false")
     )
+    auto_push: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
     )

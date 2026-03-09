@@ -63,6 +63,7 @@ class SyncClient:
             "agent_version": AGENT_VERSION,
             "font_directories": self.config.directories,
             "auto_pull": self.config.auto_pull,
+            "auto_push": self.config.auto_push,
         }
 
         resp = self._client.post(f"{self.base_url}/api/devices/register", json=payload)

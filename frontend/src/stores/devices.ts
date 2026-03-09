@@ -47,6 +47,21 @@ export const useDevicesStore = defineStore('devices', () => {
     }
   }
 
+  async function updateDevice(deviceId: string, fields: Partial<Pick<Device, 'name' | 'autoPull' | 'autoPush'>>) {
+    const res = await fetch(`/api/devices/${deviceId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const updated: Device = await res.json()
+    const idx = devices.value.findIndex((d) => d.id === deviceId)
+    if (idx !== -1) {
+      devices.value[idx] = updated
+    }
+    return updated
+  }
+
   return {
     devices,
     loading,
@@ -58,5 +73,6 @@ export const useDevicesStore = defineStore('devices', () => {
     setDeviceOnline,
     setDeviceOffline,
     updateDeviceFields,
+    updateDevice,
   }
 })

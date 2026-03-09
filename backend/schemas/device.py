@@ -18,6 +18,7 @@ class DeviceRegister(CamelModel):
     agent_version: str | None = Field(None, max_length=20)
     font_directories: list[str] | None = None
     auto_pull: bool = False
+    auto_push: bool = True
 
 
 class DeviceUpdate(CamelModel):
@@ -27,6 +28,7 @@ class DeviceUpdate(CamelModel):
     agent_version: str | None = Field(None, max_length=20)
     font_directories: list[str] | None = None
     auto_pull: bool | None = None
+    auto_push: bool | None = None
     sync_status: str | None = Field(None, pattern=r"^(idle|syncing|error)$")
 
 
@@ -44,6 +46,7 @@ class DeviceResponse(CamelModel):
     sync_status: str
     font_directories: list[str] | None = None
     auto_pull: bool
+    auto_push: bool
     created_at: datetime
 
     model_config = {

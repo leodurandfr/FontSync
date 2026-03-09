@@ -43,6 +43,7 @@ async def register_device(
         device.agent_version = body.agent_version
         device.font_directories = body.font_directories
         device.auto_pull = body.auto_pull
+        device.auto_push = body.auto_push
         device.last_seen_at = datetime.now(timezone.utc)
     else:
         device = Device(
@@ -53,6 +54,7 @@ async def register_device(
             agent_version=body.agent_version,
             font_directories=body.font_directories,
             auto_pull=body.auto_pull,
+            auto_push=body.auto_push,
             last_seen_at=datetime.now(timezone.utc),
         )
         db.add(device)

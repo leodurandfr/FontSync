@@ -1,7 +1,8 @@
 """Router pour les statistiques globales."""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import cast, func, literal
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -55,12 +56,17 @@ async def get_stats(
     ]
 
     # Par script (dénormalisation du JSONB supported_scripts)
+    # Filtrer les JSONB null (distinct de SQL NULL) et les non-tableaux
     script_result = await db.execute(
         select(
             func.jsonb_array_elements_text(Font.supported_scripts).label("script"),
             func.count(Font.id),
         )
-        .where(base_filter, Font.supported_scripts.isnot(None))
+        .where(
+            base_filter,
+            Font.supported_scripts.isnot(None),
+            func.jsonb_typeof(Font.supported_scripts) == literal("array"),
+        )
         .group_by("script")
         .order_by(func.count(Font.id).desc())
     )

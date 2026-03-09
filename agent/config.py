@@ -31,7 +31,7 @@ class AgentConfig:
     directories: list[str] = field(default_factory=lambda: list(DEFAULT_MACOS_DIRECTORIES))
     ignore_patterns: list[str] = field(default_factory=lambda: [".*", "System*"])
     auto_push: bool = True
-    auto_pull: bool = False
+    auto_pull: bool = True
     show_notifications: bool = True
 
     @classmethod

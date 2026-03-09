@@ -217,6 +217,36 @@ class FontSyncAgent:
         elif unknown:
             print(f"  ⏸ {len(unknown)} polices à envoyer (auto_push désactivé)")
 
+        # Pull : installer les fonts du serveur absentes sur ce device
+        if missing and self.config.auto_pull:
+            print(f"→ Installation de {len(missing)} polices depuis le serveur...")
+            await self._send_status("syncing")
+            installed = 0
+            skipped = 0
+            errors_pull = 0
+            total_missing = len(missing)
+
+            for i, font_ref in enumerate(missing):
+                try:
+                    filename, data = await asyncio.to_thread(
+                        self.client.pull_font, font_ref["id"]
+                    )
+                    dest = install_font(filename, data)
+                    if dest:
+                        self.known_hashes.add(hash_file(dest))
+                        installed += 1
+                    else:
+                        skipped += 1
+                except Exception:
+                    logger.exception("Erreur pull %s", font_ref.get("originalFilename", "?"))
+                    errors_pull += 1
+
+                print_progress(i + 1, total_missing, label="Pull")
+
+            print(f"  ✓ {installed} installées, {skipped} ignorées (format), {errors_pull} erreurs")
+        elif missing:
+            print(f"  ⏸ {len(missing)} polices disponibles (auto_pull désactivé)")
+
         self._last_sync_time = datetime.now().strftime("%H:%M")
         self._push_tray_state()
 

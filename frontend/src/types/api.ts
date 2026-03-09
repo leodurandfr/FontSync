@@ -65,6 +65,7 @@ export interface Device {
   syncStatus: 'idle' | 'scanning' | 'syncing' | 'error'
   fontDirectories: string[] | null
   autoPull: boolean
+  autoPush: boolean
   createdAt: string
 }
 
