@@ -36,14 +36,13 @@ async def register_device(
     device = result.scalar_one_or_none()
 
     if device is not None:
-        # Mise à jour du device existant
+        # Mise à jour du device existant (sans écraser auto_pull/auto_push
+        # qui sont gérés côté serveur via le frontend)
         device.name = body.name
         device.os = body.os
         device.os_version = body.os_version
         device.agent_version = body.agent_version
         device.font_directories = body.font_directories
-        device.auto_pull = body.auto_pull
-        device.auto_push = body.auto_push
         device.last_seen_at = datetime.now(timezone.utc)
     else:
         device = Device(
