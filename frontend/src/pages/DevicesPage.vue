@@ -173,9 +173,9 @@ function formatRelativeTime(dateStr: string | null): string {
               </Label>
             </div>
             <Switch
-              :checked="device.autoPush"
+              :model-value="device.autoPush"
               :disabled="saving.has(device.id)"
-              @update:checked="toggleAutoPush(device.id, $event)"
+              @update:model-value="toggleAutoPush(device.id, $event)"
             />
           </div>
 
@@ -190,9 +190,9 @@ function formatRelativeTime(dateStr: string | null): string {
               </Label>
             </div>
             <Switch
-              :checked="device.autoPull"
+              :model-value="device.autoPull"
               :disabled="saving.has(device.id)"
-              @update:checked="toggleAutoPull(device.id, $event)"
+              @update:model-value="toggleAutoPull(device.id, $event)"
             />
           </div>
         </div>
