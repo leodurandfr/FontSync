@@ -22,7 +22,6 @@ const members = ref<FamilyMember[]>([]);
 const loadingMembers = ref(false);
 const loaded = ref(false);
 const fetchError = ref(false);
-const wrapperRef = ref<HTMLElement | null>(null);
 const headerRef = ref<HTMLElement | null>(null);
 
 let abortController: AbortController | null = null;
@@ -94,7 +93,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="wrapperRef" class="border-b last:border-b-0">
+  <div class="border-b last:border-b-0">
     <!-- Header row -->
     <div ref="headerRef" class="flex items-center">
       <component

@@ -8,18 +8,22 @@ const previewText = defineModel<string>("previewText", { required: true });
 const previewSize = defineModel<number>("previewSize", { required: true });
 
 const familiesStore = useFamiliesStore();
+
+function onSizeChange(value: number[] | undefined) {
+  if (value && value.length > 0) previewSize.value = value[0]!;
+}
 </script>
 
 <template>
   <div class="flex items-center gap-4 pb-4">
     <div class="flex items-center gap-2 w-36 shrink-0">
       <Slider
-        :model-value="[previewSize]"
+        :model-value="[previewSize ?? 16]"
         :min="8"
         :max="48"
         :step="1"
         class="flex-1"
-        @update:model-value="previewSize = $event[0]"
+        @update:model-value="onSizeChange"
       />
       <span class="text-xs text-muted-foreground w-8 text-right tabular-nums">
         {{ previewSize }}px
