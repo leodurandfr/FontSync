@@ -1,8 +1,9 @@
 """Router pour les statistiques globales."""
 
+from collections import Counter
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import cast, func, literal
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -26,9 +27,7 @@ async def get_stats(
     base_filter = Font.deleted_at.is_(None)
 
     # Total
-    total_result = await db.execute(
-        select(func.count(Font.id)).where(base_filter)
-    )
+    total_result = await db.execute(select(func.count(Font.id)).where(base_filter))
     total_fonts = total_result.scalar() or 0
 
     # Par classification
@@ -50,29 +49,22 @@ async def get_stats(
         .group_by(Font.file_format)
         .order_by(func.count(Font.id).desc())
     )
-    by_format = [
-        FormatStat(format=row[0], count=row[1])
-        for row in format_result.all()
-    ]
+    by_format = [FormatStat(format=row[0], count=row[1]) for row in format_result.all()]
 
-    # Par script (dénormalisation du JSONB supported_scripts)
-    # Filtrer les JSONB null (distinct de SQL NULL) et les non-tableaux
-    script_result = await db.execute(
-        select(
-            func.jsonb_array_elements_text(Font.supported_scripts).label("script"),
-            func.count(Font.id),
+    # Par script (dénormalisation du JSON supported_scripts).
+    # Agrégation applicative : portable SQLite, robuste aux valeurs non-tableaux.
+    scripts_result = await db.execute(
+        select(Font.supported_scripts).where(
+            base_filter, Font.supported_scripts.isnot(None)
         )
-        .where(
-            base_filter,
-            Font.supported_scripts.isnot(None),
-            func.jsonb_typeof(Font.supported_scripts) == literal("array"),
-        )
-        .group_by("script")
-        .order_by(func.count(Font.id).desc())
     )
+    script_counter: Counter[str] = Counter()
+    for (scripts,) in scripts_result.all():
+        if isinstance(scripts, list):
+            script_counter.update(s for s in scripts if isinstance(s, str))
     by_script = [
-        ScriptStat(script=row[0], count=row[1])
-        for row in script_result.all()
+        ScriptStat(script=script, count=count)
+        for script, count in script_counter.most_common()
     ]
 
     return StatsResponse(

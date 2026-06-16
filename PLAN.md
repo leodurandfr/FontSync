@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A1 (docs) fait. → Prochaine étape : A2 (migration SQLite).**
+**STATUT : A2 (migration SQLite) fait. → Prochaine étape : A3 (pipeline d'import robuste & idempotent).**
 
 ---
 
@@ -58,7 +58,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
 ## Phase A — Socle backend (SQLite + correctness + robustesse)
 
 - [x] **A1 — Docs.** Mettre à jour `CLAUDE.md` (stack : SQLite, agent stateless+SSE) et `SPECS.md` (section 3 stack, section 6 agent, section 8 déploiement) pour refléter l'architecture cible. *(En premier : les futures conversations chargent CLAUDE.md et seraient sinon induites en erreur par « PostgreSQL ».)*
-- [ ] **A2 — Migration SQLite.**
+- [x] **A2 — Migration SQLite.** *(Vérifié via venv : `alembic upgrade head` + import app OK, PRAGMA `foreign_keys=ON`/`journal_mode=WAL` confirmés. Build Docker non exécuté — le frontend casse encore le `docker build`, cf. C1.)*
   - Remplacer les types `postgresql.dialects` dans `backend/models/*` : `JSONB`→`JSON`, `UUID`→type portable (SQLAlchemy `Uuid`/`String`), `TIMESTAMP(timezone=True)`→`DateTime`.
   - Retirer l'index GIN (`backend/models/font.py`) et les `server_default` Postgres `gen_random_uuid()/now()` (`backend/models/base.py`) — les `default=` Python existent déjà.
   - `backend/database.py` + `backend/config.py` : driver `aiosqlite`, `DATABASE_URL` par défaut sur un fichier (ex. `/data/fontsync.db`). Activer `PRAGMA foreign_keys=ON` et `journal_mode=WAL`.

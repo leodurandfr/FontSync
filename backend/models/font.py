@@ -1,8 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Index, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, UUIDPrimaryKey
@@ -33,44 +42,44 @@ class Font(UUIDPrimaryKey, Base):
     # OS/2 table
     weight_class: Mapped[int | None] = mapped_column(Integer)
     width_class: Mapped[int | None] = mapped_column(Integer)
-    is_italic: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    is_oblique: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    is_italic: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_oblique: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     panose: Mapped[str | None] = mapped_column(String(30))
 
     # Classification
     classification: Mapped[str | None] = mapped_column(String(50))
 
     # Unicode / scripts
-    unicode_ranges: Mapped[dict | None] = mapped_column(JSONB)
-    supported_scripts: Mapped[list | None] = mapped_column(JSONB)
+    unicode_ranges: Mapped[dict | None] = mapped_column(JSON)
+    supported_scripts: Mapped[list | None] = mapped_column(JSON)
 
     # Glyphes
     glyph_count: Mapped[int | None] = mapped_column(Integer)
 
     # Variable fonts
-    is_variable: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    variable_axes: Mapped[dict | None] = mapped_column(JSONB)
+    is_variable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    variable_axes: Mapped[dict | None] = mapped_column(JSON)
 
     # Source
     source: Mapped[str] = mapped_column(String(50), nullable=False)
-    source_device_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    source_device_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), nullable=True)
     google_fonts_id: Mapped[str | None] = mapped_column(String(200))
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relations
     device_fonts: Mapped[list["DeviceFont"]] = relationship(back_populates="font")
     sync_queue_items: Mapped[list["SyncQueue"]] = relationship(back_populates="font")
-    family_member: Mapped["FontFamilyMember | None"] = relationship(back_populates="font")
+    family_member: Mapped["FontFamilyMember | None"] = relationship(
+        back_populates="font"
+    )
 
     __table_args__ = (
         Index("ix_fonts_family_name", "family_name"),
@@ -78,7 +87,6 @@ class Font(UUIDPrimaryKey, Base):
         Index("ix_fonts_file_hash", "file_hash"),
         Index("ix_fonts_source", "source"),
         Index("ix_fonts_deleted_at", "deleted_at"),
-        Index("ix_fonts_supported_scripts", "supported_scripts", postgresql_using="gin"),
     )
 
 

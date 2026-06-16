@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://fontsync:fontsync@db:5432/fontsync"
+    database_url: str = "sqlite+aiosqlite:////data/fontsync.db"
     storage_backend: str = "filesystem"
     font_storage_path: str = "/data/fonts"
 

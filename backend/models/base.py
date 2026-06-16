@@ -1,7 +1,6 @@
 import uuid
 
-from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -11,8 +10,7 @@ class Base(DeclarativeBase):
 
 class UUIDPrimaryKey:
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
     )
