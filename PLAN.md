@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : C3 (design minimal) fait. Reste : B12 (distribution publique, à ouvrir au moment de rendre l'app publique) et le pivot familles à figer dans les specs (décision produit, non bloquante).**
+**STATUT : C3 (design minimal + pivot familles figé) fait. Reste : B12 (distribution publique, à ouvrir au moment de rendre l'app publique).**
 
 ---
 
@@ -119,7 +119,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] **Sidebar morte supprimée** : `AppSidebar.vue` (jamais montée — `AppLayout` n'utilise que `AppHeader`) et son store dupliqué `stores/filters.ts` (`useFiltersStore`, sans aucune référence) retirés. Le filtrage **vivant** reste `FilterPanel.vue` + `useFamilyFiltersStore` (vue par familles), déjà accessible sur `FontsPage`. *(Le primitif shadcn `components/ui/sidebar/` est laissé en place — composant de lib réutilisable.)*
   - [x] **Indicateur « Reconnexion… »** : statut de connexion dans `AppHeader` branché sur `useWsStore` — point vert « Connecté » quand `status === 'connected'`, sinon spinner ambre « Reconnexion… ». (Le store WS suivait déjà `status`/`reconnectAttempts` depuis A5/C2 ; il n'était simplement pas affiché.)
   - [x] **Couverture des events WS** : vérifiée déjà complète dans `useWebSocket.ts` (`font.*`, `device.*`, `family.*`, `families.regrouped`) — rien à ajouter.
-  - [ ] **Pivot familles à figer dans les specs** : décision produit (modèle de regroupement familles), non bloquante pour le code — laissée pour une passe specs dédiée.
+  - [x] **Pivot familles figé dans les specs + correctifs code.** Nouvelle section SPECS §4.2 « Sémantique du regroupement en familles (figée) » (7 règles arrêtées). Décision : **regroupement 100 % automatique**, l'édition manuelle (merge/move) est différée hors-MVP (endpoints conservés, non exposés). Correctifs `backend/services/family_grouper.py` : (a) **plus aucune font invisible** — `resolve_family_name` ajoute un repli `family_name → full_name → postscript_name → nom de fichier`, donc une font sans nameID famille devient une famille à 1 membre au lieu de disparaître de la vue principale (le seul vrai bug visible) ; (b) **clé normalisée** — regroupement par slug (insensible casse/espaces/accents) avec slug de repli **déterministe** pour le CJK (corrige aussi la dispersion `uuid4` précédente) ; (c) **métadonnées de famille déterministes** dérivées du membre le plus Regular (`_refresh_family_metadata`) ; (d) `regroup_all` inclut désormais les orphelines. `group_font` ne renvoie plus jamais `None`. Tests `tests/backend/test_family_grouper.py` réécrits en intégration DB (normalisation, repli orphelin, métadonnées, exclusion soft-delete) — 29 tests, suite non-dépendante des fixtures commerciales verte.
 
 ---
 

@@ -256,6 +256,55 @@ File d'attente pour les opérations de sync.
 - `duplicate_groups` (id, status, resolved_font_id, created_at, resolved_at)
 - `duplicate_group_members` (group_id, font_id)
 
+#### Sémantique du regroupement en familles (figée)
+
+> Depuis le pivot frontend (Phase C), la vue par familles est la **vue
+> principale** de la bibliothèque (plus de liste plate). Le modèle de familles
+> devient donc structurant ; ces règles sont arrêtées et implémentées dans
+> `backend/services/family_grouper.py`.
+
+1. **Clé de regroupement = nom de famille typographique.** `family_name` =
+   nameID 16 (Typographic Family) avec repli sur nameID 1 (Family). nameID 16
+   regroupe tous les poids/styles d'une même famille (les vieilles fonts qui
+   encodent le poids dans nameID 1 — « Helvetica Bold » — sont ainsi évitées).
+
+2. **Normalisation de la clé.** Le regroupement se fait sur le **slug normalisé**
+   du nom (insensible à la casse, aux espaces superflus et aux accents), pas sur
+   le nom exact : « Inter », « inter » et « Inter  » tombent dans la même
+   famille. Un slug = une identité de famille. Le nom d'affichage conserve la
+   casse d'origine du premier membre rencontré. Les noms entièrement non-ASCII
+   (CJK…) reçoivent un slug de repli **déterministe** (hash du nom normalisé)
+   pour se regrouper au lieu de se disperser.
+
+3. **Aucune font n'est invisible.** Une font sans `family_name` n'est pas
+   « orpheline cachée » : elle est regroupée sous un nom de **repli** —
+   `family_name` → `full_name` (nameID 4) → `postscript_name` (nameID 6) → nom
+   de fichier sans extension. `original_filename` étant non-null, il y a toujours
+   un nom. Une font sans métadonnées de famille apparaît donc comme une famille
+   à un seul membre.
+
+4. **Familles plates, pas de superfamille.** « Roboto », « Roboto Condensed » et
+   « Roboto Mono » sont des familles distinctes (nameID 16 les sépare). Aucun
+   niveau parent n'est introduit dans le MVP.
+
+5. **Invariant : 1 font = 1 famille** (clé primaire `font_id` sur
+   `font_family_members`). Les `.ttc` n'importent que leur première sous-font
+   (cf. Phase A3), donc pas de cas multi-sous-fonts à arbitrer.
+
+6. **Regroupement 100 % automatique pour le MVP.** `group_font` tourne à chaque
+   import/sync ; `regroup_all` (endpoint `POST /api/families/regroup`) est un
+   rebuild de maintenance, **destructif sur les familles auto-groupées** (et
+   sans danger puisqu'il n'y a pas d'édition manuelle à préserver). **L'édition
+   manuelle de familles** (merge, déplacement de membre, création/renommage) est
+   **différée hors-MVP** : les endpoints existent côté backend mais ne sont pas
+   exposés dans l'UI, et tant qu'ils ne le sont pas, `group_font` fait foi (pas
+   de notion de placement « épinglé » à gérer).
+
+7. **Métadonnées de famille déterministes.** `designer` / `manufacturer` /
+   `classification` d'une famille sont dérivés de son membre le plus « Regular »
+   (poids le plus proche de 400, upright avant italique), indépendamment de
+   l'ordre d'import, et non plus de la première font rencontrée.
+
 ### 4.3 Stockage des fichiers
 
 Organisation par les 2 premiers caractères du hash SHA-256 :
@@ -722,7 +771,7 @@ fontsync/
 > Auto-groupement, catégories, collections, actions en lot.
 
 - [ ] Tables familles, catégories, collections + migrations
-- [ ] Service `family_grouper` : auto-regroupement par family_name
+- [x] Service `family_grouper` : auto-regroupement par family_name (sémantique figée, cf. §4.2 « Sémantique du regroupement en familles »)
 - [ ] Re-parse des fonts existantes pour groupement
 - [ ] API familles (CRUD, merge, membres)
 - [ ] API catégories (CRUD, hiérarchie)
