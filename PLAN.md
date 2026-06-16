@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A5 (canal temps réel : SSE agent + events clients) fait. → Prochaine étape : A6 (tests backend).**
+**STATUT : A6 (tests backend) fait. → Prochaine étape : A7 (nettoyage schémas/imports).**
 
 ---
 
@@ -81,7 +81,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] Events frontend manquants : `font.deleted` (dans `delete_font`), `font.updated` (dans `update_font` et `restore_font`) — `backend/routers/fonts.py`.
   - [x] `backend/services/ws_manager.py` : `asyncio.Lock` sur les broadcasts ; éviction (fermeture) de l'ancien socket agent à la reconnexion ; `devices.last_seen_at` mis à jour à chaque `heartbeat` (`backend/routers/ws.py`). *(WS agent conservé pour l'instant — sa suppression côté agent est Phase B.)*
   - [x] `backend/main.py` : catch-all SPA renvoie un **404 JSON** pour les chemins `/api/*` non résolus au lieu de `index.html`.
-- [ ] **A6 — Tests backend** (`tests/backend/`). Pipeline d'import (dédup, font malformée non rejetée, idempotence), delta-sync (les 3 ensembles), stats. Utiliser de vraies TTF de `tests/fixtures/`.
+- [x] **A6 — Tests backend** (`tests/backend/`). Pipeline d'import (dédup, font malformée non rejetée, idempotence + résurrection soft-delete), delta-sync (3 ensembles + lecture pure A4 + exclusion soft-deleted), stats (total/format/classification/script + exclusion soft-deleted). *(Les fixtures `tests/fixtures/*.otf|ttf` sont des polices commerciales gitignorées, donc absentes en CI/Docker → `conftest.py` génère de **vraies** TTF valides à la volée avec fontTools `FontBuilder`, rendant la suite A6 autoportante. Fixtures partagées : session SQLite in-memory `StaticPool` + FK ON, storage filesystem en tmp_path. 14 tests, tous verts. NB : `test_font_analyzer.py`/`test_storage.py` pré-existants restent dépendants des fixtures commerciales et échouent/skippent sans elles — hors périmètre A6.)*
 - [ ] **A7 — Nettoyage.** Exposer `width_class` dans `FontResponse` (`backend/schemas/font.py`). Retirer le `FontFilters` mort et les imports inutilisés (`cast`/`JSONB` dans `stats.py`). Inclure `glyph_count`/`name` dans `FontSortField` (specs §5.1).
 
 ## Phase B — Agent stateless launchd + listener SSE
