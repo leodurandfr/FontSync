@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.font import Font
@@ -72,13 +73,49 @@ def _compute_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-async def _check_duplicate(
-    db: AsyncSession, file_hash: str
-) -> Font | None:
-    """Vérifie si une font avec le même hash existe déjà en base."""
-    stmt = select(Font).where(Font.file_hash == file_hash, Font.deleted_at.is_(None))
-    result = await db.execute(stmt)
+async def _safe_delete_storage(
+    storage: StorageBackend, file_hash: str, extension: str
+) -> None:
+    """Supprime un fichier stocké sans jamais propager d'erreur de nettoyage."""
+    try:
+        await storage.delete(file_hash, extension)
+    except Exception:
+        logger.warning(
+            "Nettoyage du fichier orphelin échoué (hash=%s)", file_hash, exc_info=True
+        )
+
+
+async def _find_by_hash(db: AsyncSession, file_hash: str) -> Font | None:
+    """Recherche une font par hash, qu'elle soit active ou soft-deleted.
+
+    Le hash porte la contrainte d'unicité : il ne peut exister qu'une seule
+    ligne par contenu, **y compris** si elle a été soft-deleted. On ne filtre
+    donc pas sur ``deleted_at`` ici (sinon on tenterait un INSERT en doublon
+    sur une font supprimée et on lèverait une IntegrityError).
+    """
+    result = await db.execute(select(Font).where(Font.file_hash == file_hash))
     return result.scalar_one_or_none()
+
+
+async def _revive_if_deleted(font: Font, db: AsyncSession) -> None:
+    """Ressuscite une font soft-deleted ré-importée (import idempotent).
+
+    Ré-importer un contenu identique signifie « cette font est de nouveau
+    présente » : on annule le soft-delete et on la re-rattache à sa famille.
+    """
+    if font.deleted_at is None:
+        return
+    font.deleted_at = None
+    await db.commit()
+    await db.refresh(font)
+    try:
+        await group_font(font, db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.warning(
+            "Échec du regroupement après réveil de la font %s", font.id, exc_info=True
+        )
 
 
 async def import_font(
@@ -113,12 +150,16 @@ async def import_font(
     # 3. Calcul SHA-256
     file_hash = _compute_hash(file_data)
 
-    # 4. Vérification doublon
-    existing = await _check_duplicate(db, file_hash)
+    # 4. Vérification doublon (idempotence). Une font soft-deleted est
+    #    ressuscitée plutôt que ré-insérée (le hash est unique en base).
+    existing = await _find_by_hash(db, file_hash)
     if existing is not None:
+        await _revive_if_deleted(existing, db)
         return existing, True
 
-    # 5. Stockage
+    # 5. Stockage. Le chemin est déterministe (dérivé du hash) : ré-écrire le
+    #    même contenu est idempotent. En cas de doublon concurrent, le fichier
+    #    appartient légitimement à la font existante (même hash → même chemin).
     storage_path = await storage.store(file_hash, file_data, extension)
 
     # 6. Parsing via font_analyzer (nécessite un fichier temporaire)
@@ -158,6 +199,7 @@ async def import_font(
         is_oblique=metadata.get("is_oblique", False),
         panose=metadata.get("panose"),
         classification=metadata.get("classification"),
+        unicode_ranges=metadata.get("unicode_ranges"),
         supported_scripts=metadata.get("supported_scripts"),
         glyph_count=metadata.get("glyph_count"),
         is_variable=metadata.get("is_variable", False),
@@ -165,18 +207,41 @@ async def import_font(
     )
 
     db.add(font)
-    await db.flush()
-    await db.refresh(font)
+    try:
+        await db.flush()
+        await db.refresh(font)
+        await db.commit()
+    except IntegrityError:
+        # Push concurrent du même hash : l'autre transaction a déjà inséré la
+        # font. On la récupère et on la retourne comme doublon (idempotence).
+        await db.rollback()
+        existing = await _find_by_hash(db, file_hash)
+        if existing is not None:
+            await _revive_if_deleted(existing, db)
+            return existing, True
+        # Conflit sans ligne correspondante (anormal) : pas de fichier orphelin.
+        await _safe_delete_storage(storage, file_hash, extension)
+        raise FontImportError(filename, "Conflit d'insertion en base de données.")
+    except Exception:
+        # Échec d'insertion non lié à un doublon : ne pas laisser le fichier
+        # stocké à l'étape 5 en orphelin sur le disque.
+        await db.rollback()
+        await _safe_delete_storage(storage, file_hash, extension)
+        raise
 
-    # 8. Regroupement en famille
+    # 8. Regroupement en famille — best-effort, isolé de l'insertion de la font.
+    #    Un échec ici ne doit jamais annuler l'import (font malformée stockée
+    #    avec des métadonnées partielles, cf. CLAUDE.md).
     try:
         await group_font(font, db)
+        await db.commit()
     except Exception:
+        await db.rollback()
         logger.warning(
-            "Échec du regroupement en famille pour %s (id=%s)", filename, font.id,
+            "Échec du regroupement en famille pour %s (id=%s)",
+            filename,
+            font.id,
             exc_info=True,
         )
-
-    await db.commit()
 
     return font, False

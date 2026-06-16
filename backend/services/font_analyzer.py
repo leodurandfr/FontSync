@@ -18,14 +18,24 @@ _SCRIPT_RANGES: list[tuple[str, list[tuple[int, int]]]] = [
     ("latin", [(0x0000, 0x024F), (0x1E00, 0x1EFF), (0x2C60, 0x2C7F)]),
     ("cyrillic", [(0x0400, 0x04FF), (0x0500, 0x052F), (0x2DE0, 0x2DFF)]),
     ("greek", [(0x0370, 0x03FF), (0x1F00, 0x1FFF)]),
-    ("arabic", [(0x0600, 0x06FF), (0x0750, 0x077F), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF)]),
+    (
+        "arabic",
+        [(0x0600, 0x06FF), (0x0750, 0x077F), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF)],
+    ),
     ("hebrew", [(0x0590, 0x05FF), (0xFB1D, 0xFB4F)]),
     ("devanagari", [(0x0900, 0x097F), (0xA8E0, 0xA8FF)]),
     ("thai", [(0x0E00, 0x0E7F)]),
-    ("cjk", [
-        (0x4E00, 0x9FFF), (0x3400, 0x4DBF), (0x2E80, 0x2EFF),
-        (0x3000, 0x303F), (0x31F0, 0x31FF), (0xF900, 0xFAFF),
-    ]),
+    (
+        "cjk",
+        [
+            (0x4E00, 0x9FFF),
+            (0x3400, 0x4DBF),
+            (0x2E80, 0x2EFF),
+            (0x3000, 0x303F),
+            (0x31F0, 0x31FF),
+            (0xF900, 0xFAFF),
+        ],
+    ),
     ("hangul", [(0xAC00, 0xD7AF), (0x1100, 0x11FF), (0x3130, 0x318F)]),
     ("kana", [(0x3040, 0x309F), (0x30A0, 0x30FF), (0x31F0, 0x31FF)]),
     ("georgian", [(0x10A0, 0x10FF), (0x2D00, 0x2D2F)]),
@@ -127,9 +137,15 @@ def _extract_os2(font: TTFont) -> dict[str, Any]:
         panose = os2.panose
         try:
             panose_values = [
-                panose.bFamilyType, panose.bSerifStyle, panose.bWeight,
-                panose.bProportion, panose.bContrast, panose.bStrokeVariation,
-                panose.bArmStyle, panose.bLetterForm, panose.bMidline,
+                panose.bFamilyType,
+                panose.bSerifStyle,
+                panose.bWeight,
+                panose.bProportion,
+                panose.bContrast,
+                panose.bStrokeVariation,
+                panose.bArmStyle,
+                panose.bLetterForm,
+                panose.bMidline,
                 panose.bXHeight,
             ]
             result["panose"] = " ".join(str(v) for v in panose_values)
@@ -152,16 +168,29 @@ def _extract_cmap_codepoints(font: TTFont) -> set[int]:
     return codepoints
 
 
-def _detect_scripts(codepoints: set[int]) -> list[str]:
-    """Détecte les scripts supportés à partir des codepoints."""
-    scripts: list[str] = []
-    for script_name, ranges in _SCRIPT_RANGES:
+def _compute_unicode_ranges(codepoints: set[int]) -> dict[str, int]:
+    """Couverture Unicode détaillée : nombre de codepoints couverts par script.
+
+    Ne garde que les scripts effectivement présents (count > 0). Sert à peupler
+    la colonne ``unicode_ranges`` (couverture quantitative, plus fine que la
+    liste booléenne ``supported_scripts``).
+    """
+    ranges: dict[str, int] = {}
+    for script_name, script_ranges in _SCRIPT_RANGES:
         count = 0
-        for start, end in ranges:
+        for start, end in script_ranges:
             count += sum(1 for cp in codepoints if start <= cp <= end)
-        if count >= _SCRIPT_MIN_CODEPOINTS:
-            scripts.append(script_name)
-    return sorted(scripts)
+        if count > 0:
+            ranges[script_name] = count
+    return ranges
+
+
+def _detect_scripts(codepoints: set[int]) -> list[str]:
+    """Détecte les scripts supportés (au-dessus du seuil) à partir des codepoints."""
+    ranges = _compute_unicode_ranges(codepoints)
+    return sorted(
+        script for script, count in ranges.items() if count >= _SCRIPT_MIN_CODEPOINTS
+    )
 
 
 def _classify_font(metadata: dict[str, Any], font: TTFont) -> str | None:
@@ -199,16 +228,21 @@ def _classify_font(metadata: dict[str, Any], font: TTFont) -> str | None:
 
     # 3. Fallback : heuristique sur le nom
     name_lower = (
-        metadata.get("family_name", "") or ""
-    ).lower() + " " + (
-        metadata.get("full_name", "") or ""
-    ).lower()
+        (metadata.get("family_name", "") or "").lower()
+        + " "
+        + (metadata.get("full_name", "") or "").lower()
+    )
 
     if any(kw in name_lower for kw in ("mono", "code", "console", "terminal", "fixed")):
         return "monospace"
-    if any(kw in name_lower for kw in ("sans", "gothic", "grotesk", "grotesque", "helvetic")):
+    if any(
+        kw in name_lower
+        for kw in ("sans", "gothic", "grotesk", "grotesque", "helvetic")
+    ):
         return "sans-serif"
-    if any(kw in name_lower for kw in ("serif", "roman", "garamond", "times", "georgia")):
+    if any(
+        kw in name_lower for kw in ("serif", "roman", "garamond", "times", "georgia")
+    ):
         return "serif"
     if any(kw in name_lower for kw in ("hand", "script", "brush", "cursive", "callig")):
         return "handwriting"
@@ -239,14 +273,25 @@ def _extract_variable_info(font: TTFont) -> dict[str, Any]:
     result["is_variable"] = True
     axes = []
     for axis in fvar.axes:
-        axes.append({
-            "tag": axis.axisTag,
-            "min": axis.minValue,
-            "max": axis.maxValue,
-            "default": axis.defaultValue,
-        })
+        axes.append(
+            {
+                "tag": axis.axisTag,
+                "min": axis.minValue,
+                "max": axis.maxValue,
+                "default": axis.defaultValue,
+            }
+        )
     result["variable_axes"] = axes
     return result
+
+
+def _is_font_collection(file_path: Path) -> bool:
+    """Détecte une police collection (.ttc/.otc) via ses magic bytes 'ttcf'."""
+    try:
+        with open(file_path, "rb") as fh:
+            return fh.read(4) == b"ttcf"
+    except OSError:
+        return False
 
 
 def analyze(file_path: str | Path) -> dict[str, Any]:
@@ -255,8 +300,14 @@ def analyze(file_path: str | Path) -> dict[str, Any]:
     Ne lève jamais d'exception. Si le fichier est illisible ou corrompu,
     retourne un dict vide ou partiel avec ce qui a pu être extrait.
 
+    Pour une police collection (.ttc), fontTools exige un numéro de sous-font.
+    On extrait les métadonnées de la **première** sous-font (index 0) ; la font
+    reste stockée comme une seule entrée (une ligne = un hash de fichier).
+    L'éclatement d'une .ttc en plusieurs polices est volontairement reporté
+    (cf. PLAN.md A3 : nécessiterait une clé unique composite hash+index).
+
     Args:
-        file_path: Chemin vers le fichier font (TTF, OTF, WOFF, WOFF2).
+        file_path: Chemin vers le fichier font (TTF, OTF, WOFF, WOFF2, TTC).
 
     Returns:
         Dict contenant les métadonnées extractibles. Les clés correspondent
@@ -265,8 +316,12 @@ def analyze(file_path: str | Path) -> dict[str, Any]:
     file_path = Path(file_path)
     metadata: dict[str, Any] = {}
 
+    open_kwargs: dict[str, Any] = {"lazy": True}
+    if _is_font_collection(file_path):
+        open_kwargs["fontNumber"] = 0
+
     try:
-        font = TTFont(str(file_path), lazy=True)
+        font = TTFont(str(file_path), **open_kwargs)
     except Exception:
         logger.warning("Impossible d'ouvrir la font : %s", file_path, exc_info=True)
         return metadata
@@ -283,13 +338,18 @@ def analyze(file_path: str | Path) -> dict[str, Any]:
     except Exception:
         logger.warning("Erreur parsing table OS/2 : %s", file_path, exc_info=True)
 
-    # Cmap → scripts supportés
+    # Cmap → couverture Unicode + scripts supportés
     try:
         codepoints = _extract_cmap_codepoints(font)
         if codepoints:
-            scripts = _detect_scripts(codepoints)
-            if scripts:
-                metadata["supported_scripts"] = scripts
+            ranges = _compute_unicode_ranges(codepoints)
+            if ranges:
+                metadata["unicode_ranges"] = ranges
+                scripts = sorted(
+                    s for s, c in ranges.items() if c >= _SCRIPT_MIN_CODEPOINTS
+                )
+                if scripts:
+                    metadata["supported_scripts"] = scripts
     except Exception:
         logger.warning("Erreur parsing cmap : %s", file_path, exc_info=True)
 

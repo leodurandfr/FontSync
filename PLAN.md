@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A2 (migration SQLite) fait. → Prochaine étape : A3 (pipeline d'import robuste & idempotent).**
+**STATUT : A3 (pipeline d'import robuste & idempotent) fait. → Prochaine étape : A4 (sémantique de sync).**
 
 ---
 
@@ -67,11 +67,11 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - `docker-compose.yml` : supprimer le service `db`, son healthcheck et le volume `pg_data` ; un seul conteneur ; volume pour le fichier SQLite + volume fonts.
   - `requirements.txt` : retirer `asyncpg`, ajouter `aiosqlite`.
   - Vérifier que `docker compose up` démarre et `alembic upgrade head` passe.
-- [ ] **A3 — Pipeline d'import robuste & idempotent** (`backend/services/font_importer.py`).
-  - Insertion idempotente sur `file_hash` (gérer `IntegrityError` / `INSERT OR IGNORE` → retourner la font existante). Protéger la fenêtre `_check_duplicate`→`commit` contre deux pushs concurrents du même hash.
-  - Pas de fichier orphelin sur disque si l'insert échoue (ordonner store/commit, ou cleanup en cas d'échec).
-  - `.ttc` : extraire chaque sous-font (`fonttools` `fontNumber`) **ou** documenter explicitement le report. Aujourd'hui un `.ttc` est stocké en une seule font aux métadonnées vides.
-  - Peupler `unicode_ranges` **ou** retirer la colonne (aujourd'hui morte).
+- [x] **A3 — Pipeline d'import robuste & idempotent** (`backend/services/font_importer.py`). *(Vérifié via smoke tests sur de vraies fonts système, dont un `.ttc` ; race concurrent reproduit → une seule ligne en base.)*
+  - [x] Insertion idempotente sur `file_hash` : `_find_by_hash` (sans filtre `deleted_at`) + `try/except IntegrityError` → rollback puis retour de la font existante. Course de deux pushs concurrents du même hash testée. Re-import d'une font soft-deleted → ressuscitée (`_revive_if_deleted`).
+  - [x] Pas de fichier orphelin : store→insert dans un `try`, cleanup `_safe_delete_storage` si l'insert échoue hors doublon ; en cas de doublon le fichier (même hash → même chemin) appartient légitimement à la font existante. Regroupement famille isolé dans une transaction best-effort (n'annule plus l'import).
+  - [x] `.ttc` : `font_analyzer` détecte la collection (magic `ttcf`) et parse la **première** sous-font (`fontNumber=0`) → plus de métadonnées vides. Éclatement multi-sous-fonts explicitement reporté (nécessiterait une clé unique composite hash+index).
+  - [x] `unicode_ranges` peuplé : couverture quantitative `{script: nb_codepoints}` dérivée de la cmap (`_compute_unicode_ranges`), plus fine que `supported_scripts`.
 - [ ] **A4 — Sémantique de sync** (`backend/services/sync_manager.py`, `backend/routers/sync.py`).
   - `compute_delta` : **ne plus écrire de `device_fonts` fantômes** et **ne plus `commit()`** au milieu d'un calcul de delta (delta = lecture pure).
   - `pull_font` : enregistrer de façon fiable l'association `device_font` (installed/activated) quel que soit le passage de `device_id`.
