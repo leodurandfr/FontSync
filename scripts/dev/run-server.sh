@@ -10,12 +10,15 @@
 # Variables d'env :
 #   FONTSYNC_DEV_ROOT   racine des données dev (défaut : <repo>/.dev)
 #   PORT                port d'écoute        (défaut : 8080)
+#   HOST                interface d'écoute   (défaut : 127.0.0.1)
+#                       → mettre 0.0.0.0 pour exposer sur le LAN (test multi-Macs)
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dev_root="${FONTSYNC_DEV_ROOT:-$repo_root/.dev}"
 port="${PORT:-8080}"
+host="${HOST:-127.0.0.1}"
 
 python_bin="$repo_root/.venv/bin/python"
 [ -x "$python_bin" ] || python_bin="python3"
@@ -31,5 +34,5 @@ cd "$repo_root"
 echo "==> Migrations (alembic upgrade head)"
 "$python_bin" -m alembic upgrade head
 
-echo "==> uvicorn sur http://localhost:$port  (db=$DATABASE_URL)"
-exec "$python_bin" -m uvicorn backend.main:app --reload --port "$port"
+echo "==> uvicorn sur http://$host:$port  (db=$DATABASE_URL)"
+exec "$python_bin" -m uvicorn backend.main:app --reload --host "$host" --port "$port"

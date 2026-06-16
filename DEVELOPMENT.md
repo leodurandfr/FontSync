@@ -116,6 +116,54 @@ scripts/dev/run-agent.sh A sync
 cd frontend && npm install && npm run dev   # proxy vers localhost:8080
 ```
 
+## 6. Tester avec un 2ᵉ Mac réel
+
+Pour un test grandeur nature (vraie découverte Core Text, vraie installation
+système, launchd), il faut que les deux Macs parlent au **même serveur**. Le plus
+simple : ce Mac sert de serveur sur le LAN, l'autre Mac y branche son agent.
+
+> ⚠️ En mode réel, `auto_pull: true` **installe vraiment** les polices reçues dans
+> `~/Library/Fonts` du 2ᵉ Mac (c'est le comportement produit). Réversible : les
+> fichiers restent sur le serveur, l'agent peut désinstaller.
+
+**Sur ce Mac (serveur, exposé sur le LAN) :**
+
+```bash
+HOST=0.0.0.0 scripts/dev/run-server.sh        # réutilise la base .dev/ déjà peuplée
+# IP LAN de ce Mac : `ipconfig getifaddr en0`  (ex. 192.168.1.172)
+```
+
+macOS demandera peut-être d'autoriser les connexions entrantes → accepter.
+
+**Sur le 2ᵉ Mac (client) :**
+
+```bash
+git clone <repo> FontSync && cd FontSync
+python3 -m venv .venv && .venv/bin/pip install -e .   # fournit `fontsync-agent`
+mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
+server:
+  url: http://192.168.1.172:8080      # IP LAN du 1er Mac
+  device_token: null
+  device_id: null
+scan:
+  directories: ['~/Library/Fonts', '/Library/Fonts']
+  ignore_patterns: ['.*', 'System*']
+sync:
+  auto_push: true
+  auto_pull: true
+YAML
+.venv/bin/fontsync-agent sync          # pousse ses fonts + pull celles du serveur
+.venv/bin/fontsync-agent listen        # (optionnel) sync réactive temps réel
+```
+
+Tu verras les deux Macs apparaître dans l'onglet **Appareils**, et les polices
+d'un Mac se propager vers l'autre.
+
+> La vraie cible de prod reste le **NAS** comme serveur permanent (les deux Macs
+> y pointent). Mais tant que le backend de la refonte n'est pas déployé sur le
+> NAS, teste avec ce Mac comme serveur LAN — sinon tu exercerais l'ancien code
+> serveur.
+
 ## Remettre à zéro
 
 Tout l'état local de dev vit dans `.dev/` (gitignoré). Pour repartir propre :
