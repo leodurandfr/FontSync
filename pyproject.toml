@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fontsync-agent"
+version = "0.1.0"
+description = "Agent FontSync — synchronisation de polices multi-machines (macOS, launchd + SSE)."
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "pyobjc-framework-CoreText>=10.0; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+fontsync-agent = "agent.__main__:main"
+
+# On ne distribue que le paquet `agent` (le backend a son propre cycle de vie,
+# servi par Docker). `find` se limite donc explicitement à `agent*`.
+[tool.setuptools.packages.find]
+include = ["agent*"]
+
+# Les gabarits launchd sont embarqués dans la roue pour que `fontsync-agent
+# setup` les retrouve une fois installé (Homebrew/pkg), pas seulement depuis le repo.
+[tool.setuptools.package-data]
+agent = ["launchd/*.plist"]

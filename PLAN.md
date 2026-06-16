@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : B9 (notifications retirées) fait. Prochaine étape : B10 (packaging).**
+**STATUT : B10 (socle d'empaquetage) fait. Prochaine étape : B11 (tests agent).**
 
 ---
 
@@ -30,6 +30,7 @@ Une « étape » = un bloc Axx/Bxx/Cxx. Si un bloc est gros, on peut le faire en
 - **Pull réactif = push serveur via SSE** vers un petit process `listen` (launchd `KeepAlive`) qui ne fait que **déclencher `sync`**. L'événement SSE est un simple signal « re-sync » (sans payload exploité → pas de bug de clé). Pas de polling comme mécanisme principal ; `StartInterval` long = filet de sécurité. *(Alternative acceptable : réutiliser le WS existant au lieu de SSE.)*
 - **Agent ↔ serveur = HTTP + SSE.** Plus de WebSocket **côté agent** (on supprime `sync_client.py` WS, la reconnexion, etc.). Le WS **frontend** peut rester.
 - **Frontend = plus tard.** On le garde juste compilable ; on décidera des features gardées avant d'investir le design.
+- **Packaging = paquet Python installable, pas PyInstaller.** Standard pour un daemon Python : paquet propre + le gestionnaire fait l'isolation et les updates. Cible publique (précédent **Syncthing**) : image Docker pour le serveur, **formula Homebrew** pour l'agent (venv isolé, `brew upgrade`), `.pkg` notarisé optionnel ; frontend servi par l'agent en local (`localhost`, pas de fenêtre native → ni Electron ni `.app`). Le socle (entry point `fontsync-agent`, sous-commandes `setup/teardown/status`) = B10 ; la distribution publique = B12.
 
 ---
 
@@ -98,8 +99,16 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] `com.fontsync.listen.plist` : `KeepAlive`, `RunAtLoad`, `ThrottleInterval` 10 s.
   - [x] `agent/launchd/install.sh` : résolution du Python (`$FONTSYNC_PYTHON` → `.venv` → `python3`), substitution `sed` des gabarits vers `~/Library/LaunchAgents/`, `plutil -lint`, `launchctl bootout`+`bootstrap gui/$(id -u)`, `kickstart` d'un 1er `sync`. Sous-commandes `install`/`uninstall`/`status`.
 - [x] **B9 — Notifications : retirées.** *(Option « retrait » de l'arbitrage retenue. Raison technique : `UNUserNotifications` exige un app bundle **signé** avec bundle id ; l'agent est un CLI non signé lancé par launchd → `UNUserNotificationCenter.currentNotificationCenter()` lève (`bundleProxyForCurrentProcess is nil`) et ne délivrerait rien — pire que le `NSUserNotification` silencieux actuel. De plus `notifier.notify` n'était plus appelé nulle part depuis la suppression de `main.py`/`tray.py` en B3. Suppression de `agent/notifier.py` (code mort), retrait de `pyobjc-framework-Cocoa` de `agent/requirements.txt` (seul consommateur ; `discovery.py` n'utilise que `pyobjc-framework-CoreText`) et de `--hidden-import "agent.notifier"` dans `scripts/build_agent.sh`. **À rouvrir en B10** : une fois un bundle signé décidé, réintroduire les notifications via `UNUserNotifications`. Vérifié : `ruff check` agent/ OK, aucune référence pendante à `notifier`, 66 tests agent verts.)*
-- [ ] **B10 — Packaging.** Beaucoup moins critique qu'avant (CLI + petit `listen`). Décider : simple binaire/pkg signé vs PyInstaller. La friction notarisation est largement levée. *(Détail différé.)*
+- [x] **B10 — Socle d'empaquetage propre (paquet Python installable).** *(Décision arrêtée : **pas de PyInstaller**. Le standard pour distribuer un daemon Python n'est pas de figer un fat binary mais « paquet propre + le gestionnaire fait l'isolation et les updates ». Précédent architectural = **Syncthing** : daemon qui sert son UI sur `localhost`, distribué via Homebrew/pkg/Docker, sans Electron ni binaire figé. La distribution publique elle-même (tap Homebrew, image Docker publiée) est isolée en **B12** ; B10 ne pose que le socle dont tous les canaux dépendent. Vérifié : `pip install -e .` → console script `fontsync-agent` fonctionnel (`--help`, `status`), wheel `python -m pip wheel` embarque bien les deux `*.plist` + l'`entry_points.txt`, 76 tests agent verts.)*
+  - [x] `pyproject.toml` (racine) : métadonnées, dépendances (`httpx`, `pyyaml`, `pyobjc-framework-CoreText; sys_platform=='darwin'`), **console entry point** `fontsync-agent = "agent.__main__:main"`. `python -m agent` reste valide. `packages.find` restreint à `agent*` (le backend a son propre cycle Docker) ; `package-data` embarque `agent/launchd/*.plist` dans la roue pour que `setup` les retrouve une fois installé. *(`agent/requirements.txt` conservé comme raccourci de dev.)*
+  - [x] Sous-commandes CLI **`setup` / `teardown` / `status`** : logique extraite dans `agent/launchd_setup.py` (résolution Python `$FONTSYNC_PYTHON`→`sys.executable`, substitution des gabarits + validation `plistlib` portable, écriture atomique, `launchctl bootout`+`bootstrap`, kickstart du `sync`) et câblées dans `agent/__main__.py`. Garde non-macOS sur les 3 commandes. `WORKDIR`/`PYTHONPATH` = parent du paquet `agent` → marche en repo **et** une fois installé. `install.sh` réduit à un mince wrapper rétro-compatible (`install`→`setup`, etc.) qui résout un Python et `exec … -m agent <cmd>`.
+  - [x] **`scripts/build_agent.sh` supprimé** (PyInstaller mort) + `scripts/entitlements.plist` orphelin (seul `build_agent.sh` le référençait).
+  - [x] Tests `tests/agent/test_launchd.py` réécrits (76 tests agent au total) : rendu/validation des plists (substitution + rejet d'un plist cassé), résolution Python, `write_plists`, flux `setup` (plists écrits + jobs rechargés + kickstart, abandon si `bootstrap` échoue), `teardown` (suppression + idempotence sans install), `status`, refus non-macOS — `launchctl` faux injecté via monkeypatch (aucun effet sur la session).
 - [ ] **B11 — Tests agent** (`tests/agent/`, à créer). Logique delta, cache de hash (invalidation par mtime), installer en dry-run, reconnexion `listen`.
+- [ ] **B12 — Distribution publique** *(dépend de B10 ; à ouvrir au moment de rendre l'app publique).* Plomberie CI au-dessus du socle B10, **rien à refactorer** :
+  - [ ] **Serveur** : publier une **image Docker multi-arch** (`linux/amd64`+`linux/arm64`) sur un registre (ghcr.io), `docker-compose.yml` d'exemple orienté NAS (Synology Container Manager…). Workflow CI de build/push sur tag.
+  - [ ] **Agent** : **formula Homebrew** dans un tap (`brew install <user>/tap/fontsync-agent`) via l'idiome `virtualenv_install_with_resources` (comme `awscli`/`ansible`/`httpie`) → venv isolé + updates gérés par `brew upgrade`. `.pkg` notarisé (Developer ID) optionnel pour public non technique.
+  - [ ] **Frontend servi en local par l'agent** (modèle Syncthing : UI des fonts sur `localhost`, pas de fenêtre native → ni Electron ni `.app`). **Hors-scope tant que le frontend n'est pas rouvert (Phase C)** ; tracé ici pour mémoire.
 
 ## Phase C — Frontend (minimal : juste de quoi tourner)
 
