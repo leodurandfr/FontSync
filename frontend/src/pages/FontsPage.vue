@@ -6,6 +6,7 @@ import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import FilterPanel from "@/components/fonts/FilterPanel.vue";
 import PreviewToolbar from "@/components/fonts/PreviewToolbar.vue";
 import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
+import UploadDialog from "@/components/fonts/UploadDialog.vue";
 
 const filtersStore = useFamilyFiltersStore();
 const previewText = ref("");
@@ -38,20 +39,26 @@ onBeforeUnmount(() => {
             Parcourez et gérez votre bibliothèque de polices.
           </p>
         </div>
-        <div class="relative shrink-0 mt-1">
-          <Search
-            class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            v-model="searchInput"
-            type="search"
-            placeholder="Rechercher une police..."
-            class="pl-9 h-9 w-64"
-          />
+        <div class="flex shrink-0 items-center gap-2 mt-1">
+          <div class="relative">
+            <Search
+              class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              v-model="searchInput"
+              type="search"
+              placeholder="Rechercher une police..."
+              class="pl-9 h-9 w-64"
+            />
+          </div>
+          <UploadDialog />
         </div>
       </div>
 
-      <PreviewToolbar v-model:preview-text="previewText" v-model:preview-size="previewSize" />
+      <PreviewToolbar
+        v-model:preview-text="previewText"
+        v-model:preview-size="previewSize"
+      />
       <FontFamilyList :preview-text="previewText" :preview-size="previewSize" />
     </main>
   </div>

@@ -6,6 +6,7 @@ import {
   Type,
   Monitor,
   Settings,
+  Loader2,
 } from "lucide-vue-next";
 import {
   NavigationMenu,
@@ -14,8 +15,10 @@ import {
   NavigationMenuList,
   navigationMenuTriggerStyle,
 } from "@/components/ui/navigation-menu";
+import { useWsStore } from "@/stores/ws";
 
 const route = useRoute();
+const wsStore = useWsStore();
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
@@ -57,5 +60,19 @@ const isActive = computed(() => (path: string) => {
         </NavigationMenuItem>
       </NavigationMenuList>
     </NavigationMenu>
+
+    <!-- Connection status -->
+    <div
+      class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <template v-if="wsStore.status === 'connected'">
+        <span class="h-2 w-2 rounded-full bg-green-500" />
+        <span class="hidden lg:inline">Connecté</span>
+      </template>
+      <template v-else>
+        <Loader2 class="h-3 w-3 animate-spin text-amber-500" />
+        <span class="hidden sm:inline">Reconnexion…</span>
+      </template>
+    </div>
   </header>
 </template>

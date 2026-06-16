@@ -41,6 +41,12 @@ export interface FontListResponse {
   pages: number;
 }
 
+export interface FontUploadResponse {
+  imported: Font[];
+  duplicates: Font[];
+  errors: { filename: string; detail: string }[];
+}
+
 export interface FontFilters {
   search?: string;
   classification?: string;

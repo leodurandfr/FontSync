@@ -1,6 +1,11 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
-import type { Font, FontListResponse, FontFilters } from "@/types/api";
+import type {
+  Font,
+  FontListResponse,
+  FontUploadResponse,
+  FontFilters,
+} from "@/types/api";
 
 export const useFontsStore = defineStore("fonts", () => {
   const fonts = ref<Font[]>([]);
@@ -94,6 +99,20 @@ export const useFontsStore = defineStore("fonts", () => {
     }
   }
 
+  async function uploadFonts(files: File[]): Promise<FontUploadResponse> {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+
+    const res = await fetch("/api/fonts/upload", {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Les fonts importées arrivent aussi via l'event WS `font.added` ;
+    // `addFont` est idempotent (dédup par id) donc pas de doublon.
+    return (await res.json()) as FontUploadResponse;
+  }
+
   function addFont(font: Font) {
     const exists = fonts.value.find((f) => f.id === font.id);
     if (!exists) {
@@ -129,6 +148,7 @@ export const useFontsStore = defineStore("fonts", () => {
     hasMore,
     fetchFonts,
     fetchMore,
+    uploadFonts,
     addFont,
     removeFont,
     updateFont,
