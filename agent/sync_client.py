@@ -1,13 +1,27 @@
 """Client HTTP synchrone pour les opérations REST avec le serveur FontSync.
 
-Le canal temps réel serveur→agent passe désormais par SSE (process `listen`,
-cf. PLAN.md B4) ; il n'y a plus de client WebSocket persistant côté agent.
+`sync` étant une commande courte (pas d'event loop), un client `httpx`
+**synchrone** suffit : le bug historique de blocage de l'event loop disparaît
+par construction. Le canal temps réel serveur→agent passe par SSE (process
+`listen`, cf. PLAN.md B4) ; il n'y a plus de client WebSocket persistant.
+
+Conventions HTTP (cf. CLAUDE.md) : le serveur sérialise ses réponses JSON en
+**camelCase** — toutes les lectures de réponse ci-dessous utilisent donc des
+clés camelCase (`fontId`, `isDuplicate`, …).
+
+Robustesse : un client unique avec `base_url`, timeouts explicites et en-têtes
+par défaut ; les erreurs réseau **transitoires** sont réessayées un nombre borné
+de fois. Toutes les opérations REST de l'agent étant idempotentes côté serveur
+(register = upsert par hostname, delta = lecture pure, push = dédup par hash,
+pull = GET), un réessai ne peut pas dupliquer d'effet.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable
+from urllib.parse import unquote
 
 import httpx
 
@@ -16,17 +30,55 @@ from agent.scanner import ScannedFont
 
 logger = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT = 30.0
-UPLOAD_TIMEOUT = 120.0
+# Timeouts explicites (connect/read/write/pool) plutôt qu'un float global :
+# une connexion lente à établir et un transfert lent sont des problèmes
+# distincts qu'on veut borner séparément.
+REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=10.0)
+# Upload/download de fichiers : lecture/écriture potentiellement longues.
+TRANSFER_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+
+# Réessais bornés sur erreurs réseau transitoires (NAS brièvement injoignable,
+# coupure réseau passagère). On ne réessaie **que** les erreurs de transport,
+# pas les erreurs HTTP applicatives (4xx/5xx) qui remontent telles quelles.
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 1.0
+
+_TRANSIENT_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.RemoteProtocolError,
+)
+
+
+class SyncClientError(Exception):
+    """Échec d'une requête HTTP après réessais (serveur réseau injoignable)."""
 
 
 class SyncClient:
     """Client HTTP pour communiquer avec le serveur FontSync."""
 
-    def __init__(self, config: AgentConfig) -> None:
+    def __init__(
+        self,
+        config: AgentConfig,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self.config = config
-        self.base_url = config.server_url.rstrip("/")
-        self._client = httpx.Client(timeout=REQUEST_TIMEOUT)
+        self._sleep = sleep
+        self._client = httpx.Client(
+            base_url=config.server_url.rstrip("/"),
+            timeout=REQUEST_TIMEOUT,
+            headers={
+                "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
+                "Accept": "application/json",
+            },
+            follow_redirects=True,
+            transport=transport,
+        )
 
     def close(self) -> None:
         self._client.close()
@@ -36,6 +88,42 @@ class SyncClient:
 
     def __exit__(self, *args: object) -> None:
         self.close()
+
+    # ---- Envoi avec réessais ----
+
+    def _send(
+        self, build: Callable[[], httpx.Response], *, what: str
+    ) -> httpx.Response:
+        """Exécute une requête avec réessais bornés sur erreurs transitoires.
+
+        `build()` (re)construit **et envoie** la requête à chaque tentative : il
+        doit être ré-exécutable (ré-ouvrir un fichier pour un upload, etc.). Une
+        réponse HTTP d'erreur (4xx/5xx) lève `HTTPStatusError` sans réessai ; une
+        erreur de transport est réessayée puis, épuisée, levée en
+        `SyncClientError`.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                resp = build()
+                resp.raise_for_status()
+                return resp
+            except _TRANSIENT_ERRORS as e:
+                last_exc = e
+                if attempt < MAX_ATTEMPTS:
+                    delay = RETRY_BACKOFF_SECONDS * attempt
+                    logger.warning(
+                        "%s : erreur réseau (tentative %d/%d), réessai dans %.0fs : %s",
+                        what,
+                        attempt,
+                        MAX_ATTEMPTS,
+                        delay,
+                        e,
+                    )
+                    self._sleep(delay)
+        raise SyncClientError(
+            f"{what} : serveur injoignable après {MAX_ATTEMPTS} tentatives : {last_exc}"
+        ) from last_exc
 
     # ---- Enregistrement du device ----
 
@@ -56,8 +144,10 @@ class SyncClient:
             "auto_push": self.config.auto_push,
         }
 
-        resp = self._client.post(f"{self.base_url}/api/devices/register", json=payload)
-        resp.raise_for_status()
+        resp = self._send(
+            lambda: self._client.post("/api/devices/register", json=payload),
+            what="register_device",
+        )
         data = resp.json()
         logger.info("Device enregistré : %s (id=%s)", data["name"], data["id"])
         return data
@@ -68,7 +158,7 @@ class SyncClient:
         """Envoie les hashes locaux au serveur pour comparaison.
 
         POST /api/sync/delta
-        Retourne : unknown_to_server, missing_on_device, already_synced
+        Retourne : unknownToServer, missingOnDevice, alreadySynced
         """
         return self.delta_sync_hashes(
             device_id,
@@ -91,8 +181,10 @@ class SyncClient:
             "fonts": font_entries,
         }
 
-        resp = self._client.post(f"{self.base_url}/api/sync/delta", json=payload)
-        resp.raise_for_status()
+        resp = self._send(
+            lambda: self._client.post("/api/sync/delta", json=payload),
+            what="delta_sync",
+        )
         return resp.json()
 
     # ---- Push ----
@@ -102,25 +194,30 @@ class SyncClient:
 
         POST /api/sync/push (multipart form)
         """
-        with open(font.path, "rb") as f:
-            files = {"file": (font.filename, f, "application/octet-stream")}
-            data = {
-                "device_id": device_id,
-                "local_path": str(font.path),
-            }
-            resp = self._client.post(
-                f"{self.base_url}/api/sync/push",
-                files=files,
-                data=data,
-                timeout=UPLOAD_TIMEOUT,
-            )
-        resp.raise_for_status()
+
+        def build() -> httpx.Response:
+            # Le fichier est ré-ouvert à chaque tentative : `build` doit pouvoir
+            # être rejoué tel quel par `_send` en cas de réessai.
+            with open(font.path, "rb") as f:
+                files = {"file": (font.filename, f, "application/octet-stream")}
+                data = {
+                    "device_id": device_id,
+                    "local_path": str(font.path),
+                }
+                return self._client.post(
+                    "/api/sync/push",
+                    files=files,
+                    data=data,
+                    timeout=TRANSFER_TIMEOUT,
+                )
+
+        resp = self._send(build, what=f"push {font.filename}")
         result = resp.json()
         logger.debug(
             "Push %s → %s (duplicate=%s)",
             font.filename,
-            result.get("font_id"),
-            result.get("is_duplicate"),
+            result.get("fontId"),
+            result.get("isDuplicate"),
         )
         return result
 
@@ -180,26 +277,32 @@ class SyncClient:
         params = {}
         if device_id:
             params["device_id"] = device_id
-        resp = self._client.get(
-            f"{self.base_url}/api/sync/pull/{font_id}",
-            params=params,
-            timeout=UPLOAD_TIMEOUT,
+        resp = self._send(
+            lambda: self._client.get(
+                f"/api/sync/pull/{font_id}",
+                params=params,
+                timeout=TRANSFER_TIMEOUT,
+            ),
+            what=f"pull {font_id}",
         )
-        resp.raise_for_status()
 
-        # Extraire le nom de fichier du header Content-Disposition
-        cd = resp.headers.get("content-disposition", "")
-        filename = "unknown.ttf"
-        if "filename*=" in cd:
-            # RFC 5987: filename*=UTF-8''encoded_name
-            from urllib.parse import unquote
+        return _filename_from_disposition(
+            resp.headers.get("content-disposition", "")
+        ), resp.content
 
-            raw = cd.split("filename*=")[-1]
-            # Strip encoding prefix (UTF-8'')
-            if "''" in raw:
-                raw = raw.split("''", 1)[-1]
-            filename = unquote(raw)
-        elif "filename=" in cd:
-            filename = cd.split("filename=")[-1].strip('"')
 
-        return filename, resp.content
+def _filename_from_disposition(cd: str) -> str:
+    """Extrait le nom de fichier d'un en-tête `Content-Disposition`.
+
+    Gère la forme RFC 5987 (`filename*=UTF-8''nom%20encodé`) prioritairement,
+    puis la forme simple (`filename="nom"`). Défaut : `unknown.ttf`.
+    """
+    if "filename*=" in cd:
+        raw = cd.split("filename*=")[-1]
+        # Retirer le préfixe d'encodage (UTF-8'')
+        if "''" in raw:
+            raw = raw.split("''", 1)[-1]
+        return unquote(raw)
+    if "filename=" in cd:
+        return cd.split("filename=")[-1].strip('"')
+    return "unknown.ttf"

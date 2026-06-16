@@ -23,7 +23,7 @@ import queue
 import threading
 from typing import TYPE_CHECKING, Any, Callable
 
-from agent.config import AgentConfig
+from agent.config import AGENT_VERSION, AgentConfig
 from agent.sync_command import _configure_logging, run_sync
 
 if TYPE_CHECKING:
@@ -73,7 +73,10 @@ def _stream_signals(config: AgentConfig, device_id: str) -> "Iterator[None]":
     timeout = httpx.Timeout(
         connect=10.0, read=_READ_TIMEOUT_SECONDS, write=10.0, pool=10.0
     )
-    headers = {"Accept": "text/event-stream"}
+    headers = {
+        "Accept": "text/event-stream",
+        "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
+    }
     with httpx.stream("GET", url, timeout=timeout, headers=headers) as resp:
         resp.raise_for_status()
         logger.info("Flux SSE connecté (%s)", url)
