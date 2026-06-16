@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A6 (tests backend) fait. → Prochaine étape : A7 (nettoyage schémas/imports).**
+**STATUT : A7 (nettoyage schémas/imports) fait. → Phase A terminée. Prochaine étape : B1 (commande `sync` stateless).**
 
 ---
 
@@ -82,7 +82,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] `backend/services/ws_manager.py` : `asyncio.Lock` sur les broadcasts ; éviction (fermeture) de l'ancien socket agent à la reconnexion ; `devices.last_seen_at` mis à jour à chaque `heartbeat` (`backend/routers/ws.py`). *(WS agent conservé pour l'instant — sa suppression côté agent est Phase B.)*
   - [x] `backend/main.py` : catch-all SPA renvoie un **404 JSON** pour les chemins `/api/*` non résolus au lieu de `index.html`.
 - [x] **A6 — Tests backend** (`tests/backend/`). Pipeline d'import (dédup, font malformée non rejetée, idempotence + résurrection soft-delete), delta-sync (3 ensembles + lecture pure A4 + exclusion soft-deleted), stats (total/format/classification/script + exclusion soft-deleted). *(Les fixtures `tests/fixtures/*.otf|ttf` sont des polices commerciales gitignorées, donc absentes en CI/Docker → `conftest.py` génère de **vraies** TTF valides à la volée avec fontTools `FontBuilder`, rendant la suite A6 autoportante. Fixtures partagées : session SQLite in-memory `StaticPool` + FK ON, storage filesystem en tmp_path. 14 tests, tous verts. NB : `test_font_analyzer.py`/`test_storage.py` pré-existants restent dépendants des fixtures commerciales et échouent/skippent sans elles — hors périmètre A6.)*
-- [ ] **A7 — Nettoyage.** Exposer `width_class` dans `FontResponse` (`backend/schemas/font.py`). Retirer le `FontFilters` mort et les imports inutilisés (`cast`/`JSONB` dans `stats.py`). Inclure `glyph_count`/`name` dans `FontSortField` (specs §5.1).
+- [x] **A7 — Nettoyage.** `width_class` exposé dans `FontResponse` (déjà présent, vérifié). `FontFilters` mort supprimé + import `Field` devenu inutile retiré (`backend/schemas/font.py`). `glyph_count`/`name` ajoutés à `FontSortField` (specs §5.1) ; `name` n'ayant pas de colonne dédiée, le tri mappe sur `full_name` dans `backend/routers/fonts.py`. *(Les imports `cast`/`JSONB` de `stats.py` avaient déjà disparu en A2 — rien à retirer.)* Vérifié : `ruff check` OK, app importe, 14 tests A6 verts.
 
 ## Phase B — Agent stateless launchd + listener SSE
 

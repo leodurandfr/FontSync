@@ -161,8 +161,10 @@ async def list_fonts(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Tri
-    sort_column = getattr(Font, sort.value)
+    # Tri — `name` (specs §5.1) n'a pas de colonne dédiée : on trie sur full_name.
+    sort_column = (
+        Font.full_name if sort == FontSortField.name else getattr(Font, sort.value)
+    )
     order_func = desc if order == SortOrder.desc else asc
     query = query.order_by(order_func(sort_column))
 

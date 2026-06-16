@@ -2,19 +2,19 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import Field
-
 from backend.schemas.base import CamelModel
 
 
 class FontSortField(str, Enum):
-    """Champs de tri disponibles pour la liste des fonts."""
+    """Champs de tri disponibles pour la liste des fonts (specs §5.1)."""
 
+    name = "name"
     family_name = "family_name"
     created_at = "created_at"
     updated_at = "updated_at"
     file_size = "file_size"
     weight_class = "weight_class"
+    glyph_count = "glyph_count"
 
 
 class SortOrder(str, Enum):
@@ -114,22 +114,6 @@ class FontUpdate(CamelModel):
     classification: str | None = None
     designer: str | None = None
     manufacturer: str | None = None
-
-
-class FontFilters(CamelModel):
-    """Filtres pour la recherche de fonts."""
-
-    search: str | None = None
-    classification: str | None = None
-    format: str | None = Field(None, alias="file_format")
-    scripts: list[str] | None = None
-    is_variable: bool | None = None
-    weight_min: int | None = None
-    weight_max: int | None = None
-    sort: FontSortField = FontSortField.created_at
-    order: SortOrder = SortOrder.desc
-    page: int = Field(1, ge=1)
-    per_page: int = Field(50, ge=1, le=200)
 
 
 class FontUploadResponse(CamelModel):
