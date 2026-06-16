@@ -28,7 +28,9 @@ class AgentConfig:
     device_token: str | None = None
     device_id: str | None = None
     scan_interval_minutes: int = 5
-    directories: list[str] = field(default_factory=lambda: list(DEFAULT_MACOS_DIRECTORIES))
+    directories: list[str] = field(
+        default_factory=lambda: list(DEFAULT_MACOS_DIRECTORIES)
+    )
     ignore_patterns: list[str] = field(default_factory=lambda: [".*", "System*"])
     auto_push: bool = True
     auto_pull: bool = True

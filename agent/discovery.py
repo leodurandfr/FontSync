@@ -33,7 +33,9 @@ def discover_via_core_text() -> list[DiscoveredFont]:
     try:
         import CoreText  # type: ignore[import-untyped]
     except ImportError:
-        logger.warning("pyobjc-framework-CoreText non disponible, fallback sur scan dossiers")
+        logger.warning(
+            "pyobjc-framework-CoreText non disponible, fallback sur scan dossiers"
+        )
         return []
 
     try:

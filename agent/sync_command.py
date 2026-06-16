@@ -100,8 +100,8 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
     result = SyncResult()
     owns_client = client is None
     if client is None:
-        # Import différé : `SyncClient` tire `httpx`/`websockets`, inutiles aux
-        # tests qui injectent un client factice.
+        # Import différé : `SyncClient` tire `httpx`, inutile aux tests qui
+        # injectent un client factice.
         from agent.sync_client import SyncClient
 
         client = SyncClient(config)

@@ -86,7 +86,9 @@ def uninstall_font(filename: str) -> bool:
     try:
         disabled.resolve().relative_to(DISABLED_DIR.resolve())
     except ValueError:
-        logger.error("Tentative de suppression hors de ~/.fontsync/disabled : %s", disabled)
+        logger.error(
+            "Tentative de suppression hors de ~/.fontsync/disabled : %s", disabled
+        )
     else:
         if disabled.exists():
             disabled.unlink()
@@ -158,7 +160,9 @@ def deactivate_font(local_path: str) -> bool:
         try:
             source.resolve().relative_to(INSTALL_DIR.resolve())
         except ValueError:
-            logger.error("Tentative de désactivation hors de ~/Library/Fonts : %s", source)
+            logger.error(
+                "Tentative de désactivation hors de ~/Library/Fonts : %s", source
+            )
             return False
 
         DISABLED_DIR.mkdir(parents=True, exist_ok=True)
@@ -176,6 +180,7 @@ def deactivate_font(local_path: str) -> bool:
 
     logger.warning(
         "Font introuvable pour désactivation : ni dans %s ni dans %s",
-        source, dest,
+        source,
+        dest,
     )
     return False
