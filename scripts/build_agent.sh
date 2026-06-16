@@ -79,7 +79,6 @@ python3 -m PyInstaller \
     --hidden-import "PIL._imaging" \
     --hidden-import "PIL.ImageDraw" \
     --hidden-import "agent.tray" \
-    --hidden-import "agent.notifier" \
     --hidden-import "agent.font_installer" \
     --hidden-import "agent.discovery" \
     --hidden-import "agent.scanner" \

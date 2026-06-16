@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : B8 (launchd) fait. Prochaine étape : B9 (notifications).**
+**STATUT : B9 (notifications retirées) fait. Prochaine étape : B10 (packaging).**
 
 ---
 
@@ -97,7 +97,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] `com.fontsync.sync.plist` : `WatchPaths` (`~/Library/Fonts` + `/Library/Fonts`), `StartInterval` 600 s, `RunAtLoad`, **pas** de `KeepAlive` (commande courte), `ProcessType=Background`, logs dans `~/Library/Logs/FontSync/`.
   - [x] `com.fontsync.listen.plist` : `KeepAlive`, `RunAtLoad`, `ThrottleInterval` 10 s.
   - [x] `agent/launchd/install.sh` : résolution du Python (`$FONTSYNC_PYTHON` → `.venv` → `python3`), substitution `sed` des gabarits vers `~/Library/LaunchAgents/`, `plutil -lint`, `launchctl bootout`+`bootstrap gui/$(id -u)`, `kickstart` d'un 1er `sync`. Sous-commandes `install`/`uninstall`/`status`.
-- [ ] **B9 — Notifications** (`agent/notifier.py`) : migrer `NSUserNotification` (déprécié, silencieux hors app signée) → `UNUserNotifications`, **ou** retirer les notifications pour l'instant (basse priorité).
+- [x] **B9 — Notifications : retirées.** *(Option « retrait » de l'arbitrage retenue. Raison technique : `UNUserNotifications` exige un app bundle **signé** avec bundle id ; l'agent est un CLI non signé lancé par launchd → `UNUserNotificationCenter.currentNotificationCenter()` lève (`bundleProxyForCurrentProcess is nil`) et ne délivrerait rien — pire que le `NSUserNotification` silencieux actuel. De plus `notifier.notify` n'était plus appelé nulle part depuis la suppression de `main.py`/`tray.py` en B3. Suppression de `agent/notifier.py` (code mort), retrait de `pyobjc-framework-Cocoa` de `agent/requirements.txt` (seul consommateur ; `discovery.py` n'utilise que `pyobjc-framework-CoreText`) et de `--hidden-import "agent.notifier"` dans `scripts/build_agent.sh`. **À rouvrir en B10** : une fois un bundle signé décidé, réintroduire les notifications via `UNUserNotifications`. Vérifié : `ruff check` agent/ OK, aucune référence pendante à `notifier`, 66 tests agent verts.)*
 - [ ] **B10 — Packaging.** Beaucoup moins critique qu'avant (CLI + petit `listen`). Décider : simple binaire/pkg signé vs PyInstaller. La friction notarisation est largement levée. *(Détail différé.)*
 - [ ] **B11 — Tests agent** (`tests/agent/`, à créer). Logique delta, cache de hash (invalidation par mtime), installer en dry-run, reconnexion `listen`.
 
@@ -129,4 +129,4 @@ Repris dans les tâches ci-dessus ; conservés ici pour ne rien perdre entre con
 | 12 | `width_class` parsé mais absent de l'API | `backend/schemas/font.py` | A7 |
 | 13 | `device_id`/token non persistés | `agent/config.py` | B5 ✓ |
 | 14 | Install écrase une font homonyme / uninstall par nom | `agent/font_installer.py` | B7 ✓ |
-| 15 | Notifications dépréciées (silencieuses) | `agent/notifier.py` | B9 |
+| 15 | Notifications dépréciées (silencieuses) | `agent/notifier.py` | B9 ✓ (retirées) |
