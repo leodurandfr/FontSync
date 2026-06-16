@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from agent.config import AgentConfig
 from agent.discovery import discover_fonts
 from agent.font_installer import install_font
+from agent.hash_cache import HashCache
 from agent.hashing import ScannedFont, scan_fonts
 
 if TYPE_CHECKING:
@@ -106,10 +107,15 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
         client = SyncClient(config)
 
     try:
-        # 1-2. Découverte + hachage de l'état réel du disque.
+        # 1-2. Découverte + hachage de l'état réel du disque. Le cache de hash
+        #    (clé path/size/mtime) évite de re-hacher les fonts inchangées ; il
+        #    est réécrit dès le scan terminé, car le travail de hachage est
+        #    valide quelle que soit l'issue des étapes réseau suivantes.
         discovered = discover_fonts(config.directories, config.ignore_patterns)
         result.discovered = len(discovered)
-        scanned = scan_fonts(discovered)
+        cache = HashCache.load()
+        scanned = scan_fonts(discovered, cache=cache)
+        cache.save()
         result.hashed = len(scanned)
         logger.info(
             "Scan local : %d fonts découvertes, %d hachées",

@@ -11,9 +11,12 @@ import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from agent.discovery import DiscoveredFont
+
+if TYPE_CHECKING:
+    from agent.hash_cache import HashCache
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,7 @@ def hash_file(path: Path) -> str:
 def scan_fonts(
     discovered: list[DiscoveredFont],
     on_progress: Callable[[int, int], None] | None = None,
+    cache: "HashCache | None" = None,
 ) -> list[ScannedFont]:
     """Hash chaque font découverte et retourne la liste des fonts scannées.
 
@@ -50,14 +54,26 @@ def scan_fonts(
     Args:
         discovered: liste de fonts découvertes
         on_progress: callback(current, total) pour la progression
+        cache: cache de hash optionnel. Quand fourni, une font dont
+            `(path, size, mtime_ns)` est inchangée n'est pas re-hachée. Le
+            cache n'est **pas** persisté ici : l'appelant doit `save()` après le
+            scan (pour que l'élagage des chemins disparus soit correct).
     """
     scanned: list[ScannedFont] = []
     total = len(discovered)
 
     for i, font in enumerate(discovered):
         try:
-            file_hash = hash_file(font.path)
-            file_size = font.path.stat().st_size
+            stat = font.path.stat()
+            file_size = stat.st_size
+            mtime_ns = stat.st_mtime_ns
+
+            file_hash = cache.get(font.path, file_size, mtime_ns) if cache else None
+            if file_hash is None:
+                file_hash = hash_file(font.path)
+                if cache is not None:
+                    cache.put(font.path, file_size, mtime_ns, file_hash)
+
             scanned.append(
                 ScannedFont(
                     path=font.path,

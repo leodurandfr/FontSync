@@ -62,8 +62,19 @@ class FakeClient:
         self.closed = True
 
 
+class _NoopCache:
+    """Cache de hash factice : ne touche jamais le disque pendant les tests."""
+
+    @classmethod
+    def load(cls, *a: Any, **k: Any) -> "_NoopCache":
+        return cls()
+
+    def save(self) -> None:
+        pass
+
+
 def _stub_scan(monkeypatch: pytest.MonkeyPatch, hashes: list[str]) -> None:
-    """Remplace discover/scan par des stubs renvoyant `len(hashes)` fonts."""
+    """Remplace discover/scan/cache par des stubs renvoyant `len(hashes)` fonts."""
     fonts = [
         ScannedFont(
             path=Path(f"/fake/{h}.ttf"),
@@ -75,6 +86,7 @@ def _stub_scan(monkeypatch: pytest.MonkeyPatch, hashes: list[str]) -> None:
     ]
     monkeypatch.setattr(sync_command, "discover_fonts", lambda *a, **k: list(fonts))
     monkeypatch.setattr(sync_command, "scan_fonts", lambda *a, **k: list(fonts))
+    monkeypatch.setattr(sync_command, "HashCache", _NoopCache)
 
 
 def _config() -> AgentConfig:
