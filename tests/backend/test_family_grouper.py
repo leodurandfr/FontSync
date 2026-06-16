@@ -1,8 +1,7 @@
 """Tests pour le service family_grouper."""
 
-import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -137,8 +136,12 @@ class TestSortOrderWithFixtures:
         from backend.services.font_analyzer import analyze
 
         fonts_data = []
-        for name in ["SuisseIntl-Thin.otf", "SuisseIntl-Light.otf",
-                      "SuisseIntl-Regular.otf", "SuisseIntl-SemiBold.otf"]:
+        for name in [
+            "SuisseIntl-Thin.otf",
+            "SuisseIntl-Light.otf",
+            "SuisseIntl-Regular.otf",
+            "SuisseIntl-SemiBold.otf",
+        ]:
             path = FIXTURES / name
             if path.exists():
                 meta = analyze(path)

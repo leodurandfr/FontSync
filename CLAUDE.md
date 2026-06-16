@@ -105,7 +105,7 @@ fontsync/
 
 ## Règles importantes
 
-- **Refonte en cours : la source de vérité du périmètre est `PLAN.md` à la racine.** SPECS.md décrit la vision produit ; pour l'architecture cible (SQLite, agent stateless + SSE) c'est PLAN.md qui prime.
+- **Refonte en cours : la source de vérité du périmètre est `PLAN.md` à la racine.** SPECS.md décrit la vision produit ; pour l'architecture cible (SQLite, agent stateless + SSE) c'est PLAN.md qui prime. La **vision long terme** (dual-mode self-host/cloud, cross-platform, auth, licence) vit dans `ROADMAP.md` — orientant, **non-actionable** : ne jamais l'implémenter hors phase active.
 - **Ne jamais implémenter de fonctionnalités hors de la phase en cours.** Consulter PLAN.md (puis SPECS.md) pour connaître le scope de chaque phase.
 - **Le serveur (NAS, toujours allumé) est la source de vérité.** L'agent est **stateless** : chaque `sync` repart de l'état réel du disque, jamais d'un état mémoire mutable. Le push réactif serveur→agent est un simple signal SSE « re-sync » (sans payload exploité).
 - **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.

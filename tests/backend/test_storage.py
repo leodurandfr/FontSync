@@ -119,16 +119,14 @@ async def test_store_with_real_font(storage: FilesystemStorage) -> None:
     """Test avec un vrai fichier TTF depuis les fixtures."""
     import pathlib
 
-    fixture = (
-        pathlib.Path(__file__).parent.parent / "fixtures" / "TTHovesPro-Rg.ttf"
-    )
+    fixture = pathlib.Path(__file__).parent.parent / "fixtures" / "TTHovesPro-Rg.ttf"
     if not fixture.exists():
         pytest.skip("Fixture TTF non disponible")
 
     data = fixture.read_bytes()
     file_hash = hashlib.sha256(data).hexdigest()
 
-    path = await storage.store(file_hash, data, "ttf")
+    await storage.store(file_hash, data, "ttf")
     assert await storage.exists(file_hash, "ttf")
 
     retrieved = await storage.retrieve(file_hash, "ttf")

@@ -77,7 +77,14 @@ class TestRegularFont:
         # Suisse Intl est une sans-serif
         classification = self.metadata.get("classification")
         assert classification is not None
-        assert classification in ("sans-serif", "serif", "monospace", "display", "handwriting", "symbol")
+        assert classification in (
+            "sans-serif",
+            "serif",
+            "monospace",
+            "display",
+            "handwriting",
+            "symbol",
+        )
 
 
 # --- Tests sur une font italic ---
@@ -227,9 +234,18 @@ class TestFieldCompleteness:
     """Vérifie que toutes les clés attendues sont présentes pour une font valide."""
 
     EXPECTED_KEYS = {
-        "family_name", "subfamily_name", "full_name", "postscript_name",
-        "version", "weight_class", "width_class", "is_italic", "is_oblique",
-        "glyph_count", "is_variable", "supported_scripts",
+        "family_name",
+        "subfamily_name",
+        "full_name",
+        "postscript_name",
+        "version",
+        "weight_class",
+        "width_class",
+        "is_italic",
+        "is_oblique",
+        "glyph_count",
+        "is_variable",
+        "supported_scripts",
     }
 
     def test_regular_font_has_all_core_fields(self) -> None:
