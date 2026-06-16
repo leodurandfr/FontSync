@@ -23,8 +23,10 @@ async def ws_client(websocket: WebSocket) -> None:
     """Connexion WebSocket pour les clients frontend."""
     await ws_manager.connect_client(websocket)
 
-    # Envoyer la liste des agents actuellement connectés
-    for agent_id in ws_manager.connected_agents:
+    # Envoyer la liste des agents actuellement connectés. La présence vient
+    # désormais des connexions SSE `listen` (l'agent n'utilise plus le WS) ;
+    # on inclut les éventuels agents WS legacy par sûreté.
+    for agent_id in {*ws_manager.connected_sse_devices, *ws_manager.connected_agents}:
         await websocket.send_json(
             {
                 "type": "device.connected",

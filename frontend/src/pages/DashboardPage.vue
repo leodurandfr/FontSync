@@ -7,13 +7,33 @@ import { useDevicesStore } from "@/stores/devices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Font } from "@/types/api";
+import type { Font, Stats } from "@/types/api";
 
 const fontsStore = useFontsStore();
 const devicesStore = useDevicesStore();
 
 const recentFonts = ref<Font[]>([]);
 const recentLoading = ref(false);
+
+// Compteur « Polices » branché sur /api/stats : reste correct même sans avoir
+// visité la page Fonts (le store n'est alors pas peuplé). Mis à jour en direct
+// par les events WS font.added/font.deleted relayés au store.
+const totalFonts = ref<number | null>(null);
+
+const fontsCount = computed(() =>
+  fontsStore.initialized ? fontsStore.total : (totalFonts.value ?? 0),
+);
+
+async function fetchStats() {
+  try {
+    const res = await fetch("/api/stats");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: Stats = await res.json();
+    totalFonts.value = data.totalFonts;
+  } catch {
+    // Silent fail — dashboard is non-critical
+  }
+}
 
 const onlineDevices = computed(() =>
   devicesStore.devices.filter((d) => devicesStore.isOnline(d.id)),
@@ -22,9 +42,7 @@ const onlineDevices = computed(() =>
 async function fetchRecentFonts() {
   recentLoading.value = true;
   try {
-    const res = await fetch(
-      "/api/fonts?sort=created_at&order=desc&per_page=5",
-    );
+    const res = await fetch("/api/fonts?sort=created_at&order=desc&per_page=5");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     recentFonts.value = data.items ?? [];
@@ -45,6 +63,7 @@ function formatRelativeTime(dateStr: string): string {
 
 onMounted(() => {
   fetchRecentFonts();
+  if (!fontsStore.initialized) fetchStats();
   if (devicesStore.devices.length === 0 && !devicesStore.loading) {
     devicesStore.fetchDevices();
   }
@@ -63,7 +82,7 @@ onMounted(() => {
       <div class="rounded-xl border bg-card p-6">
         <p class="text-sm font-medium text-muted-foreground">Polices</p>
         <p class="text-3xl font-bold tracking-tight mt-1">
-          {{ fontsStore.total }}
+          {{ fontsCount }}
         </p>
       </div>
       <div class="rounded-xl border bg-card p-6">
@@ -92,7 +111,10 @@ onMounted(() => {
         </Button>
       </div>
 
-      <div v-if="recentLoading" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div
+        v-if="recentLoading"
+        class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+      >
         <Skeleton v-for="i in 5" :key="i" class="h-24 rounded-xl" />
       </div>
 
@@ -100,7 +122,9 @@ onMounted(() => {
         v-else-if="recentFonts.length === 0"
         class="rounded-xl border border-dashed p-8 text-center"
       >
-        <p class="text-sm text-muted-foreground">Aucune police pour l'instant.</p>
+        <p class="text-sm text-muted-foreground">
+          Aucune police pour l'instant.
+        </p>
       </div>
 
       <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -144,9 +168,7 @@ onMounted(() => {
         v-if="onlineDevices.length === 0"
         class="rounded-xl border border-dashed p-8 text-center"
       >
-        <p class="text-sm text-muted-foreground">
-          Aucun appareil connecté.
-        </p>
+        <p class="text-sm text-muted-foreground">Aucun appareil connecté.</p>
       </div>
 
       <div v-else class="space-y-2">

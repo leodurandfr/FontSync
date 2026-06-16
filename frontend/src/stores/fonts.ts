@@ -124,6 +124,7 @@ export const useFontsStore = defineStore("fonts", () => {
     loading,
     loadingMore,
     error,
+    initialized,
     isEmpty,
     hasMore,
     fetchFonts,

@@ -29,7 +29,15 @@ async def agent_events(device_id: str, request: Request) -> StreamingResponse:
     """Flux SSE des signaux « re-sync » pour un device."""
 
     async def event_stream() -> AsyncIterator[str]:
+        # Présence « en ligne » : le `listen` (SSE) a remplacé la connexion
+        # WebSocket de l'agent. On notifie les clients frontend à la première
+        # connexion SSE d'un device et à la déconnexion de la dernière.
+        was_online = device_id in ws_manager.connected_sse_devices
         queue = ws_manager.subscribe_agent_events(device_id)
+        if not was_online:
+            await ws_manager.broadcast_to_clients(
+                {"type": "device.connected", "data": {"deviceId": device_id}}
+            )
         try:
             # Signal initial : déclenche un premier sync au démarrage du `listen`.
             yield "event: sync\ndata: {}\n\n"
@@ -47,6 +55,10 @@ async def agent_events(device_id: str, request: Request) -> StreamingResponse:
                     yield ": keep-alive\n\n"
         finally:
             ws_manager.unsubscribe_agent_events(device_id, queue)
+            if device_id not in ws_manager.connected_sse_devices:
+                await ws_manager.broadcast_to_clients(
+                    {"type": "device.disconnected", "data": {"deviceId": device_id}}
+                )
 
     return StreamingResponse(
         event_stream(),

@@ -164,6 +164,17 @@ class WebSocketManager:
     def connected_agents(self) -> list[str]:
         return list(self._agents.keys())
 
+    @property
+    def connected_sse_devices(self) -> list[str]:
+        """Device_ids ayant au moins une connexion SSE `listen` active.
+
+        Source de présence « en ligne » depuis la migration de l'agent
+        WebSocket → SSE : un `listen` connecté = device joignable. Les sets
+        vides sont supprimés à la désinscription, donc une clé présente ⇔
+        au moins un abonné actif.
+        """
+        return list(self._sse_subscribers.keys())
+
 
 # Singleton global
 ws_manager = WebSocketManager()

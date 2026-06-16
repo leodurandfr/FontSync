@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : C1 (build front réparé) fait. Prochaine étape : C2 (aligner le frontend sur l'API). B12 (distribution publique) reste à ouvrir au moment de rendre l'app publique.**
+**STATUT : C2 (frontend aligné sur l'API) fait. Prochaine étape : C3 (design différé — à rouvrir quand on décide des features gardées). B12 (distribution publique) reste à ouvrir au moment de rendre l'app publique.**
 
 ---
 
@@ -113,7 +113,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
 ## Phase C — Frontend (minimal : juste de quoi tourner)
 
 - [x] **C1 — Réparer le build.** `Monitor` (lucide-vue-next) ajouté à l'import de `frontend/src/pages/FontDetailPage.vue` (utilisé L399, jamais importé → `vue-tsc` cassait). *(Vérifié : `npm install` puis `npm run build` = `vue-tsc -b && vite build` passe, 2443 modules transformés, dist généré. Aucun autre symbole non importé détecté par le typecheck.)*
-- [ ] **C2 — Aligner sur l'API** si sa forme a changé (nouveaux noms d'events, `width_class`, etc.). Brancher le compteur Dashboard sur `/api/stats`.
+- [x] **C2 — Aligner sur l'API.** *(Principal point d'alignement : la **présence « en ligne »**. Depuis la migration de l'agent WebSocket → SSE (Phase B), plus aucun agent ne se connecte au WS `/ws/agent` → les events `device.connected`/`device.disconnected` ne partaient plus jamais et tous les indicateurs « connecté » du frontend étaient morts. La présence vient désormais du flux SSE `listen` : `backend/routers/agent_events.py` diffuse `device.connected` à la **première** connexion SSE d'un device et `device.disconnected` au départ de la **dernière** ; `ws_manager.connected_sse_devices` expose les devices abonnés et le replay au connect d'un client (`backend/routers/ws.py`) s'appuie dessus (∪ agents WS legacy). Le frontend gérait déjà ces events — aucun changement côté store. **Compteur Dashboard branché sur `/api/stats`** : `fontsCount` = `fontsStore.total` si le store a été peuplé (mis à jour en direct par les events WS `font.added`/`font.deleted`), sinon `totalFonts` chargé depuis `/api/stats` au montage (`initialized` désormais exposé par le store fonts). `width_class` était déjà aligné (`widthClass`) ; type `FontFilters.sort` complété avec `name`/`glyph_count` (A7). 3 tests `tests/backend/test_agent_events.py` (connect→`device.connected`, disconnect→`device.disconnected`, double `listen` → un seul broadcast). Vérifié : `npm run build` OK, `ruff check` OK, app importe, tests backend non-dépendants des fixtures commerciales verts.)*
 - [ ] **C3 — Design différé** (à rouvrir quand on décide des features gardées) : UI d'upload, filtres accessibles (sidebar morte), couverture des events WS, indicateur « Reconnexion… », pivot familles à figer dans les specs.
 
 ---

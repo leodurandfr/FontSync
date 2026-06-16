@@ -52,11 +52,13 @@ export interface FontFilters {
   familyId?: string;
   orphan?: boolean;
   sort?:
+    | "name"
     | "family_name"
     | "created_at"
     | "updated_at"
     | "file_size"
-    | "weight_class";
+    | "weight_class"
+    | "glyph_count";
   order?: "asc" | "desc";
   page?: number;
   perPage?: number;
