@@ -105,3 +105,23 @@ def test_save_is_atomic_and_restricted(_isolated_config: Path) -> None:
 
     mode = stat.S_IMODE(os.stat(_isolated_config).st_mode)
     assert mode == 0o600
+
+
+def test_hostname_and_name_env_override(
+    _isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Les overrides d'env distinguent deux devices simulés sur une même machine."""
+    cfg = AgentConfig.load()
+    monkeypatch.setenv("FONTSYNC_HOSTNAME", "mac-dev-B")
+    monkeypatch.setenv("FONTSYNC_DEVICE_NAME", "Dev B")
+    assert cfg.get_hostname() == "mac-dev-B"
+    assert cfg.get_device_name() == "Dev B"
+
+
+def test_hostname_falls_back_to_platform_node(
+    _isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sans override → comportement de production (platform.node())."""
+    monkeypatch.delenv("FONTSYNC_HOSTNAME", raising=False)
+    monkeypatch.setattr(config_module.platform, "node", lambda: "real-mac")
+    assert AgentConfig.load().get_hostname() == "real-mac"

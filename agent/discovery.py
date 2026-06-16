@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,7 +126,15 @@ def discover_fonts(
     """Découvre toutes les fonts installées.
 
     Tente Core Text d'abord, fallback sur scan dossiers.
+
+    En développement, ``FONTSYNC_DISCOVERY=directories`` force le scan de dossiers
+    et court-circuite Core Text (qui renverrait toujours le vrai
+    ``~/Library/Fonts``) : indispensable pour simuler une machine au jeu de fonts
+    isolé. Neutre en production (variable non définie).
     """
+    if os.environ.get("FONTSYNC_DISCOVERY") == "directories":
+        return discover_via_directories(directories, ignore_patterns)
+
     fonts = discover_via_core_text()
     if fonts:
         return fonts

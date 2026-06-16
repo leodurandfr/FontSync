@@ -11,6 +11,9 @@ venv/
 node_modules/
 frontend/dist/
 
+# Dev local (serveur + devices simulés, cf. scripts/dev/)
+.dev/
+
 # Environment
 .env
 .env.*

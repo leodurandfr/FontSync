@@ -22,9 +22,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent.paths import state_dir
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_CACHE_PATH = Path.home() / ".fontsync" / "hash_cache.json"
+DEFAULT_CACHE_PATH = state_dir() / "hash_cache.json"
 
 _VERSION = 1
 

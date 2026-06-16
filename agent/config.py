@@ -28,7 +28,9 @@ from pathlib import Path
 
 import yaml
 
-CONFIG_DIR = Path.home() / ".fontsync"
+from agent.paths import state_dir
+
+CONFIG_DIR = state_dir()
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
 AGENT_VERSION = "0.1.0"
@@ -131,11 +133,23 @@ class AgentConfig:
         CONFIG_FILE.chmod(0o600)
 
     def get_device_name(self) -> str:
-        """Retourne un nom lisible pour ce device."""
-        return platform.node() or "Mac inconnu"
+        """Retourne un nom lisible pour ce device.
+
+        `FONTSYNC_DEVICE_NAME` permet de le forcer (simulation multi-machines
+        en dev) ; non défini → nom de la machine.
+        """
+        return (
+            os.environ.get("FONTSYNC_DEVICE_NAME") or platform.node() or "Mac inconnu"
+        )
 
     def get_hostname(self) -> str:
-        return platform.node()
+        """Hostname du device — **clé d'upsert** côté serveur.
+
+        `FONTSYNC_HOSTNAME` permet de le forcer : indispensable pour simuler
+        plusieurs devices sur une seule machine (sinon le serveur les fusionne,
+        l'enregistrement étant un upsert par hostname). Non défini → machine.
+        """
+        return os.environ.get("FONTSYNC_HOSTNAME") or platform.node()
 
     def get_os_version(self) -> str:
         return platform.mac_ver()[0] or platform.version()

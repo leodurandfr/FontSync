@@ -27,10 +27,12 @@ import logging
 import shutil
 from pathlib import Path
 
+from agent.paths import fonts_dir, state_dir
+
 logger = logging.getLogger(__name__)
 
-INSTALL_DIR = Path.home() / "Library" / "Fonts"
-DISABLED_DIR = Path.home() / ".fontsync" / "disabled"
+INSTALL_DIR = fonts_dir()
+DISABLED_DIR = state_dir() / "disabled"
 INSTALLABLE_FORMATS = {".ttf", ".otf", ".ttc"}
 
 _CHUNK_SIZE = 65536  # 64 Ko

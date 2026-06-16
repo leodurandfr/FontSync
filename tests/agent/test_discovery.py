@@ -122,6 +122,23 @@ def test_discover_fonts_prefers_core_text_when_available(
     assert fonts == ct_result  # le dossier n'a pas été scanné
 
 
+def test_discover_fonts_forced_directories_skips_core_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FONTSYNC_DISCOVERY=directories → Core Text court-circuité (simulation dev)."""
+    _touch(tmp_path / "Inter.ttf")
+
+    def _boom() -> list[DiscoveredFont]:
+        raise AssertionError("Core Text ne doit pas être appelé en mode forcé")
+
+    monkeypatch.setattr(discovery, "discover_via_core_text", _boom)
+    monkeypatch.setenv("FONTSYNC_DISCOVERY", "directories")
+
+    fonts = discover_fonts([str(tmp_path)])
+
+    assert [f.filename for f in fonts] == ["Inter.ttf"]
+
+
 def test_core_text_returns_empty_without_pyobjc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
