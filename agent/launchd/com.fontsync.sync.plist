@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent `com.fontsync.sync` — commande `fontsync sync` stateless.
+
+  Gabarit : les jetons @...@ sont substitués à l'installation par
+  agent/launchd/install.sh (chemin du Python, racine du repo, $HOME, dossier
+  de logs). Ne pas charger ce fichier tel quel.
+
+  Déclencheurs (cf. PLAN.md B8 / SPECS.md §6.2) :
+  - WatchPaths   : un changement dans ~/Library/Fonts (ou /Library/Fonts) relance sync.
+  - StartInterval: filet de sécurité ~600 s pour rattraper les événements manqués.
+  - RunAtLoad    : un sync au chargement de l'agent (ouverture de session).
+
+  `sync` est une commande courte qui se termine : pas de KeepAlive.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fontsync.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON@</string>
+        <string>-m</string>
+        <string>agent</string>
+        <string>sync</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>@WORKDIR@</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@WORKDIR@</string>
+    </dict>
+
+    <key>WatchPaths</key>
+    <array>
+        <string>@HOME@/Library/Fonts</string>
+        <string>/Library/Fonts</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>@LOGDIR@/sync.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@LOGDIR@/sync.err.log</string>
+</dict>
+</plist>

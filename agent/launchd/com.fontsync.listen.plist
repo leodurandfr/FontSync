@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent `com.fontsync.listen` — process `fontsync listen` (flux SSE).
+
+  Gabarit : les jetons @...@ sont substitués à l'installation par
+  agent/launchd/install.sh. Ne pas charger ce fichier tel quel.
+
+  C'est le seul process long-vécu de l'agent (cf. PLAN.md B4/B8) : il ouvre la
+  connexion SSE au serveur et relance `sync` à chaque signal. KeepAlive le
+  redémarre s'il meurt ; la commande gère déjà sa propre boucle de reconnexion,
+  ThrottleInterval évite juste un cycle de redémarrage trop serré.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fontsync.listen</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON@</string>
+        <string>-m</string>
+        <string>agent</string>
+        <string>listen</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>@WORKDIR@</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@WORKDIR@</string>
+    </dict>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>@LOGDIR@/listen.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@LOGDIR@/listen.err.log</string>
+</dict>
+</plist>
