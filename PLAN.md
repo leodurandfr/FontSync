@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : B11 (tests agent) fait. Prochaine étape : B12 (distribution publique) — à ouvrir au moment de rendre l'app publique ; sinon Phase C (frontend).**
+**STATUT : C1 (build front réparé) fait. Prochaine étape : C2 (aligner le frontend sur l'API). B12 (distribution publique) reste à ouvrir au moment de rendre l'app publique.**
 
 ---
 
@@ -112,7 +112,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
 
 ## Phase C — Frontend (minimal : juste de quoi tourner)
 
-- [ ] **C1 — Réparer le build.** Importer `Monitor` (lucide) dans `frontend/src/pages/FontDetailPage.vue` (~L399). Vérifier `npm run build` (`vue-tsc -b && vite build`).
+- [x] **C1 — Réparer le build.** `Monitor` (lucide-vue-next) ajouté à l'import de `frontend/src/pages/FontDetailPage.vue` (utilisé L399, jamais importé → `vue-tsc` cassait). *(Vérifié : `npm install` puis `npm run build` = `vue-tsc -b && vite build` passe, 2443 modules transformés, dist généré. Aucun autre symbole non importé détecté par le typecheck.)*
 - [ ] **C2 — Aligner sur l'API** si sa forme a changé (nouveaux noms d'events, `width_class`, etc.). Brancher le compteur Dashboard sur `/api/stats`.
 - [ ] **C3 — Design différé** (à rouvrir quand on décide des features gardées) : UI d'upload, filtres accessibles (sidebar morte), couverture des events WS, indicateur « Reconnexion… », pivot familles à figer dans les specs.
 

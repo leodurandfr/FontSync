@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Upload,
   Calendar,
+  Monitor,
 } from "lucide-vue-next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,7 +152,6 @@ function formatDate(dateStr: string): string {
   });
 }
 
-
 onMounted(async () => {
   await fetchFont();
   if (font.value) loadFontFace();
@@ -248,9 +248,7 @@ onUnmounted(() => {
       <div
         class="rounded-xl border bg-card p-6 text-2xl leading-relaxed break-words"
         :style="{
-          fontFamily: fontLoaded
-            ? `'${fontFamily}', sans-serif`
-            : 'sans-serif',
+          fontFamily: fontLoaded ? `'${fontFamily}', sans-serif` : 'sans-serif',
         }"
       >
         {{ previewText }}
@@ -448,9 +446,7 @@ onUnmounted(() => {
       <div
         class="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-12 gap-1"
         :style="{
-          fontFamily: fontLoaded
-            ? `'${fontFamily}', monospace`
-            : 'monospace',
+          fontFamily: fontLoaded ? `'${fontFamily}', monospace` : 'monospace',
         }"
       >
         <div
