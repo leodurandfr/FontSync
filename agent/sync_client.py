@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -74,9 +73,7 @@ class SyncClient:
 
     # ---- Delta sync ----
 
-    def delta_sync(
-        self, device_id: str, fonts: list[ScannedFont]
-    ) -> dict[str, Any]:
+    def delta_sync(self, device_id: str, fonts: list[ScannedFont]) -> dict[str, Any]:
         """Envoie les hashes locaux au serveur pour comparaison.
 
         POST /api/sync/delta
@@ -166,7 +163,9 @@ class SyncClient:
                 else:
                     pushed += 1
             except httpx.HTTPStatusError as e:
-                logger.error("Erreur push %s : HTTP %d", font.filename, e.response.status_code)
+                logger.error(
+                    "Erreur push %s : HTTP %d", font.filename, e.response.status_code
+                )
                 errors += 1
             except Exception:
                 logger.exception("Erreur push %s", font.filename)
@@ -203,6 +202,7 @@ class SyncClient:
         if "filename*=" in cd:
             # RFC 5987: filename*=UTF-8''encoded_name
             from urllib.parse import unquote
+
             raw = cd.split("filename*=")[-1]
             # Strip encoding prefix (UTF-8'')
             if "''" in raw:

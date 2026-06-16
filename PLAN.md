@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A7 (nettoyage schémas/imports) fait. → Phase A terminée. Prochaine étape : B1 (commande `sync` stateless).**
+**STATUT : B1 (commande `sync` stateless) fait. Prochaine étape : B2 (cache de hash local).**
 
 ---
 
@@ -86,7 +86,7 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
 
 ## Phase B — Agent stateless launchd + listener SSE
 
-- [ ] **B1 — Commande `sync` stateless** : `discover (Core Text + dossiers) → hash (avec cache B2) → register/update device → POST /sync/delta → push inconnues → pull manquantes (si auto_pull) → install → exit`. **Aucun état global mutable.** Réutiliser `agent/discovery.py` et `agent/font_installer.py` (déjà sûrs).
+- [x] **B1 — Commande `sync` stateless** : `discover (Core Text + dossiers) → hash (avec cache B2) → register/update device → POST /sync/delta → push inconnues → pull manquantes (si auto_pull) → install → exit`. **Aucun état global mutable.** Réutiliser `agent/discovery.py` et `agent/font_installer.py` (déjà sûrs). *(`agent/sync_command.py` : `run_sync(config, client=None)` pur, client HTTP injectable, bilan `SyncResult`. Drapeaux `auto_pull`/`auto_push` lus depuis la réponse `register` — **le serveur fait foi**. Primitives de hachage extraites dans `agent/hashing.py` (importable sans `watchdog`) ; `scanner.py` les ré-exporte. CLI `python -m agent sync` (`agent/__main__.py` argparse). `SyncClient` importé en différé → testable sans `httpx`. **Le cache de hash est laissé à B2** : `scan_fonts` re-hache tout pour l'instant. Le process `listen` arrive en B4. 6 tests `tests/agent/test_sync_command.py` (flux complet, drapeaux serveur, format non installable, échec register fatal, statelessness). NB : le persistant `agent/main.py`/`tray.py` reste sur disque jusqu'à sa suppression en B3.)*
 - [ ] **B2 — Cache de hash local** par clé `(path, size, mtime)` dans `~/.fontsync/state.(db|json)` → ne re-hasher que ce qui a changé (scan de 500 fonts quasi gratuit après la 1re fois).
 - [ ] **B3 — Suppressions.** Retirer `agent/tray.py`, les parties WS persistant de `agent/sync_client.py`, le watcher watchdog et la boucle asyncio/reconnexion. Mettre à jour `agent/requirements.txt` (retirer `watchdog`, `pystray` ; garder `pyobjc-framework-CoreText`, `httpx`, `pyyaml`).
 - [ ] **B4 — Process `listen`** : ouvre la connexion SSE au serveur ; à chaque event → (debounce ~2 s) → lance `sync` (in-process gardé par try/except, ou subprocess). Boucle de reconnexion triviale (sleep + retry). **Zéro état, zéro hash.**
