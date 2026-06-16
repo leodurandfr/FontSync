@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A3 (pipeline d'import robuste & idempotent) fait. → Prochaine étape : A4 (sémantique de sync).**
+**STATUT : A4 (sémantique de sync) fait. → Prochaine étape : A5 (canal temps réel : SSE agent + events clients).**
 
 ---
 
@@ -72,10 +72,10 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] Pas de fichier orphelin : store→insert dans un `try`, cleanup `_safe_delete_storage` si l'insert échoue hors doublon ; en cas de doublon le fichier (même hash → même chemin) appartient légitimement à la font existante. Regroupement famille isolé dans une transaction best-effort (n'annule plus l'import).
   - [x] `.ttc` : `font_analyzer` détecte la collection (magic `ttcf`) et parse la **première** sous-font (`fontNumber=0`) → plus de métadonnées vides. Éclatement multi-sous-fonts explicitement reporté (nécessiterait une clé unique composite hash+index).
   - [x] `unicode_ranges` peuplé : couverture quantitative `{script: nb_codepoints}` dérivée de la cmap (`_compute_unicode_ranges`), plus fine que `supported_scripts`.
-- [ ] **A4 — Sémantique de sync** (`backend/services/sync_manager.py`, `backend/routers/sync.py`).
-  - `compute_delta` : **ne plus écrire de `device_fonts` fantômes** et **ne plus `commit()`** au milieu d'un calcul de delta (delta = lecture pure).
-  - `pull_font` : enregistrer de façon fiable l'association `device_font` (installed/activated) quel que soit le passage de `device_id`.
-  - Supprimer la table/modèle morts `sync_queue` (`backend/models/sync_queue.py` + relations) — jamais utilisée. *(Le mode « pull manuel en file d'attente » n'est pas requis : auto_pull suffit.)*
+- [x] **A4 — Sémantique de sync** (`backend/services/sync_manager.py`, `backend/routers/sync.py`). *(Vérifié via smoke test : 3 ensembles delta corrects + 0 `device_fonts` fantôme écrit ; migration baseline ré-appliquée sans `sync_queue` ; app importe.)*
+  - [x] `compute_delta` : lecture pure — ne crée plus d'associations `device_fonts` et ne `commit()` plus (param `device_id` retiré de la signature, devenu inutile).
+  - [x] `pull_font` : `device_id` désormais **requis** ; l'association `device_font` n'est enregistrée **qu'après** récupération réussie du fichier (un échec storage ne laisse plus d'association « installée » fantôme).
+  - [x] Table/modèle morts `sync_queue` supprimés (`backend/models/sync_queue.py`, relations `device`/`font`, export `__init__`, table de la migration baseline).
 - [ ] **A5 — Canal temps réel : SSE agent + events clients.**
   - Nouvel endpoint **SSE** `GET /api/agent/{device_id}/events` (ou équivalent) qui émet un signal `sync` quand une font devient disponible pour ce device. Consommé par le process `listen`. *(Décider SSE vs réutilisation WS ; SSE recommandé.)*
   - Émettre les events manquants vers les clients frontend : `font.deleted` (dans `delete_font`), `font.updated` (dans `update_font`/`restore`) — `backend/routers/fonts.py`.

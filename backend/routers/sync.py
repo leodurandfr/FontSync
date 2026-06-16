@@ -58,7 +58,7 @@ async def delta_sync(
     """
     # Vérifier que le device existe
     await _get_device_or_404(body.device_id, db)
-    return await compute_delta(body.device_id, body.fonts, db)
+    return await compute_delta(body.fonts, db)
 
 
 @router.post("/push", response_model=PushResponse)
@@ -110,15 +110,19 @@ async def push_font(
         font_resp = FontResponse.model_validate(font)
         font_data = font_resp.model_dump(mode="json", by_alias=True)
         # Notifier les clients frontend
-        await ws_manager.broadcast_to_clients({
-            "type": "font.added",
-            "data": font_data,
-        })
+        await ws_manager.broadcast_to_clients(
+            {
+                "type": "font.added",
+                "data": font_data,
+            }
+        )
         # Notifier les autres agents qu'une nouvelle font est disponible
-        await ws_manager.broadcast_to_agents({
-            "type": "font.available",
-            "data": font_data,
-        })
+        await ws_manager.broadcast_to_agents(
+            {
+                "type": "font.available",
+                "data": font_data,
+            }
+        )
 
     return PushResponse(
         font_id=font.id,
@@ -131,11 +135,19 @@ async def push_font(
 @router.get("/pull/{font_id}")
 async def pull_font(
     font_id: uuid.UUID,
-    device_id: uuid.UUID | None = None,
+    device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
 ) -> Response:
-    """Retourne le fichier font pour installation par l'agent."""
+    """Retourne le fichier font pour installation par l'agent.
+
+    L'association `device_font` (installed/activated) n'est enregistrée
+    qu'après récupération réussie du fichier : un échec de stockage ne laisse
+    donc jamais d'association « installée » fantôme.
+    """
+    # Vérifier que le device existe
+    await _get_device_or_404(device_id, db)
+
     result = await db.execute(
         select(Font).where(Font.id == font_id, Font.deleted_at.is_(None))
     )
@@ -143,20 +155,21 @@ async def pull_font(
     if font is None:
         raise HTTPException(status_code=404, detail="Font non trouvée.")
 
-    # Enregistrer l'association device ↔ font si device_id fourni
-    if device_id is not None:
-        await register_device_font(
-            device_id=device_id,
-            font_id=font.id,
-            local_path=font.original_filename,
-            db=db,
-        )
-        await db.commit()
-
     try:
         data = await storage.retrieve(font.file_hash, font.file_format)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Fichier introuvable dans le stockage.")
+        raise HTTPException(
+            status_code=404, detail="Fichier introuvable dans le stockage."
+        )
+
+    # Le fichier est disponible → enregistrer l'association device ↔ font
+    await register_device_font(
+        device_id=device_id,
+        font_id=font.id,
+        local_path=font.original_filename,
+        db=db,
+    )
+    await db.commit()
 
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
     encoded = quote(font.original_filename, safe="")

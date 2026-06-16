@@ -11,29 +11,34 @@ from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
 
 
 async def compute_delta(
-    device_id: uuid.UUID,
     device_fonts: list[DeviceFontEntry],
     db: AsyncSession,
 ) -> DeltaSyncResponse:
     """Compare les fonts de l'agent avec celles du serveur.
 
+    Lecture pure : ne crée aucune association `device_fonts` et ne commit
+    jamais. Les associations sont enregistrées au moment réel du transfert
+    (push pour les fonts montantes, pull pour les fonts descendantes).
+
     Args:
-        device_id: Identifiant du device.
         device_fonts: Liste des fonts présentes sur le device (hash + filename).
         db: Session de base de données.
 
     Returns:
         DeltaSyncResponse avec unknown_to_server, missing_on_device, already_synced.
     """
-    device_hash_map: dict[str, DeviceFontEntry] = {
-        entry.hash: entry for entry in device_fonts
-    }
-    device_hashes = set(device_hash_map.keys())
+    device_hashes = {entry.hash for entry in device_fonts}
 
     # Récupérer toutes les fonts actives du serveur
     result = await db.execute(
-        select(Font.id, Font.file_hash, Font.original_filename, Font.file_format, Font.family_name, Font.file_size)
-        .where(Font.deleted_at.is_(None))
+        select(
+            Font.id,
+            Font.file_hash,
+            Font.original_filename,
+            Font.file_format,
+            Font.family_name,
+            Font.file_size,
+        ).where(Font.deleted_at.is_(None))
     )
     server_fonts = result.all()
     server_hash_map: dict[str, tuple] = {row.file_hash: row for row in server_fonts}
@@ -56,24 +61,13 @@ async def compute_delta(
         for h in missing_hashes
     ]
 
-    # Fonts en commun → enregistrer les associations device_fonts
-    synced_hashes = device_hashes & server_hashes
-    for h in synced_hashes:
-        entry = device_hash_map[h]
-        server_row = server_hash_map[h]
-        await register_device_font(
-            device_id=device_id,
-            font_id=server_row.id,
-            local_path=entry.local_path or entry.filename,
-            db=db,
-        )
-    if synced_hashes:
-        await db.commit()
+    # Fonts en commun → simple comptage (aucune écriture)
+    already_synced = len(device_hashes & server_hashes)
 
     return DeltaSyncResponse(
         unknown_to_server=unknown_to_server,
         missing_on_device=missing_on_device,
-        already_synced=len(synced_hashes),
+        already_synced=already_synced,
     )
 
 

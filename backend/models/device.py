@@ -26,8 +26,6 @@ class Device(UUIDPrimaryKey, Base):
 
     # Relations
     device_fonts: Mapped[list["DeviceFont"]] = relationship(back_populates="device")
-    sync_queue_items: Mapped[list["SyncQueue"]] = relationship(back_populates="device")
 
 
 from backend.models.device_font import DeviceFont  # noqa: E402
-from backend.models.sync_queue import SyncQueue  # noqa: E402

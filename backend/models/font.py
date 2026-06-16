@@ -76,7 +76,6 @@ class Font(UUIDPrimaryKey, Base):
 
     # Relations
     device_fonts: Mapped[list["DeviceFont"]] = relationship(back_populates="font")
-    sync_queue_items: Mapped[list["SyncQueue"]] = relationship(back_populates="font")
     family_member: Mapped["FontFamilyMember | None"] = relationship(
         back_populates="font"
     )
@@ -92,4 +91,3 @@ class Font(UUIDPrimaryKey, Base):
 
 from backend.models.device_font import DeviceFont  # noqa: E402
 from backend.models.font_family import FontFamilyMember  # noqa: E402
-from backend.models.sync_queue import SyncQueue  # noqa: E402
