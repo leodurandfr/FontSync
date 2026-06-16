@@ -72,7 +72,9 @@ async def upload_fonts(
             errors.append({"filename": e.filename, "detail": e.detail})
         except Exception:
             logger.exception("Erreur inattendue lors de l'import de %s", filename)
-            errors.append({"filename": filename, "detail": "Erreur interne du serveur."})
+            errors.append(
+                {"filename": filename, "detail": "Erreur interne du serveur."}
+            )
 
     # Notification WebSocket pour chaque font importée
     for font_resp in imported:
@@ -239,7 +241,9 @@ async def download_font_file(
     try:
         data = await storage.retrieve(font.file_hash, font.file_format)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Fichier introuvable dans le stockage.")
+        raise HTTPException(
+            status_code=404, detail="Fichier introuvable dans le stockage."
+        )
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
     encoded = quote(font.original_filename, safe="")
     return Response(
@@ -265,7 +269,9 @@ async def preview_font_file(
     try:
         data = await storage.retrieve(font.file_hash, font.file_format)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Fichier introuvable dans le stockage.")
+        raise HTTPException(
+            status_code=404, detail="Fichier introuvable dans le stockage."
+        )
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
     return Response(
         content=data,
@@ -296,7 +302,14 @@ async def update_font(
     font.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(font)
-    return FontResponse.model_validate(font)
+    response = FontResponse.model_validate(font)
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "font.updated",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
+    )
+    return response
 
 
 # ---------- Statut par appareil ----------
@@ -311,9 +324,7 @@ async def get_font_device_status(
     await _get_font_or_404(font_id, db)
 
     # Tous les devices
-    devices_result = await db.execute(
-        select(Device).order_by(Device.name)
-    )
+    devices_result = await db.execute(select(Device).order_by(Device.name))
     devices = devices_result.scalars().all()
 
     # Associations device_fonts pour cette font
@@ -327,16 +338,18 @@ async def get_font_device_status(
     statuses = []
     for device in devices:
         df = device_fonts.get(device.id)
-        statuses.append(FontDeviceStatus(
-            device_id=device.id,
-            device_name=device.name,
-            hostname=device.hostname,
-            is_online=str(device.id) in online_ids,
-            installed=df is not None,
-            activated=df.activated if df else False,
-            local_path=df.local_path if df else None,
-            installed_at=df.installed_at if df else None,
-        ))
+        statuses.append(
+            FontDeviceStatus(
+                device_id=device.id,
+                device_name=device.name,
+                hostname=device.hostname,
+                is_online=str(device.id) in online_ids,
+                installed=df is not None,
+                activated=df.activated if df else False,
+                local_path=df.local_path if df else None,
+                installed_at=df.installed_at if df else None,
+            )
+        )
 
     return statuses
 
@@ -348,7 +361,7 @@ async def install_font_on_device(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Demande l'installation d'une font sur un appareil via WebSocket."""
-    font = await _get_font_or_404(font_id, db)
+    await _get_font_or_404(font_id, db)
     sent = await ws_manager.send_to_agent(
         str(device_id),
         {"type": "font.install", "data": {"fontId": str(font_id)}},
@@ -380,11 +393,15 @@ async def uninstall_font_on_device(
     if df:
         # Le local_path peut être un chemin complet, on veut juste le nom
         from pathlib import PurePosixPath
+
         filename = PurePosixPath(df.local_path).name
 
     sent = await ws_manager.send_to_agent(
         str(device_id),
-        {"type": "font.uninstall", "data": {"fontId": str(font_id), "filename": filename}},
+        {
+            "type": "font.uninstall",
+            "data": {"fontId": str(font_id), "filename": filename},
+        },
     )
     if not sent:
         raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
@@ -410,7 +427,9 @@ async def _get_device_font_or_400(
     )
     df = df_result.scalar_one_or_none()
     if df is None:
-        raise HTTPException(status_code=400, detail="La font n'est pas installée sur cet appareil.")
+        raise HTTPException(
+            status_code=400, detail="La font n'est pas installée sur cet appareil."
+        )
     return df
 
 
@@ -425,7 +444,10 @@ async def activate_font_on_device(
     df = await _get_device_font_or_400(font_id, device_id, db)
     sent = await ws_manager.send_to_agent(
         str(device_id),
-        {"type": "font.activate", "data": {"fontId": str(font_id), "localPath": df.local_path}},
+        {
+            "type": "font.activate",
+            "data": {"fontId": str(font_id), "localPath": df.local_path},
+        },
     )
     if not sent:
         raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
@@ -443,7 +465,10 @@ async def deactivate_font_on_device(
     df = await _get_device_font_or_400(font_id, device_id, db)
     sent = await ws_manager.send_to_agent(
         str(device_id),
-        {"type": "font.deactivate", "data": {"fontId": str(font_id), "localPath": df.local_path}},
+        {
+            "type": "font.deactivate",
+            "data": {"fontId": str(font_id), "localPath": df.local_path},
+        },
     )
     if not sent:
         raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
@@ -463,6 +488,12 @@ async def delete_font(
     font.deleted_at = datetime.now(timezone.utc)
     font.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "font.deleted",
+            "data": {"id": str(font_id)},
+        }
+    )
 
 
 # ---------- Restauration ----------
@@ -481,4 +512,13 @@ async def restore_font(
     font.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(font)
-    return FontResponse.model_validate(font)
+    response = FontResponse.model_validate(font)
+    # La font redevient disponible → event frontend + signal SSE « re-sync ».
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "font.updated",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
+    )
+    await ws_manager.broadcast_sync()
+    return response

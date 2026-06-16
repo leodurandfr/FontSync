@@ -30,9 +30,7 @@ async def register_device(
     db: AsyncSession = Depends(get_db),
 ) -> DeviceResponse:
     """Enregistre un device ou met à jour un existant (upsert par hostname)."""
-    result = await db.execute(
-        select(Device).where(Device.hostname == body.hostname)
-    )
+    result = await db.execute(select(Device).where(Device.hostname == body.hostname))
     device = result.scalar_one_or_none()
 
     if device is not None:
@@ -68,9 +66,7 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
 ) -> list[DeviceResponse]:
     """Liste tous les devices enregistrés."""
-    result = await db.execute(
-        select(Device).order_by(Device.created_at.desc())
-    )
+    result = await db.execute(select(Device).order_by(Device.created_at.desc()))
     devices = result.scalars().all()
     return [DeviceResponse.model_validate(d) for d in devices]
 
@@ -100,10 +96,8 @@ async def rescan_device(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Demande un re-scan de fonts à l'agent via WebSocket."""
-    device = await _get_device_or_404(device_id, db)
-    sent = await ws_manager.send_to_agent(
-        str(device_id), {"type": "sync.request"}
-    )
+    await _get_device_or_404(device_id, db)
+    sent = await ws_manager.send_to_agent(str(device_id), {"type": "sync.request"})
     if not sent:
         raise HTTPException(
             status_code=503,

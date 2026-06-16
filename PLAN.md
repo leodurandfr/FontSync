@@ -4,7 +4,7 @@
 > Objectif : rendre **robuste et optimisé** le backend + l'agent. Le design frontend
 > est traité dans un second temps (on garde juste le frontend compilable).
 
-**STATUT : A4 (sémantique de sync) fait. → Prochaine étape : A5 (canal temps réel : SSE agent + events clients).**
+**STATUT : A5 (canal temps réel : SSE agent + events clients) fait. → Prochaine étape : A6 (tests backend).**
 
 ---
 
@@ -76,11 +76,11 @@ Deux jobs launchd : `com.fontsync.sync` (déclenché, RunAtLoad) et `com.fontsyn
   - [x] `compute_delta` : lecture pure — ne crée plus d'associations `device_fonts` et ne `commit()` plus (param `device_id` retiré de la signature, devenu inutile).
   - [x] `pull_font` : `device_id` désormais **requis** ; l'association `device_font` n'est enregistrée **qu'après** récupération réussie du fichier (un échec storage ne laisse plus d'association « installée » fantôme).
   - [x] Table/modèle morts `sync_queue` supprimés (`backend/models/sync_queue.py`, relations `device`/`font`, export `__init__`, table de la migration baseline).
-- [ ] **A5 — Canal temps réel : SSE agent + events clients.**
-  - Nouvel endpoint **SSE** `GET /api/agent/{device_id}/events` (ou équivalent) qui émet un signal `sync` quand une font devient disponible pour ce device. Consommé par le process `listen`. *(Décider SSE vs réutilisation WS ; SSE recommandé.)*
-  - Émettre les events manquants vers les clients frontend : `font.deleted` (dans `delete_font`), `font.updated` (dans `update_font`/`restore`) — `backend/routers/fonts.py`.
-  - `backend/services/ws_manager.py` : `asyncio.Lock` sur les broadcasts ; évincer l'ancien socket à la reconnexion ; mettre à jour `devices.last_seen_at` au `heartbeat`. *(Le WS agent peut être retiré puisque l'agent passe en HTTP+SSE ; garder le WS client.)*
-  - `backend/main.py` : garder le catch-all SPA mais **ne pas** renvoyer `index.html` pour les chemins `/api/*` (renvoyer 404 JSON).
+- [x] **A5 — Canal temps réel : SSE agent + events clients.** *(Vérifié : plomberie SSE du `ws_manager` (signal/exclude/unsubscribe) + generator de l'endpoint pilotés en direct → event initial, coalescing de signaux multiples, et cleanup à la déconnexion OK ; `ruff check` + import app OK.)*
+  - [x] Nouvel endpoint **SSE** `GET /api/agent/{device_id}/events` (`backend/routers/agent_events.py`) : event `sync` initial au connect, signal `sync` quand une font devient disponible, keep-alive ~25 s, coalescing des signaux en attente, désabonnement en `finally`. Émis par `push_font` (`broadcast_sync(exclude_device_id=source)`) et `restore_font`.
+  - [x] Events frontend manquants : `font.deleted` (dans `delete_font`), `font.updated` (dans `update_font` et `restore_font`) — `backend/routers/fonts.py`.
+  - [x] `backend/services/ws_manager.py` : `asyncio.Lock` sur les broadcasts ; éviction (fermeture) de l'ancien socket agent à la reconnexion ; `devices.last_seen_at` mis à jour à chaque `heartbeat` (`backend/routers/ws.py`). *(WS agent conservé pour l'instant — sa suppression côté agent est Phase B.)*
+  - [x] `backend/main.py` : catch-all SPA renvoie un **404 JSON** pour les chemins `/api/*` non résolus au lieu de `index.html`.
 - [ ] **A6 — Tests backend** (`tests/backend/`). Pipeline d'import (dédup, font malformée non rejetée, idempotence), delta-sync (les 3 ensembles), stats. Utiliser de vraies TTF de `tests/fixtures/`.
 - [ ] **A7 — Nettoyage.** Exposer `width_class` dans `FontResponse` (`backend/schemas/font.py`). Retirer le `FontFilters` mort et les imports inutilisés (`cast`/`JSONB` dans `stats.py`). Inclure `glyph_count`/`name` dans `FontSortField` (specs §5.1).
 

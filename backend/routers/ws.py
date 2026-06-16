@@ -25,10 +25,12 @@ async def ws_client(websocket: WebSocket) -> None:
 
     # Envoyer la liste des agents actuellement connectés
     for agent_id in ws_manager.connected_agents:
-        await websocket.send_json({
-            "type": "device.connected",
-            "data": {"deviceId": agent_id},
-        })
+        await websocket.send_json(
+            {
+                "type": "device.connected",
+                "data": {"deviceId": agent_id},
+            }
+        )
 
     try:
         while True:
@@ -44,10 +46,12 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
     await ws_manager.connect_agent(websocket, device_id)
 
     # Notifier les clients frontend de la connexion
-    await ws_manager.broadcast_to_clients({
-        "type": "device.connected",
-        "data": {"deviceId": device_id},
-    })
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "device.connected",
+            "data": {"deviceId": device_id},
+        }
+    )
 
     try:
         while True:
@@ -60,6 +64,15 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
             msg_type = message.get("type")
 
             if msg_type == "heartbeat":
+                # Mettre à jour last_seen_at à chaque heartbeat.
+                async with async_session() as db:
+                    result = await db.execute(
+                        select(Device).where(Device.id == uuid.UUID(device_id))
+                    )
+                    device = result.scalar_one_or_none()
+                    if device:
+                        device.last_seen_at = datetime.now(timezone.utc)
+                        await db.commit()
                 await websocket.send_json({"type": "heartbeat.ack"})
 
             elif msg_type == "font.uninstalled":
@@ -82,10 +95,12 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
                             await db.delete(df)
                             await db.commit()
                     # Notifier les clients frontend
-                    await ws_manager.broadcast_to_clients({
-                        "type": "font.uninstalled",
-                        "data": {"fontId": font_id_str, "deviceId": device_id},
-                    })
+                    await ws_manager.broadcast_to_clients(
+                        {
+                            "type": "font.uninstalled",
+                            "data": {"fontId": font_id_str, "deviceId": device_id},
+                        }
+                    )
 
             elif msg_type in ("font.activated", "font.deactivated"):
                 # L'agent confirme l'activation/désactivation d'une font
@@ -107,10 +122,16 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
                         if df:
                             df.activated = activated
                             await db.commit()
-                    await ws_manager.broadcast_to_clients({
-                        "type": msg_type,
-                        "data": {"fontId": font_id_str, "deviceId": device_id, "activated": activated},
-                    })
+                    await ws_manager.broadcast_to_clients(
+                        {
+                            "type": msg_type,
+                            "data": {
+                                "fontId": font_id_str,
+                                "deviceId": device_id,
+                                "activated": activated,
+                            },
+                        }
+                    )
 
             elif msg_type == "sync.status":
                 new_status = message.get("status", "idle")
@@ -124,10 +145,12 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
                         if new_status == "idle":
                             device.last_sync_at = datetime.now(timezone.utc)
                         await db.commit()
-                await ws_manager.broadcast_to_clients({
-                    "type": "device.updated",
-                    "data": {"deviceId": device_id, "syncStatus": new_status},
-                })
+                await ws_manager.broadcast_to_clients(
+                    {
+                        "type": "device.updated",
+                        "data": {"deviceId": device_id, "syncStatus": new_status},
+                    }
+                )
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
@@ -143,12 +166,16 @@ async def ws_agent(websocket: WebSocket, device_id: str) -> None:
                 await db.commit()
 
         # Notifier les clients frontend de la déconnexion
-        await ws_manager.broadcast_to_clients({
-            "type": "device.disconnected",
-            "data": {"deviceId": device_id},
-        })
+        await ws_manager.broadcast_to_clients(
+            {
+                "type": "device.disconnected",
+                "data": {"deviceId": device_id},
+            }
+        )
         # Aussi envoyer un device.updated pour reset le syncStatus côté frontend
-        await ws_manager.broadcast_to_clients({
-            "type": "device.updated",
-            "data": {"deviceId": device_id, "syncStatus": "idle"},
-        })
+        await ws_manager.broadcast_to_clients(
+            {
+                "type": "device.updated",
+                "data": {"deviceId": device_id, "syncStatus": "idle"},
+            }
+        )

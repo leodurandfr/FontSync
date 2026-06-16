@@ -29,7 +29,12 @@ from backend.schemas.font_family import (
     RegroupStats,
     SortOrder,
 )
-from backend.services.family_grouper import compute_sort_order, ensure_unique_slug, regroup_all, slugify
+from backend.services.family_grouper import (
+    compute_sort_order,
+    ensure_unique_slug,
+    regroup_all,
+    slugify,
+)
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -49,7 +54,9 @@ async def _get_family_or_404(family_id: uuid.UUID, db: AsyncSession) -> FontFami
     return family
 
 
-async def _build_family_response(family: FontFamily, db: AsyncSession) -> FontFamilyResponse:
+async def _build_family_response(
+    family: FontFamily, db: AsyncSession
+) -> FontFamilyResponse:
     """Construit la réponse d'une famille avec le preview font."""
     # Charger le membre le plus proche de Regular (weight 400) pour le preview
     result = await db.execute(
@@ -170,9 +177,7 @@ async def merge_families(
 
     # Déterminer la famille survivante
     if body.target_family_id is not None:
-        survivor = next(
-            (f for f in families if f.id == body.target_family_id), None
-        )
+        survivor = next((f for f in families if f.id == body.target_family_id), None)
         if survivor is None:
             raise HTTPException(
                 status_code=400,
@@ -244,7 +249,10 @@ async def regroup_fonts(
     await db.commit()
 
     regroup_stats = RegroupStats(**stats)
-    event = {"type": "families.regrouped", "data": regroup_stats.model_dump(by_alias=True)}
+    event = {
+        "type": "families.regrouped",
+        "data": regroup_stats.model_dump(by_alias=True),
+    }
     await ws_manager.broadcast_to_clients(event)
     await ws_manager.broadcast_to_agents(event)
 
@@ -337,7 +345,10 @@ async def create_family(
     await db.refresh(family)
     response = await _build_family_response(family, db)
     await ws_manager.broadcast_to_clients(
-        {"type": "family.created", "data": response.model_dump(mode="json", by_alias=True)}
+        {
+            "type": "family.created",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
     )
     return response
 
@@ -369,7 +380,10 @@ async def update_family(
     await db.refresh(family)
     response = await _build_family_response(family, db)
     await ws_manager.broadcast_to_clients(
-        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+        {
+            "type": "family.updated",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
     )
     return response
 
@@ -417,9 +431,7 @@ async def add_fonts_to_family(
         )
         font = font_result.scalar_one_or_none()
         if font is None:
-            raise HTTPException(
-                status_code=404, detail=f"Font {font_id} non trouvée."
-            )
+            raise HTTPException(status_code=404, detail=f"Font {font_id} non trouvée.")
 
         # Retirer de la famille précédente si applicable
         existing = await db.execute(
@@ -451,7 +463,10 @@ async def add_fonts_to_family(
 
     response = await _build_family_response(family, db)
     await ws_manager.broadcast_to_clients(
-        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+        {
+            "type": "family.updated",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
     )
 
     # Retourner le détail complet
@@ -487,5 +502,8 @@ async def remove_font_from_family(
 
     response = await _build_family_response(family, db)
     await ws_manager.broadcast_to_clients(
-        {"type": "family.updated", "data": response.model_dump(mode="json", by_alias=True)}
+        {
+            "type": "family.updated",
+            "data": response.model_dump(mode="json", by_alias=True),
+        }
     )

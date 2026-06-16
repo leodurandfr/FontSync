@@ -117,12 +117,16 @@ async def push_font(
             }
         )
         # Notifier les autres agents qu'une nouvelle font est disponible
+        # (legacy WebSocket conservé tant que l'agent n'est pas migré).
         await ws_manager.broadcast_to_agents(
             {
                 "type": "font.available",
                 "data": font_data,
             }
         )
+        # Signal SSE « re-sync » aux process `listen` (sauf le device source,
+        # qui possède déjà la font).
+        await ws_manager.broadcast_sync(exclude_device_id=str(device.id))
 
     return PushResponse(
         font_id=font.id,

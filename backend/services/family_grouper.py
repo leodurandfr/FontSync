@@ -150,14 +150,14 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
         delete(FontFamilyMember).where(FontFamilyMember.family_id.in_(auto_family_ids))
     )
     # 2. Supprimer les familles auto-groupées
-    await db.execute(
-        delete(FontFamily).where(FontFamily.is_auto_grouped.is_(True))
-    )
+    await db.execute(delete(FontFamily).where(FontFamily.is_auto_grouped.is_(True)))
     await db.flush()
 
     # 3. Compter les fonts orphelines (sans family_name)
     orphan_result = await db.execute(
-        select(func.count()).select_from(Font).where(
+        select(func.count())
+        .select_from(Font)
+        .where(
             Font.deleted_at.is_(None),
             or_(Font.family_name.is_(None), Font.family_name == ""),
         )
@@ -167,7 +167,11 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
     # 4. Charger toutes les fonts non-supprimées avec un family_name
     result = await db.execute(
         select(Font)
-        .where(Font.deleted_at.is_(None), Font.family_name.isnot(None), Font.family_name != "")
+        .where(
+            Font.deleted_at.is_(None),
+            Font.family_name.isnot(None),
+            Font.family_name != "",
+        )
         .order_by(Font.family_name)
     )
     fonts = result.scalars().all()
@@ -221,7 +225,10 @@ async def regroup_all(db: AsyncSession) -> dict[str, int]:
 
     logger.info(
         "Regroupement terminé : %d familles créées, %d fonts groupées, %d ignorées, %d orphelines",
-        families_created, fonts_grouped, fonts_skipped, fonts_orphaned,
+        families_created,
+        fonts_grouped,
+        fonts_skipped,
+        fonts_orphaned,
     )
 
     return {
