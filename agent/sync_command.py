@@ -195,9 +195,12 @@ def _pull_and_install(
         result.pull_errors += 1
         return
 
+    # Le hash attendu (issu du delta serveur) sert de vérification d'intégrité et
+    # d'identité pour l'anti-écrasement ; absent → installation sans vérification.
+    expected_hash = ref.get("fileHash")
     try:
         filename, data = client.pull_font(str(font_id), device_id)
-        dest = install_font(filename, data)
+        dest = install_font(filename, data, expected_hash=expected_hash)
         if dest is not None:
             result.installed += 1
             logger.info("Installée : %s", filename)

@@ -100,7 +100,9 @@ def test_full_flow_push_pull_install(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_scan(monkeypatch, ["a" * 64, "b" * 64])
     installed: list[str] = []
     monkeypatch.setattr(
-        sync_command, "install_font", lambda fn, data: installed.append(fn) or Path(fn)
+        sync_command,
+        "install_font",
+        lambda fn, data, **kw: installed.append(fn) or Path(fn),
     )
 
     client = FakeClient(
@@ -142,7 +144,7 @@ def test_persists_device_id(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_respects_server_auto_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_scan(monkeypatch, ["c" * 64])
-    monkeypatch.setattr(sync_command, "install_font", lambda fn, data: Path(fn))
+    monkeypatch.setattr(sync_command, "install_font", lambda fn, data, **kw: Path(fn))
 
     client = FakeClient(
         device={"id": "d", "autoPull": False, "autoPush": False},
@@ -167,7 +169,7 @@ def test_respects_server_auto_flags(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_unsupported_format_counts_as_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_scan(monkeypatch, [])
     # install_font renvoie None pour un format non installable (woff/woff2).
-    monkeypatch.setattr(sync_command, "install_font", lambda fn, data: None)
+    monkeypatch.setattr(sync_command, "install_font", lambda fn, data, **kw: None)
 
     client = FakeClient(
         delta={
@@ -198,7 +200,7 @@ def test_register_failure_is_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_stateless_repeatable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deux runs identiques → bilans identiques (aucune accumulation d'état)."""
     _stub_scan(monkeypatch, ["e" * 64])
-    monkeypatch.setattr(sync_command, "install_font", lambda fn, data: Path(fn))
+    monkeypatch.setattr(sync_command, "install_font", lambda fn, data, **kw: Path(fn))
     delta = {
         "unknownToServer": ["e" * 64],
         "missingOnDevice": [{"id": "f1", "originalFilename": "A.ttf"}],
