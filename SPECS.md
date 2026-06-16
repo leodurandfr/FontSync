@@ -3,6 +3,14 @@
 > Font manager self-hosted avec synchronisation multi-machines en temps réel
 > Document de référence pour le développement avec Claude Code — Mars 2026
 
+> ⚠️ **Refonte en cours (juin 2026).** Ce document décrit la **vision produit** d'origine.
+> L'**architecture technique cible** (base **SQLite**, agent **stateless** déclenché par launchd,
+> push réactif par **SSE** au lieu d'un WebSocket côté agent) est définie dans **`PLAN.md`** à la
+> racine — c'est la source de vérité en cas de divergence. Les sections **3 (stack)**, **6 (agent)**
+> et **8 (déploiement)** ont été mises à jour pour refléter cette cible ; d'autres passages (ex. le
+> WebSocket agent, la table `sync_queue`, le file watcher `watchdog`) restent décrits dans leur forme
+> d'origine et sont en cours de retrait — se référer à PLAN.md.
+
 ---
 
 ## 1. Vision du projet
@@ -57,8 +65,8 @@ Machine A                    Serveur FontSync                Machine B
 Le MVP cible un **usage personnel** entre les machines d'un seul utilisateur. C'est le cœur du produit : l'agent détecte les fonts, le serveur centralise, les machines se synchronisent.
 
 **Inclus dans le MVP :**
-- Serveur Docker (FastAPI + PostgreSQL)
-- Agent Python avec détection automatique des fonts (file watcher + scan périodique)
+- Serveur Docker (FastAPI + SQLite)
+- Agent Python avec détection automatique des fonts (commande `sync` stateless déclenchée par launchd)
 - Synchronisation bidirectionnelle (push nouvelles fonts vers serveur, pull depuis serveur)
 - Parsing automatique des métadonnées via fonttools (famille, style, poids, classification, langues, glyphes)
 - Stockage sur filesystem ou object storage S3-compatible
@@ -92,15 +100,18 @@ Le MVP cible un **usage personnel** entre les machines d'un seul utilisateur. C'
 | Composant | Technologie |
 |-----------|-------------|
 | Backend API | Python 3.12+, FastAPI, Uvicorn |
-| Base de données | PostgreSQL 16 |
+| Base de données | **SQLite** (`aiosqlite`, `journal_mode=WAL`, `foreign_keys=ON`) |
 | ORM | SQLAlchemy (async) + Alembic (migrations) |
 | Parsing de fonts | fonttools |
-| Temps réel | WebSocket (FastAPI natif) |
+| Temps réel | **WebSocket frontend** (FastAPI natif) + **SSE** pour le push « re-sync » vers l'agent |
 | Stockage fonts | Filesystem local OU S3-compatible (abstraction) |
 | Frontend | Vue 3 (Composition API, TypeScript), shadcn-vue, Tailwind CSS, Vite |
 | State management | Pinia |
-| Agent client | Python 3.12+, watchdog (file watcher), PyInstaller |
-| Déploiement | Docker Compose |
+| Agent client | Python 3.12+, **commande `sync` stateless** déclenchée par **launchd**, `httpx` (HTTP + SSE), pyobjc (Core Text) |
+| Déploiement | Docker Compose (un seul conteneur) |
+
+> **Pourquoi SQLite ?** Usage mono-utilisateur, un seul process serveur sur le NAS, base petite et
+> jetable en dev. Postgres ne redevient pertinent qu'à un éventuel mode multi-utilisateurs (Phase 7).
 
 ### Abstraction storage
 
@@ -112,31 +123,30 @@ Le stockage des fonts est abstrait derrière une interface commune pour supporte
 
 L'abstraction expose : `store(hash, file_data) → path`, `retrieve(hash) → file_data`, `delete(hash)`, `exists(hash) → bool`. Le backend choisit l'implémentation selon la configuration (`STORAGE_BACKEND=filesystem` ou `STORAGE_BACKEND=s3`).
 
-### Communication temps réel (WebSocket)
+### Communication temps réel
 
-Un unique canal WebSocket persistant gère toutes les communications temps réel entre le serveur, le frontend et les agents :
+Deux canaux distincts, selon l'interlocuteur :
+
+#### Frontend ↔ Serveur — WebSocket
+
+Le frontend maintient une connexion WebSocket permanente (`WS /ws/client`) et met à jour l'interface en temps réel sans rechargement.
 
 **Serveur → Frontend :**
 - `font.added` : nouvelle font ajoutée (par un agent ou par upload) → rafraîchir la grille
 - `font.deleted` : font supprimée → retirer de la grille
-- `font.updated` : métadonnées modifiées → mettre à jour la carte
-- `device.connected` / `device.disconnected` : un agent se connecte/déconnecte
+- `font.updated` : métadonnées modifiées (édition, restore) → mettre à jour la carte
+- `device.connected` / `device.disconnected` : un agent se manifeste / disparaît
 - `sync.progress` : progression d'une sync en cours
 - `sync.completed` : sync terminée (stats)
-
-**Serveur → Agent :**
-- `font.available` : nouvelle font disponible sur le serveur → l'agent peut la pull
-- `sync.request` : le serveur demande un re-scan (déclenché manuellement depuis le frontend)
-
-**Agent → Serveur :**
-- `font.detected` : nouvelle font détectée localement → déclenche le push
-- `font.removed` : font supprimée localement → notification (pas d'action auto côté serveur)
-- `heartbeat` : signal de présence
 
 **Frontend → Serveur :**
 - `install.request` : demande d'installation d'une font sur un device spécifique (relayé à l'agent)
 
-Le frontend maintient une connexion WebSocket permanente et met à jour l'interface en temps réel sans rechargement.
+#### Serveur → Agent — SSE (signal « re-sync »)
+
+Plus de WebSocket côté agent. Le serveur expose un endpoint **SSE** (`GET /api/agent/{device_id}/events`) que le process `listen` de l'agent consomme. Quand une font devient disponible pour ce device, le serveur émet un événement **`sync`** : un **simple signal sans payload exploité** (pas de `font_id` à interpréter → pas de bug de clé). À réception, `listen` se contente de **déclencher la commande `sync`** (avec debounce), qui recalcule le delta depuis l'état réel du disque.
+
+L'agent ne « pousse » pas d'événements temps réel vers le serveur : tout passe par les appels HTTP de la commande `sync` (register/update device, `POST /api/sync/delta`, push, pull). Le `last_seen_at` du device est mis à jour à chaque appel HTTP de l'agent.
 
 ---
 
@@ -363,66 +373,71 @@ Formats acceptés : **TTF, OTF** (installables par l'agent). **WOFF, WOFF2** : a
 
 ## 6. Agent client Python (MVP)
 
+> Architecture refondue (cf. PLAN.md, Phase B). L'agent **n'est plus un démon WebSocket** : c'est une
+> **commande `sync` stateless** déclenchée par launchd, plus un petit process `listen` qui ne fait que
+> relayer le signal SSE du serveur. Cette section décrit la cible.
+
 ### 6.1 Rôle
 
-L'agent est le composant critique du MVP. C'est lui qui fait de FontSync plus qu'un simple hébergeur de fonts. Il :
-- **Surveille en continu** les dossiers de fonts du système (file watcher)
-- **Détecte en temps réel** les nouvelles fonts installées et les fonts supprimées
-- **Pousse automatiquement** les nouvelles fonts vers le serveur
-- **Reçoit les notifications** du serveur quand de nouvelles fonts sont disponibles
-- **Installe** les fonts depuis le serveur (automatiquement ou sur demande)
-- **Communique via WebSocket** avec le serveur pour le temps réel
+L'agent est le composant critique du MVP — c'est lui qui fait de FontSync plus qu'un simple hébergeur de fonts. Il se décompose en **deux exécutables sans état persistant mutable** :
 
-### 6.2 Détection des fonts
+- **`fontsync sync`** — commande courte, idempotente, exécutée puis terminée :
+  `discover (Core Text + dossiers) → hash (avec cache) → register/update device → POST /sync/delta → push les inconnues → pull les manquantes (si auto_pull) → install → exit`.
+- **`fontsync listen`** — process long-vécu minimal (launchd `KeepAlive`) : ouvre la connexion **SSE** au serveur et, à chaque signal, **déclenche `sync`** (debounce ~2 s). Zéro état, zéro hash.
 
-#### Mode principal : File watcher (watchdog)
+Le serveur (NAS, toujours allumé) est la **source de vérité**. L'agent repart toujours de l'état réel du disque — aucun ensemble de hashes en mémoire à maintenir entre deux exécutions.
 
-L'agent utilise la bibliothèque `watchdog` pour surveiller les dossiers de fonts en continu. Dès qu'un fichier est créé, modifié ou supprimé dans un dossier surveillé, un événement est déclenché immédiatement.
+### 6.2 Déclencheurs de `sync`
 
-#### Mode backup : Scan périodique
+La commande `sync` est **identique quelle que soit sa source**. Trois déclencheurs (launchd) :
 
-Un scan complet est effectué toutes les X minutes (configurable, défaut 5 min) pour rattraper les événements éventuellement manqués par le file watcher. Ce scan compare l'état connu (hashes en mémoire) avec l'état actuel du filesystem.
+| Déclencheur | Mécanisme launchd | Rôle |
+|-------------|-------------------|------|
+| Changement local | `WatchPaths` sur `~/Library/Fonts` (option `/Library/Fonts`) | Push réactif des fonts ajoutées localement |
+| Signal distant | process `listen` (SSE) → lance `sync` | Pull réactif quand une font devient disponible |
+| Filet de sécurité | `StartInterval` (~600 s) + `RunAtLoad` | Rattrapage des événements manqués |
 
-#### Découverte initiale via APIs système
+#### Découverte des fonts via APIs système
 
-Au premier lancement, l'agent utilise les APIs système pour découvrir toutes les fonts :
-
-| OS | API de découverte | Dossiers surveillés (per-user) |
-|----|-------------------|--------------------------------|
+| OS | API de découverte | Dossiers gérés (per-user) |
+|----|-------------------|---------------------------|
 | macOS | Core Text via `pyobjc` | `~/Library/Fonts`, `/Library/Fonts` |
 | Linux | `fc-list` (fontconfig) | `~/.local/share/fonts`, `/usr/local/share/fonts` |
 | Windows | DirectWrite via `ctypes` | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` |
 
-Les dossiers système read-only (`/System/Library/Fonts` sur macOS, `/usr/share/fonts` sur Linux, `C:\Windows\Fonts` sur Windows) ne sont **pas surveillés** — ce sont des fonts OS qu'on ne veut pas syncer.
+Les dossiers système read-only (`/System/Library/Fonts` sur macOS, `/usr/share/fonts` sur Linux, `C:\Windows\Fonts` sur Windows) ne sont **pas gérés** — ce sont des fonts OS qu'on ne veut pas syncer. (MVP : macOS prioritaire.)
+
+#### Cache de hash local
+
+Calculer le SHA-256 de centaines de fichiers à chaque `sync` serait coûteux. L'agent maintient un cache `(path, size, mtime) → hash` dans `~/.fontsync/` : seuls les fichiers nouveaux ou modifiés (mtime/size changés) sont re-hashés. Un scan de 500 fonts devient quasi gratuit après la première fois. **C'est le seul état persisté côté agent — purement un cache, reconstructible.**
 
 ### 6.3 Première synchronisation
 
-L'UX du premier lancement est critique :
+Le premier `sync` fait le gros du travail (cache vide → tout est hashé) :
 
-1. L'agent s'enregistre auprès du serveur (POST `/api/devices/register`)
-2. Affichage : "Scan de vos polices en cours..."
-3. Progression visible : "142/500 polices analysées"
-4. Calcul SHA-256 de chaque fichier
-5. Envoi du delta au serveur (POST `/api/sync/delta`)
-6. Upload des fonts inconnues du serveur (push)
-7. Résumé : "Scan terminé — 500 polices détectées, 342 nouvelles envoyées au serveur"
+1. `discover` : énumère les fonts via Core Text + les dossiers gérés.
+2. Hash SHA-256 de chaque fichier (cache vide au premier passage).
+3. Register / update du device auprès du serveur (`POST /api/devices/register`).
+4. Envoi du delta (`POST /api/sync/delta`).
+5. Push des fonts inconnues du serveur.
+6. Pull des fonts manquantes si `auto_pull`.
 
-Après ce scan initial, la détection est en temps réel via le file watcher.
+Les `sync` suivants sont quasi instantanés grâce au cache.
 
 ### 6.4 Protocole de sync
 
-**Enregistrement :** l'agent s'enregistre avec son nom, hostname, OS, version → reçoit un `device_id`.
+**Enregistrement :** l'agent s'enregistre avec nom, hostname, OS, version → reçoit/réutilise un `device_id` (persisté localement, cf. config).
 
-**Delta sync :** l'agent envoie ses hashes → le serveur répond avec :
+**Delta sync :** l'agent envoie ses hashes → le serveur répond avec trois ensembles :
 - `unknown_to_server` : fonts à pusher
 - `missing_on_device` : fonts disponibles à puller
 - `already_synced` : à jour
 
-**Push (auto)** : quand le file watcher détecte une nouvelle font, l'agent la hash, vérifie qu'elle n'est pas déjà sur le serveur, et la push. Le serveur notifie tous les autres agents via WebSocket.
+Le calcul du delta côté serveur est une **lecture pure** (pas d'écriture, pas de `commit` au milieu).
 
-**Pull (auto ou manuel selon config)** : quand le serveur notifie qu'une nouvelle font est disponible (`font.available` via WebSocket), l'agent :
-- Si `auto_pull: true` → télécharge et installe silencieusement
-- Si `auto_pull: false` → stocke dans la file d'attente, l'utilisateur décide via l'interface
+**Push :** pour chaque font de `unknown_to_server`, l'agent envoie le fichier (`POST /api/sync/push`). L'import serveur est **idempotent** sur le `file_hash` (deux pushs concurrents du même hash → une seule font). Le serveur émet alors le signal SSE `sync` vers les autres devices concernés.
+
+**Pull :** pour chaque font de `missing_on_device`, si `auto_pull: true`, l'agent télécharge (`GET /api/sync/pull/{font_id}`) et installe. Le serveur enregistre de façon fiable l'association `device_font`. Si `auto_pull: false`, rien n'est installé automatiquement — l'utilisateur déclenche l'installation via le frontend (relayé à l'agent).
 
 ### 6.5 Installation de fonts par OS
 
@@ -436,45 +451,37 @@ Après installation, l'agent peut afficher une notification système : "Font Int
 ### 6.6 Comportement de suppression
 
 **L'agent ne supprime jamais de fonts localement de manière automatique.**
-- L'utilisateur peut désinstaller une font d'un appareil via le frontend (commande WebSocket `font.uninstall`). La font reste toujours sur le serveur — seule l'installation locale est supprimée.
-- Font supprimée sur le serveur (soft delete) → les devices ne sont pas affectés, notification informative uniquement
-- Font supprimée localement par l'utilisateur (hors FontSync) → l'agent notifie le serveur (événement `font.removed`), mais le serveur ne supprime pas la font de sa bibliothèque
+- L'utilisateur peut désinstaller une font d'un appareil via le frontend. La font reste toujours sur le serveur — seule l'installation locale est supprimée. (La désinstallation devrait s'appuyer sur un mapping **par hash** plutôt que par nom, cf. PLAN.md B7.)
+- Font supprimée sur le serveur (soft delete) → les devices ne sont pas affectés, le prochain `sync` n'installe simplement plus cette font.
+- Font supprimée localement par l'utilisateur (hors FontSync) → le prochain `sync` la voit disparaître du disque ; le serveur ne supprime pas la font de sa bibliothèque (il reste la source de vérité).
 
-### 6.7 Communication WebSocket
+### 6.7 Canal temps réel (SSE)
 
-L'agent maintient une connexion WebSocket permanente (`WS /ws/agent/{device_id}`) avec le serveur. En cas de perte de connexion, reconnexion automatique avec backoff exponentiel. Quand la connexion est rétablie, un delta sync est déclenché pour rattraper les changements manqués.
+Plus de WebSocket côté agent (ni reconnexion avec backoff, ni delta-sync « au rétablissement »). Le process **`listen`** ouvre une connexion **SSE** (`GET /api/agent/{device_id}/events`) via `httpx.stream`. À chaque événement `sync` reçu, il déclenche la commande `fontsync sync` (debounce ~2 s). La résilience se réduit à une **boucle de reconnexion triviale** (sleep + retry) ; le `StartInterval` launchd sert de filet. L'événement étant un simple signal, aucune donnée n'est à interpréter → pas de désynchronisation possible.
 
 ### 6.8 Configuration
 
 Fichier `~/.fontsync/config.yaml` :
 - `server.url` : URL du serveur FontSync
-- `server.device_token` : token d'identification (généré à l'enregistrement)
-- `scan.interval_minutes` : fréquence du scan backup (défaut 5)
-- `scan.directories` : override des dossiers surveillés
+- `device_token` : token d'identification (généré à l'enregistrement, **persisté**)
+- `device_id` : identifiant du device (reçu à l'enregistrement, **persisté**)
+- `scan.directories` : override des dossiers gérés
 - `scan.ignore_patterns` : patterns à ignorer (ex: `.*`, `System*`)
-- `sync.auto_push` : push auto des nouvelles fonts (défaut true)
-- `sync.auto_pull` : install auto des fonts du serveur (défaut false)
-- `agent.port` : port de l'endpoint local (défaut 7850)
-- `agent.show_notifications` : notifications système (défaut true)
+- `sync.auto_pull` : install auto des fonts du serveur
 
-### 6.9 Endpoint local
+> Bug historique à corriger (PLAN.md B5) : `device_id`/token n'étaient pas réécrits au `save()`. Le push étant désormais déclenché par `WatchPaths`, il n'y a plus de flag `auto_push` ni d'`interval_minutes` (remplacé par `StartInterval` launchd).
 
-L'agent expose `http://localhost:7850/status` pour que le frontend puisse le détecter. Retourne : version agent, device_id, device_name, sync_status, last_sync, nombre de fonts synchro, config auto_pull.
+### 6.9 Déclenchement depuis le frontend
 
-Le frontend peut aussi envoyer `POST http://localhost:7850/install` avec un font_id pour déclencher l'installation d'une font spécifique.
-
-**⚠️ Contrainte CORS/mixed-content** : si le frontend est servi en HTTPS, les requêtes vers `http://localhost` sont bloquées. Solutions à explorer :
-- Relayer les commandes via le WebSocket du serveur (le frontend envoie `install.request` au serveur, qui relaie à l'agent via son WebSocket) — **solution recommandée**, pas de contournement CORS nécessaire
-- L'endpoint local devient optionnel / secondaire
+Il n'y a plus d'endpoint local `localhost:7850` (la contrainte CORS/mixed-content disparaît). Pour installer une font sur un device, le frontend envoie `install.request` au **serveur** (via son WebSocket frontend) ; le serveur émet le signal SSE `sync` vers le device concerné, qui pull et installe au prochain `sync`. Aucun contournement CORS nécessaire.
 
 ### 6.10 Packaging macOS
 
-1. Build PyInstaller → bundle `.app`
-2. Signature : `codesign` avec certificat "Developer ID Application"
-3. Notarisation : `notarytool` (Apple scanne et approuve)
-4. Distribution : DMG téléchargeable depuis l'interface web de FontSync
+Beaucoup moins critique qu'avec un démon `.app` (on n'a plus qu'une CLI `sync` + un petit `listen`). Décision différée (PLAN.md B10) : binaire/pkg signé simple vs PyInstaller. La friction de notarisation est largement levée. L'installation se fait via deux **LaunchAgents** :
+- `com.fontsync.sync.plist` : `WatchPaths` + `StartInterval` ~600 s + `RunAtLoad`
+- `com.fontsync.listen.plist` : `KeepAlive` + `RunAtLoad`
 
-Résultat : Gatekeeper laisse passer sans avertissement, pas besoin de l'App Store.
+chargés/déchargés par `launchctl bootstrap` / `bootout`.
 
 ---
 
@@ -551,17 +558,17 @@ Plutôt que de contacter `localhost:7850` (problème CORS/mixed-content en HTTPS
 
 Configuration par défaut pour un NAS Synology ou similaire :
 
-Deux services Docker : `fontsync` (FastAPI + static Vue 3) et `db` (PostgreSQL 16 Alpine).
+**Un seul service Docker** : `fontsync` (FastAPI + static Vue 3 + SQLite embarqué). Plus de service `db`, plus de healthcheck Postgres, plus de volume `pg_data`.
 
 Variables d'environnement :
-- `DATABASE_URL` : connexion PostgreSQL
+- `DATABASE_URL` : chemin SQLite, défaut `sqlite+aiosqlite:////data/fontsync.db`
 - `STORAGE_BACKEND` : `filesystem` (défaut)
 - `FONT_STORAGE_PATH` : chemin du volume monté (défaut `/data/fonts`)
 - `GOOGLE_FONTS_API_KEY` : optionnel
 
-Volumes : un pour les fonts, un pour PostgreSQL.
+Volumes : un pour les fonts, un pour le fichier SQLite (`/data`). Avec `journal_mode=WAL`, prévoir que les fichiers `-wal`/`-shm` vivent à côté du `.db` dans ce même volume.
 
-Accès : port 8080 en local, reverse proxy (Traefik / Nginx Proxy Manager) pour l'accès distant en HTTPS.
+Accès : port 8080 en local, reverse proxy (Traefik / Nginx Proxy Manager) pour l'accès distant en HTTPS. Le reverse proxy doit laisser passer le **WebSocket frontend** et le **flux SSE** de l'agent (pas de buffering sur l'endpoint SSE).
 
 ### 8.2 Serveur cloud européen
 
@@ -783,12 +790,13 @@ fontsync/
 ### Décisions techniques
 
 - **Pas d'auth pour le MVP** — réseau de confiance
+- **SQLite** comme base (mono-utilisateur) ; Postgres réservé à un éventuel multi-utilisateurs (Phase 7)
 - **Soft delete** (`deleted_at`) pour toutes les suppressions
-- **UUID** pour toutes les PK
-- **Le serveur est la source de vérité**
+- **UUID** pour toutes les PK (type SQLAlchemy portable)
+- **Le serveur (NAS, toujours ON) est la source de vérité** ; l'agent est **stateless**
 - **L'agent peut désinstaller** des fonts locales sur ordre explicite de l'utilisateur via le frontend, mais la font reste sur le serveur
-- **WebSocket** pour tout le temps réel (pas SSE)
-- **File watcher** (watchdog) comme mode principal de détection, scan périodique en backup
+- **WebSocket** pour le canal **frontend** ; **SSE** pour le push « re-sync » vers l'agent (pas de WebSocket côté agent)
+- **launchd** pilote l'agent : `WatchPaths` (push réactif) + `listen`/SSE (pull réactif) + `StartInterval` (filet). Plus de file watcher `watchdog`.
 - **Per-user font installation** — jamais de droits admin nécessaires
 - **Abstraction storage** dès le départ (filesystem / S3)
 

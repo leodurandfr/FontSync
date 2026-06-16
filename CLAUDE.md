@@ -11,18 +11,22 @@ Lire `SPECS.md` pour l'architecture complète, le modèle de données, les endpo
 ### Backend
 - Python 3.12+
 - FastAPI + Uvicorn
-- SQLAlchemy (async) + asyncpg
+- SQLAlchemy (async) + aiosqlite
 - Alembic (migrations)
-- PostgreSQL 16
+- SQLite (un seul fichier, `journal_mode=WAL`, `PRAGMA foreign_keys=ON`)
 - fonttools (parsing des métadonnées de fonts)
-- WebSocket natif FastAPI
+- WebSocket natif FastAPI (canal **frontend** uniquement) + SSE (push « re-sync » vers l'agent)
+
+> Postgres a été abandonné. Il ne redevient pertinent qu'à un éventuel mode multi-utilisateurs (Phase 7).
 
 ### Agent
 - Python 3.12+
-- watchdog (file watcher)
-- pyobjc (Core Text, macOS)
-- pystray (tray icon)
-- PyInstaller (packaging)
+- **Commande `sync` stateless**, déclenchée par launchd (`WatchPaths` sur `~/Library/Fonts` + `StartInterval` filet de sécurité), `RunAtLoad`
+- **Process `listen`** (launchd `KeepAlive`) : ouvre une connexion SSE vers le serveur et relance `sync` à chaque signal
+- pyobjc (Core Text, découverte macOS)
+- httpx (HTTP synchrone côté `sync` + `httpx.stream` pour la SSE côté `listen`)
+- pyyaml (config)
+- Cache de hash local `(path, size, mtime)` dans `~/.fontsync/`
 
 ### Frontend
 - Vue 3 (Composition API, `<script setup>`)
@@ -60,8 +64,8 @@ Lire `SPECS.md` pour l'architecture complète, le modèle de données, les endpo
 - Git : Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`)
 - Base de données : snake_case pour colonnes et tables
 - API REST : kebab-case pour les URLs, camelCase pour le JSON
-- UUID pour toutes les clés primaires
-- Soft delete avec colonne `deleted_at` (TIMESTAMPTZ nullable)
+- UUID pour toutes les clés primaires (type SQLAlchemy portable `Uuid`/`String`, pas de type dialect-spécifique)
+- Soft delete avec colonne `deleted_at` (`DateTime` nullable)
 
 ## Structure du projet
 
@@ -101,7 +105,9 @@ fontsync/
 
 ## Règles importantes
 
-- **Ne jamais implémenter de fonctionnalités hors de la phase en cours.** Consulter SPECS.md pour connaître le scope de chaque phase.
+- **Refonte en cours : la source de vérité du périmètre est `PLAN.md` à la racine.** SPECS.md décrit la vision produit ; pour l'architecture cible (SQLite, agent stateless + SSE) c'est PLAN.md qui prime.
+- **Ne jamais implémenter de fonctionnalités hors de la phase en cours.** Consulter PLAN.md (puis SPECS.md) pour connaître le scope de chaque phase.
+- **Le serveur (NAS, toujours allumé) est la source de vérité.** L'agent est **stateless** : chaque `sync` repart de l'état réel du disque, jamais d'un état mémoire mutable. Le push réactif serveur→agent est un simple signal SSE « re-sync » (sans payload exploité).
 - **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.
 - **Robustesse du parsing fonttools** : toujours wrapper dans try/except. Une font malformée doit être stockée avec des métadonnées partielles, jamais rejetée.
 - **Pas d'authentification dans le MVP** (Phases 1-3).
