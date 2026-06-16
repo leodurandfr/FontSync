@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "cd .. && scripts/dev/up.sh",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },

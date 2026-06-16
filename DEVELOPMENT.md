@@ -34,6 +34,20 @@ scripts/dev/run-server.sh
 docker compose up
 ```
 
+### Serveur + frontend en une commande (« dev:full »)
+
+Pour lancer **serveur + frontend** ensemble (Ctrl-C arrête les deux) :
+
+```bash
+scripts/dev/up.sh
+# ou, depuis frontend/ :
+npm run dev:full
+```
+
+> L'agent n'y est pas inclus à dessein : il est one-shot (`sync`) ou par-device
+> (`listen`). La partie client passe toujours par `run-agent.sh` / `demo.sh`
+> (étapes 2-4).
+
 Les deux exposent le serveur sur **http://localhost:8080** — qui est déjà le
 défaut de l'agent (`server.url` dans la config). Vérifier :
 
