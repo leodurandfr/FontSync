@@ -5,7 +5,7 @@
 > valider le cœur en conditions réelles, le **sécuriser** (auth minimale), et le **distribuer**
 > (serveur Docker pour NAS + app Mac menu bar). Le **cap long terme** reste `ROADMAP.md`.
 
-**STATUT : P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés ; P1 complète et testée (P1.1–P1.6 : auth par token serveur `/api/*` + SSE/WS, agent émetteur, saisie/stockage du token côté frontend, doc transport, tests). Reste P0.2 (validation E2E réelle — bugs B1/B2 à corriger) puis le packaging (P2 Docker NAS, P3 app Mac).**
+**STATUT : P0 et P1 terminées. P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés ; P0.2 (validation E2E) validée — E2E 9/9 + 2-Macs OK, B2 corrigé (propagation upload), B1 ramené à un stop-gap v1 (la sélection par-device est reportée). P1 complète et testée (P1.1–P1.6 : auth par token `/api/*` + SSE/WS, agent émetteur, saisie/stockage du token côté frontend, doc transport, tests). Prochaine étape : packaging — P2 (Docker NAS) puis P3 (app Mac). Dette tracée : redesign per-device « manifeste désiré » (cf. Annexe).**
 
 ---
 
@@ -63,7 +63,7 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 > On valide et on tranche **avant** d'investir dans la signature / le packaging.
 
 - [x] **P0.1 — Licence** *(ROADMAP #6, désormais actionnable)*. **Tranché : AGPL-3.0-or-later** (Plausible, Cal.com) plutôt que BSL — protège le combo « self-host gratuit + cloud payant » par copyleft réseau (§13) + dual-licensing (copyright conservé), tout en gardant le vrai badge OSS. `LICENSE` (texte FSF verbatim) ajouté à la racine ; en-têtes SPDX sur les points d'entrée (`backend/main.py`, `agent/__main__.py`) ; mentions de licence dans `pyproject.toml` (classifier), `frontend/package.json` et `README.md` (note DCO pour préserver le relicensing). *(Inconvénient assumé : l'AGPL ne bloque pas un revendeur verbatim du cloud ; bascule possible vers BSL sur les versions futures si une vraie menace émerge, copyright conservé.)*
-- [ ] **P0.2 — Validation end-to-end réelle** (2 Macs + 1 serveur). Les 99 tests agent tournent sur FS isolé / `MockTransport` — le cœur produit (push→SSE→pull→install entre deux machines) n'a **jamais** été validé bout-en-bout. Dérouler et documenter une checklist :
+- [x] **P0.2 — Validation end-to-end réelle** (2 Macs + 1 serveur). Les 99 tests agent tournent sur FS isolé / `MockTransport` — le cœur produit (push→SSE→pull→install entre deux machines) n'a **jamais** été validé bout-en-bout. Dérouler et documenter une checklist :
   - push local (WatchPaths) → import serveur → signal SSE → pull + install sur l'autre Mac ;
   - upload via le frontend → apparition sur les deux machines ;
   - désinstallation explicite depuis le frontend (font reste sur le serveur) ;
@@ -71,6 +71,8 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
   - cache de hash (2e scan quasi instantané) ; `.ttc` ; font malformée (métadonnées partielles) ; soft-delete + résurrection ;
   - collision de noms à l'install (préservation de la font locale, cf. B7).
   - **Objectif : trouver les bugs réels avant le packaging.** Consigner les résultats dans un `tests/e2e/CHECKLIST.md`.
+  - **Fait** : checklist déroulée (`tests/e2e/CHECKLIST.md`, 9/9) + validation 2-Macs réelle confirmée. Deux bugs trouvés et traités : **B2 corrigé** (aucune propagation réactive après upload → `/api/fonts/upload` émet désormais le signal SSE `broadcast_sync()` comme `/sync/push`) ; **B1 ramené à un stop-gap v1** — le canal commande UI→agent (install/uninstall/activate/deactivate) était orphelin depuis la refonte stateless (sync = miroir, plus de commande poussée) : `install` déclenche un re-sync de l'appareil (`202`), les actions sélectives répondent `501` (au lieu d'un `503` trompeur), et l'UI est ajustée (toggles retirés). Tests : `tests/backend/test_device_sync_propagation.py`.
+  - **Reporté (hors P0.2, dette tracée)** : la **sélection par appareil** (n'installer/désinstaller/activer QUE certaines fonts) suppose un **« manifeste désiré »** par device + une réconciliation côté agent — vraie fonctionnalité à planifier (cf. Annexe).
 - [x] **P0.3 — Stratégie d'embarquement de l'agent dans l'app** (pose les bases de P3). **Tranché : sidecar bundlé via venv Python relocatable embarqué** (un seul `.app` « glisser dans Applications », plutôt que piloter un agent installé à part en Homebrew/pkg). Le détail (build, signature, taille mesurée) et les alternatives écartées (PyInstaller, Nuitka) sont consignés dans « Décisions arrêtées ». Conséquence pour P3.4 / B10 : la question PyInstaller, rouverte par l'idée du sidecar, est **re-fermée** — le venv embarqué est retenu.
 
 ## Phase P1 — Sécurité minimale (token partagé + transport)
@@ -122,3 +124,4 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 | Token partagé serveur | CLAUDE.md « pas d'auth MVP » / ROADMAP #4 | **Assumé** : minimum vital, sans `account_id` |
 | B12 (PLAN.md) éclaté | PLAN.md B12 | Repris : serveur → **P2**, agent Homebrew → **P5** (optionnel) |
 | Licence à trancher | ROADMAP #6 | Devient **P0.1** |
+| Sélection install/désinstall/activation **par appareil** | refonte stateless (PLAN.md) — sync = miroir | **Reporté** (dette) : orpheline depuis la bascule WS→SSE (commande poussée supprimée). v1 = **stop-gap** (B1 : `install`→re-sync, reste `501`, UI ajustée). Vrai correctif = **manifeste désiré** par device (colonnes d'état désiré + `compute_delta` filtré + `toRemove` + réconciliation/désinstall/activation côté agent + migration Alembic). À planifier comme étape dédiée. |

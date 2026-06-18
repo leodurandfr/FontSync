@@ -78,6 +78,41 @@ Remplir la ligne **Résultat observé** à chaque scénario (date + ce qui s'est
 
 ---
 
+## Résultats observés — run « preflight » 1 machine (2026-06-18)
+
+> Run effectué automatiquement (Claude) sur **une seule machine** : serveur FastAPI
+> local (venv Python 3.12, SQLite jetable sous `/tmp/fs-e2e`) + 2 agents `listen` en
+> profils isolés A/B (`FONTSYNC_DISCOVERY=directories`).
+> **Couvre** : toute la logique réseau/serveur (register, SSE, delta, push/pull,
+> install, cache de hash, soft-delete, collision B7).
+> **NE couvre PAS** (réservé au vrai test 2 Macs) : découverte **Core Text**,
+> installation système réelle dans `~/Library/Fonts`, déclenchement **launchd**
+> (WatchPaths / StartInterval / KeepAlive). Ici les pushs sont provoqués par `sync`
+> manuel ; le chemin **réactif** serveur→B (SSE → pull/install) est bien exercé.
+
+| Scénario | Statut | Observé |
+|---|---|---|
+| 0.1 serveur | ✅ | `/health` → `{"status":"ok"}` |
+| 0.3 agents | ✅ | A+B `register` + SSE connectée ; le **signal initial à la connexion** déclenche un 1er `sync` |
+| 0.4 devices | ✅ | 2 devices listés, `autoPull/autoPush=true` |
+| **S1** push→SSE→pull | ✅ | A push `E2EInter` → import serveur → **B installe en ~2,5 s** (debounce 2 s) |
+| **S2** upload UI | ⚠️ **bug confirmé** | upload importé (`imported=['E2E Roboto']`) mais **0 propagation réactive** en 8 s (A & B) ; n'arrive qu'au `sync` manuel/périodique |
+| **S3** uninstall UI | ❌ **bug bloquant confirmé** | `uninstall` → **HTTP 503** « L'agent n'est pas connecté. » ; fichier local intact |
+| **S4** reconnexion | ✅ | coupure → « Reconnexion dans 5s… » en boucle → reconnexion auto → **rattrapage** (B installe la font poussée pendant son absence) |
+| **S5** cache de hash | ✅ (+ finding) | sonde sur `hash_file` : froid **23** / chaud **0** / 1 fichier touché **1**. ⚠️ log « N hachées » trompeur (reporte `len(scanned)`, pas le nb réellement re-haché) |
+| **S6** .ttc | ✅ | `.ttc` poussé, `fileFormat=ttc`, **B installe `E2EColl.ttc`** |
+| **S7** malformée | ✅ | header OK + corps tronqué → stockée `family=None` (**partielle, pas rejetée**) ; magic invalide → **400** légitime |
+| **S8** soft-delete | ✅ | `DELETE` (204) sort de l'actif, **fichiers locaux conservés** ; re-push → **revive** (`deletedAt=null`) |
+| **S9** collision (B7) | ✅ | local Y **préservé** ; X posé sous `…__fontsync-43a6f7f8a97d.ttf` (= hash de X) |
+
+**Bilan : 9/9 scénarios déroulés ; la logique serveur/agent (stateless + SSE + cache +
+soft-delete + B7) est conforme. 2 bugs réels confirmés (1 bloquant S3, 1 majeur S2)
++ 1 finding mineur (S5).** Détail des bugs : *Journal des bugs* ci-dessous.
+**P0.2 reste NON validé** : (a) corriger les bugs S2/S3 d'abord, (b) la validation
+**2 Macs réelle** (Core Text, `~/Library/Fonts`, launchd) reste à faire.
+
+---
+
 ## Phase 0 — Mise en place
 
 ### 0.1 — Lancer le serveur `[S]`
@@ -498,17 +533,19 @@ Laisser M2 synchroniser (signal SSE déclenché par le push de M1, ou `fontsync-
 
 | # | Scénario | Sévérité | Description | Statut |
 |---|----------|----------|-------------|--------|
-| _(pré-vérifié)_ | S3 | bloquant ? | Canal commande UI→agent (uninstall/install/activate/deactivate) passe par le WS legacy `/ws/agent` que l'agent SSE n'ouvre plus → probable `503`. | à confirmer |
-| _(pré-vérifié)_ | S2 | majeur ? | `/api/fonts/upload` n'appelle pas `broadcast_sync()` (SSE) → pas de propagation réactive après upload UI (seulement au sync périodique/manuel). `push` et `restore` le font, pas `upload`. | à confirmer |
-|   |          |          |             |        |
+| B1 | S3 | **bloquant** | Canal commande UI→agent (install/uninstall/activate/deactivate) passait par `ws_manager.send_to_agent` → dict WS legacy `_agents`. L'agent refondu ne s'abonne qu'en **SSE** (`_sse_subscribers`), jamais dans `_agents` → `send_to_agent` renvoie `False` → **`503` confirmé empiriquement**. Diagnostic réel : la **sélection par-device** (install/uninstall/activate ciblés) vient de l'ancien modèle « commande WS » ; la refonte stateless (sync = miroir) l'a rendue orpheline. | **STOP-GAP (v1)** : `install` déclenche un re-sync de l'appareil (signal SSE, `202`) ; `uninstall`/`activate`/`deactivate` → `501` honnête (plus de `503` trompeur) ; UI `DeviceInstallSheet` ajustée (toggles retirés). La vraie feature sélective (**manifeste désiré** par device + réconciliation agent) est **reportée à une étape dédiée**. Tests : `test_device_sync_propagation`. |
+| B2 | S2 | **majeur** | `/api/fonts/upload` appelait `broadcast_to_clients` + `broadcast_to_agents` (WS legacy mort) mais **jamais `broadcast_sync()`** → **aucune propagation réactive** après upload (confirmé : 0 en 8 s ; arrive au `sync` manuel). Contraste : `/sync/push` et `/restore` appellent bien `broadcast_sync()`. | **CORRIGÉ** : `upload` émet `broadcast_sync()` (signal SSE « re-sync ») comme `/sync/push`. Test : `test_upload_signals_resync_to_listeners`. |
+| B3 | S5 | mineur | Log « %d hachées » = `result.hashed = len(scanned)` ([`sync_command.py:119`](../../agent/sync_command.py#L119)) compte **toutes** les fonts scannées (cache hit inclus), pas celles réellement re-hachées. Trompeur pour vérifier le cache depuis les logs (le cache, lui, fonctionne : sonde 23/0/1). | **CONFIRMÉ** (observabilité) |
 
 ---
 
 ## Bilan / sign-off
 
-- Date du run : __________   Macs utilisés : __________   Serveur : __________
-- Scénarios ✅ : ____ / 9   ·   ❌ : ____   ·   ⚠️ ouverts : ____
-- Décision : ☐ P0.2 validé (cocher dans `PLAN-PUBLICATION.md`) · ☐ bugs à corriger d'abord
+- Date du run : **2026-06-18** (run « preflight » 1 machine, automatisé) · Macs utilisés : **1 (serveur + agents A/B isolés)** · Serveur : **FastAPI local, SQLite jetable**
+- Scénarios déroulés : **9 / 9** · logique conforme : **9** · bugs réels : **2** (B1 bloquant, B2 majeur) · finding mineur : **1** (B3)
+- Suivi : **B2 corrigé** · **B1 stop-gap v1** (la sélection par-device complète est reportée — voir le journal). · **Validation 2 Macs réelle : confirmée OK par l'auteur** (Core Text / `~/Library/Fonts` / launchd).
+- Décision : **☑ P0.2 validé** (preflight 9/9 + 2-Macs OK ; B2 corrigé, B1 ramené à un stop-gap honnête sans bouton cassé). Le redesign « manifeste désiré » par device reste un item dédié hors P0.2.
 
-> Rappel : **ne cocher P0.2 dans `PLAN-PUBLICATION.md` qu'après confirmation
-> explicite que cette checklist a été déroulée.**
+> P0.2 **coché** dans `PLAN-PUBLICATION.md` : checklist déroulée, bugs preflight
+> traités (B2 corrigé, B1 stop-gap), et validation 2-Macs réelle confirmée par
+> l'auteur. La feature sélective par-device (manifeste désiré) est suivie à part.

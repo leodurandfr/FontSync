@@ -76,14 +76,22 @@ async def upload_fonts(
                 {"filename": filename, "detail": "Erreur interne du serveur."}
             )
 
-    # Notification WebSocket pour chaque font importée
+    # Notification temps réel aux clients frontend (une font.added par import).
     for font_resp in imported:
-        message = {
-            "type": "font.added",
-            "data": font_resp.model_dump(mode="json", by_alias=True),
-        }
-        await ws_manager.broadcast_to_clients(message)
-        await ws_manager.broadcast_to_agents(message)
+        await ws_manager.broadcast_to_clients(
+            {
+                "type": "font.added",
+                "data": font_resp.model_dump(mode="json", by_alias=True),
+            }
+        )
+
+    # Propagation réactive vers les agents : un signal SSE « re-sync ». Le canal
+    # WS legacy (`broadcast_to_agents`) est mort depuis la bascule de l'agent en
+    # SSE — d'où l'absence de propagation après upload (B2). Comme `/sync/push`
+    # et `/restore`, on signale les process `listen` ; un seul signal suffit,
+    # l'agent re-synchronise et pulle toutes les nouvelles fonts.
+    if imported:
+        await ws_manager.broadcast_sync()
 
     return FontUploadResponse(
         imported=imported,
@@ -356,125 +364,75 @@ async def get_font_device_status(
     return statuses
 
 
+async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
+    """Récupère un device par ID ou lève 404."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device non trouvé.")
+    return device
+
+
+# Stop-gap B1 (PLAN-PUBLICATION.md). Depuis la refonte stateless, le sync est un
+# *miroir* (l'agent pulle toutes les fonts du serveur selon `auto_pull`) et le
+# canal commande UI→agent a disparu. La sélection fine par appareil — n'installer
+# QUE cette font, désinstaller, activer/désactiver — suppose un « manifeste désiré »
+# par device + une réconciliation côté agent : c'est une vraie fonctionnalité,
+# reportée à un redesign dédié. En attendant : « install » déclenche un re-sync de
+# l'appareil (pas une commande spécifique), et les actions non encore supportées
+# répondent 501 (au lieu d'un 503 trompeur « agent non connecté »).
+_B1_DEFERRED = (
+    "Le contrôle par appareil (désinstallation, activation/désactivation) est en "
+    "cours de refonte (manifeste désiré). Dans cette version, les polices se "
+    "synchronisent en miroir selon le réglage « pull automatique » de l'appareil."
+)
+
+
 @router.post("/{font_id}/install/{device_id}", status_code=202)
 async def install_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Demande l'installation d'une font sur un appareil via WebSocket."""
+    """Déclenche un re-sync de l'appareil pour qu'il récupère les fonts du serveur.
+
+    Modèle miroir (stop-gap B1) : on ne pousse pas une commande « installe cette
+    font », on signale à l'appareil de se re-synchroniser (SSE) ; il pullera les
+    fonts manquantes selon son réglage `auto_pull`. Best-effort : si aucun process
+    `listen` n'est abonné, le signal est ignoré (l'appareil se resynchronise de
+    toute façon périodiquement / sur `WatchPaths`).
+    """
     await _get_font_or_404(font_id, db)
-    sent = await ws_manager.send_to_agent(
-        str(device_id),
-        {"type": "font.install", "data": {"fontId": str(font_id)}},
-    )
-    if not sent:
-        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
-    return {"status": "requested"}
+    await _get_device_or_404(device_id, db)
+    await ws_manager.signal_sync(str(device_id))
+    return {"status": "resync_requested"}
 
 
-@router.post("/{font_id}/uninstall/{device_id}", status_code=202)
+@router.post("/{font_id}/uninstall/{device_id}", status_code=501)
 async def uninstall_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Demande la désinstallation d'une font sur un appareil via WebSocket."""
-    font = await _get_font_or_404(font_id, db)
-
-    # Trouver le local_path pour envoyer le filename à l'agent
-    df_result = await db.execute(
-        select(DeviceFont).where(
-            DeviceFont.font_id == font_id,
-            DeviceFont.device_id == device_id,
-        )
-    )
-    df = df_result.scalar_one_or_none()
-    # Utiliser le filename original si pas d'association device_font
-    filename = font.original_filename
-    if df:
-        # Le local_path peut être un chemin complet, on veut juste le nom
-        from pathlib import PurePosixPath
-
-        filename = PurePosixPath(df.local_path).name
-
-    sent = await ws_manager.send_to_agent(
-        str(device_id),
-        {
-            "type": "font.uninstall",
-            "data": {"fontId": str(font_id), "filename": filename},
-        },
-    )
-    if not sent:
-        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
-
-    # Note : le DeviceFont est supprimé quand l'agent confirme la désinstallation
-    # via le message WebSocket "font.uninstalled" (géré dans ws.py)
-
-    return {"status": "requested"}
+    """Désinstallation par appareil — reportée au redesign « manifeste désiré » (B1)."""
+    raise HTTPException(status_code=501, detail=_B1_DEFERRED)
 
 
-# ---------- Activation / Désactivation ----------
-
-
-async def _get_device_font_or_400(
-    font_id: uuid.UUID, device_id: uuid.UUID, db: AsyncSession
-) -> DeviceFont:
-    """Récupère l'association device_font ou lève 400."""
-    df_result = await db.execute(
-        select(DeviceFont).where(
-            DeviceFont.font_id == font_id,
-            DeviceFont.device_id == device_id,
-        )
-    )
-    df = df_result.scalar_one_or_none()
-    if df is None:
-        raise HTTPException(
-            status_code=400, detail="La font n'est pas installée sur cet appareil."
-        )
-    return df
-
-
-@router.post("/{font_id}/activate/{device_id}", status_code=202)
+@router.post("/{font_id}/activate/{device_id}", status_code=501)
 async def activate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Demande l'activation d'une font sur un appareil via WebSocket."""
-    await _get_font_or_404(font_id, db)
-    df = await _get_device_font_or_400(font_id, device_id, db)
-    sent = await ws_manager.send_to_agent(
-        str(device_id),
-        {
-            "type": "font.activate",
-            "data": {"fontId": str(font_id), "localPath": df.local_path},
-        },
-    )
-    if not sent:
-        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
-    return {"status": "requested"}
+    """Activation par appareil — reportée au redesign « manifeste désiré » (B1)."""
+    raise HTTPException(status_code=501, detail=_B1_DEFERRED)
 
 
-@router.post("/{font_id}/deactivate/{device_id}", status_code=202)
+@router.post("/{font_id}/deactivate/{device_id}", status_code=501)
 async def deactivate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Demande la désactivation d'une font sur un appareil via WebSocket."""
-    await _get_font_or_404(font_id, db)
-    df = await _get_device_font_or_400(font_id, device_id, db)
-    sent = await ws_manager.send_to_agent(
-        str(device_id),
-        {
-            "type": "font.deactivate",
-            "data": {"fontId": str(font_id), "localPath": df.local_path},
-        },
-    )
-    if not sent:
-        raise HTTPException(status_code=503, detail="L'agent n'est pas connecté.")
-    return {"status": "requested"}
+    """Désactivation par appareil — reportée au redesign « manifeste désiré » (B1)."""
+    raise HTTPException(status_code=501, detail=_B1_DEFERRED)
 
 
 # ---------- Soft delete ----------

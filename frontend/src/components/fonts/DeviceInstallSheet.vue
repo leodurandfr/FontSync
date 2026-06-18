@@ -3,9 +3,8 @@ import { ref, computed } from "vue";
 import { Monitor, Loader2 } from "lucide-vue-next";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
@@ -35,17 +34,8 @@ const props = defineProps<{
 const deviceStatuses = ref<DeviceStatus[]>([]);
 const devicesLoading = ref(false);
 const actionInProgress = ref<Set<string>>(new Set());
-const activationInProgress = ref<Set<string>>(new Set());
 
 const isMultiFont = computed(() => props.fontIds.length > 1);
-
-function isSystemFont(localPath: string | null): boolean {
-  if (!localPath) return false;
-  return (
-    localPath.startsWith("/Library/Fonts") ||
-    localPath.startsWith("/System/Library/Fonts")
-  );
-}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("fr-FR", {
@@ -72,28 +62,19 @@ async function fetchDeviceStatuses() {
   }
 }
 
+// Stop-gap B1 : le modèle de sync est un *miroir* (l'appareil pulle les fonts du
+// serveur selon `auto_pull`). « Installer » ne pousse donc pas une commande
+// ciblée : il déclenche un re-sync de l'appareil. La désinstallation et
+// l'activation par appareil (sélectives) sont reportées au redesign « manifeste
+// désiré » — d'où l'absence de ces toggles ici.
 async function handleInstall(deviceId: string) {
   actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
   try {
-    const results = await Promise.allSettled(
-      props.fontIds.map((fontId) =>
-        apiFetch(`/api/fonts/${fontId}/install/${deviceId}`, {
-          method: "POST",
-        }),
-      ),
-    );
-    const allOk = results.every(
-      (r) => r.status === "fulfilled" && r.value.ok,
-    );
-    if (allOk) {
-      const status = deviceStatuses.value.find(
-        (s) => s.deviceId === deviceId,
-      );
-      if (status) {
-        status.installed = true;
-        status.activated = true;
-      }
-    }
+    // Un seul appel suffit : le re-sync récupère toutes les fonts manquantes.
+    await apiFetch(`/api/fonts/${props.fontIds[0]}/install/${deviceId}`, {
+      method: "POST",
+    });
+    // L'installation réelle suit le re-sync de l'agent → on rafraîchit le statut.
     setTimeout(() => fetchDeviceStatuses(), 2000);
   } catch (e) {
     console.error("Install error:", e);
@@ -101,101 +82,6 @@ async function handleInstall(deviceId: string) {
     const next = new Set(actionInProgress.value);
     next.delete(deviceId);
     actionInProgress.value = next;
-  }
-}
-
-async function handleUninstall(deviceId: string) {
-  actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
-  try {
-    const results = await Promise.allSettled(
-      props.fontIds.map((fontId) =>
-        apiFetch(`/api/fonts/${fontId}/uninstall/${deviceId}`, {
-          method: "POST",
-        }),
-      ),
-    );
-    const allOk = results.every(
-      (r) => r.status === "fulfilled" && r.value.ok,
-    );
-    if (allOk) {
-      const status = deviceStatuses.value.find(
-        (s) => s.deviceId === deviceId,
-      );
-      if (status) {
-        status.installed = false;
-        status.activated = false;
-        status.localPath = null;
-        status.installedAt = null;
-      }
-    }
-    setTimeout(() => fetchDeviceStatuses(), 2000);
-  } catch (e) {
-    console.error("Uninstall error:", e);
-  } finally {
-    const next = new Set(actionInProgress.value);
-    next.delete(deviceId);
-    actionInProgress.value = next;
-  }
-}
-
-async function handleActivate(deviceId: string) {
-  activationInProgress.value = new Set([
-    ...activationInProgress.value,
-    deviceId,
-  ]);
-  try {
-    const results = await Promise.allSettled(
-      props.fontIds.map((fontId) =>
-        apiFetch(`/api/fonts/${fontId}/activate/${deviceId}`, {
-          method: "POST",
-        }),
-      ),
-    );
-    const allOk = results.every(
-      (r) => r.status === "fulfilled" && r.value.ok,
-    );
-    if (allOk) {
-      setTimeout(() => fetchDeviceStatuses(), 2000);
-    }
-  } catch (e) {
-    console.error("Activate error:", e);
-  } finally {
-    const next = new Set(activationInProgress.value);
-    next.delete(deviceId);
-    activationInProgress.value = next;
-  }
-}
-
-async function handleDeactivate(deviceId: string) {
-  activationInProgress.value = new Set([
-    ...activationInProgress.value,
-    deviceId,
-  ]);
-  try {
-    const results = await Promise.allSettled(
-      props.fontIds.map((fontId) =>
-        apiFetch(`/api/fonts/${fontId}/deactivate/${deviceId}`, {
-          method: "POST",
-        }),
-      ),
-    );
-    const allOk = results.every(
-      (r) => r.status === "fulfilled" && r.value.ok,
-    );
-    if (allOk) {
-      const status = deviceStatuses.value.find(
-        (s) => s.deviceId === deviceId,
-      );
-      if (status) {
-        status.activated = false;
-      }
-    }
-  } catch (e) {
-    console.error("Deactivate error:", e);
-  } finally {
-    const next = new Set(activationInProgress.value);
-    next.delete(deviceId);
-    activationInProgress.value = next;
   }
 }
 </script>
@@ -226,20 +112,23 @@ async function handleDeactivate(deviceId: string) {
         <SheetDescription>
           {{
             isMultiFont
-              ? `Gérez l'installation de ces ${fontIds.length} polices sur chaque machine connectée.`
-              : "Gérez l'installation de cette police sur chaque machine connectée."
+              ? `Synchronisez ces ${fontIds.length} polices sur vos machines connectées.`
+              : "Synchronisez cette police sur vos machines connectées."
           }}
         </SheetDescription>
       </SheetHeader>
 
       <div class="mt-6 space-y-4">
+        <!-- Note : sémantique miroir (stop-gap B1) -->
+        <p class="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+          Les polices se synchronisent en miroir selon le réglage « pull
+          automatique » de chaque appareil. La désinstallation et l'activation
+          par appareil arrivent dans une prochaine version.
+        </p>
+
         <!-- Loading -->
         <div v-if="devicesLoading" class="space-y-4">
-          <Skeleton
-            v-for="i in 2"
-            :key="i"
-            class="h-28 w-full rounded-lg"
-          />
+          <Skeleton v-for="i in 2" :key="i" class="h-20 w-full rounded-lg" />
         </div>
 
         <!-- Empty -->
@@ -255,16 +144,14 @@ async function handleDeactivate(deviceId: string) {
           <div
             v-for="status in deviceStatuses"
             :key="status.deviceId"
-            class="rounded-lg border p-4 space-y-4"
+            class="rounded-lg border p-4 space-y-3"
           >
             <!-- Device header -->
             <div class="flex items-center gap-2">
               <span
                 class="h-2 w-2 shrink-0 rounded-full"
                 :class="
-                  status.isOnline
-                    ? 'bg-green-500'
-                    : 'bg-muted-foreground/40'
+                  status.isOnline ? 'bg-green-500' : 'bg-muted-foreground/40'
                 "
               />
               <span class="text-sm font-medium truncate">{{
@@ -277,22 +164,23 @@ async function handleDeactivate(deviceId: string) {
               >
             </div>
 
-            <!-- Install toggle -->
+            <!-- Install status / action -->
             <div class="flex items-center justify-between gap-3">
               <div class="space-y-0.5">
-                <Label class="text-sm">{{
-                  isMultiFont
-                    ? "Installer les polices"
-                    : "Installer la police"
-                }}</Label>
-                <p class="text-xs text-muted-foreground">
+                <p class="text-sm">
                   {{
                     status.installed
-                      ? "Fichier présent sur l'appareil"
+                      ? "Présente sur l'appareil"
                       : isMultiFont
                         ? "Non installées"
                         : "Non installée"
                   }}
+                </p>
+                <p
+                  v-if="status.installed && status.installedAt"
+                  class="text-xs text-muted-foreground"
+                >
+                  Installée le {{ formatDate(status.installedAt) }}
                 </p>
               </div>
               <div class="flex items-center gap-2">
@@ -300,72 +188,22 @@ async function handleDeactivate(deviceId: string) {
                   v-if="actionInProgress.has(status.deviceId)"
                   class="h-4 w-4 animate-spin text-muted-foreground"
                 />
-                <Switch
-                  :model-value="status.installed"
-                  :disabled="
-                    !status.isOnline ||
-                    actionInProgress.has(status.deviceId)
-                  "
-                  @update:model-value="
-                    status.installed
-                      ? handleUninstall(status.deviceId)
-                      : handleInstall(status.deviceId)
-                  "
-                />
-              </div>
-            </div>
-
-            <!-- Activate toggle -->
-            <div class="flex items-center justify-between gap-3">
-              <div class="space-y-0.5">
-                <Label
-                  class="text-sm"
-                  :class="!status.installed && 'text-muted-foreground'"
-                  >Activer sur le système</Label
+                <Badge v-if="status.installed" variant="secondary"
+                  >Installée</Badge
                 >
-                <p class="text-xs text-muted-foreground">
-                  <template v-if="!status.installed"
-                    >Installez d'abord la police</template
-                  >
-                  <template v-else-if="isSystemFont(status.localPath)"
-                    >Police système (non modifiable)</template
-                  >
-                  <template v-else-if="status.activated"
-                    >Disponible dans les applications</template
-                  >
-                  <template v-else
-                    >Désactivée — invisible pour les applications</template
-                  >
-                </p>
-              </div>
-              <div class="flex items-center gap-2">
-                <Loader2
-                  v-if="activationInProgress.has(status.deviceId)"
-                  class="h-4 w-4 animate-spin text-muted-foreground"
-                />
-                <Switch
-                  :model-value="status.activated"
+                <Button
+                  v-else
+                  size="sm"
+                  variant="outline"
                   :disabled="
-                    !status.installed ||
-                    !status.isOnline ||
-                    isSystemFont(status.localPath) ||
-                    activationInProgress.has(status.deviceId)
+                    !status.isOnline || actionInProgress.has(status.deviceId)
                   "
-                  @update:model-value="
-                    status.activated
-                      ? handleDeactivate(status.deviceId)
-                      : handleActivate(status.deviceId)
-                  "
-                />
+                  @click="handleInstall(status.deviceId)"
+                >
+                  Installer
+                </Button>
               </div>
             </div>
-
-            <p
-              v-if="status.installed && status.installedAt"
-              class="text-xs text-muted-foreground"
-            >
-              Installée le {{ formatDate(status.installedAt) }}
-            </p>
           </div>
         </template>
       </div>
