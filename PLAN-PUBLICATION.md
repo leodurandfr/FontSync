@@ -5,7 +5,7 @@
 > valider le cœur en conditions réelles, le **sécuriser** (auth minimale), et le **distribuer**
 > (serveur Docker pour NAS + app Mac menu bar). Le **cap long terme** reste `ROADMAP.md`.
 
-**STATUT : P0.1 (licence) terminé → AGPL-3.0-or-later. Prochaine étape = P0.2 (validation E2E).**
+**STATUT : P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés. Reste P0.2 (validation E2E) avant le packaging.**
 
 ---
 
@@ -26,6 +26,11 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 - **Auth = token partagé unique.** Un secret serveur (`FONTSYNC_TOKEN`) vérifié sur tout `/api/*`. **Pas de comptes utilisateurs** (ça reste le mode cloud / Phase 7). Écart assumé au « pas d'auth MVP » (CLAUDE.md) : un serveur self-hosted potentiellement exposé sur un NAS ne peut pas rester ouvert.
   - *Note ROADMAP #4 (tenancy)* : on **n'introduit pas `account_id`** maintenant — le token protège un instance mono-utilisateur implicite. La frontière de tenancy se décidera au passage cloud, comme prévu. Choix conscient de ne pas sur-anticiper pour un v1 self-host.
 - **App Mac = menu bar 100 % native en Swift/SwiftUI** (`NSStatusItem` + `WKWebView`), **signée** (Developer ID déjà en possession). Choix le plus propre pour un v1 **macOS-only** : zéro runtime embarqué, et une app signée **rouvre les notifications natives** (`UNUserNotifications`) que B9 avait dû retirer faute de bundle signé. *(Alternative écartée : **Tauri** — l'échappatoire cross-platform de ROADMAP #5. Reportée : le cross-platform est long terme/non-actionable, et l'app n'est qu'une **télécommande mince** au-dessus de l'agent Python — déjà platform-agnostique (ROADMAP #3) — donc la réécriture de cette couche UI pour Windows/Linux plus tard est de coût borné. Anti-Electron respecté : Swift est encore plus léger que Tauri.)*
+- **Embarquement de l'agent dans l'app = venv Python relocatable embarqué** (build via `python-build-standalone` / `uv`), placé dans `Contents/Resources/agent-venv/`, deps pip-installées, **universal2** (couvre les Macs Intel), re-signé *inside-out* (chaque `.so` → interpréteur → helper → `.app`, sans `--deep`) + Hardened Runtime, notarisé avec le `.app`. Tranché sur trois arguments mesurés (wheels `cp312` mesurés en P0.3) :
+  1. **Taille et surface de signature ~identiques** quelle que soit l'option. Les deps pèsent **~7,4 MB** de wheels (dont **6,1 MB** pour le seul `pyobjc-core` ; httpx & co sont 100 % pur-Python), et le poids réel embarqué est le **runtime CPython** (~30-45 MB strippé) — identique dans les trois approches. La signature est dominée par les `.so` de la stdlib CPython, eux aussi identiques partout. Geler ne réduit donc ni la taille ni le volume de signature.
+  2. **pyobjc est la dépendance qui casse le plus sous les freezers** (introspection runtime / bridgesupport). Un venv pip-installé est son **chemin d'install supporté** → risque nul. C'est l'argument décisif.
+  3. **Zéro divergence vs l'artefact validé en P0.2** (l'embarqué *EST* `python -m agent`, le code path qu'on teste) et **zéro fork du template launchd** : `resolve_python()` accepte déjà n'importe quel interpréteur via `@PYTHON@`, donc `fontsync-agent setup` lancé par l'interpréteur du bundle pointe les plists dessus automatiquement (la relocalisation est un non-problème : le path absolu est résolu *à l'install*, l'app étant déjà dans `/Applications`).
+  *(Alternatives écartées : **PyInstaller sidecar** — mûr (`--codesign-identity`) mais **onefile interdit pour un daemon launchd** (extraction `/tmp` à chaque lancement), hooks pyobjc fragiles, fork du template, gain de taille nul ; **binaire figé Nuitka** — pyobjc reste en `.so` (gain nul), agent I/O-bound (pas de gain vitesse), outillage de signature le moins mûr. La question PyInstaller rouverte par l'idée du sidecar est donc **re-fermée** : B10 « pas de PyInstaller » tient.)*
 - **Fenêtre « nue » = la webview pointe sur l'UI web servie par le serveur.** `backend/main.py` sert déjà le SPA (catch-all). Inutile de faire servir le frontend par l'agent → on supprime cette complexité de l'ancien B12.
 - **Distribution serveur = image Docker multi-arch** (amd64 + arm64), idiomatique NAS (Synology Container Manager…).
 - **Transport = HTTP en LAN par défaut + doc reverse-proxy TLS** (Caddy/nginx). Pas de TLS natif dans l'app : le reverse proxy est la voie standard sur NAS.
@@ -66,7 +71,7 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
   - cache de hash (2e scan quasi instantané) ; `.ttc` ; font malformée (métadonnées partielles) ; soft-delete + résurrection ;
   - collision de noms à l'install (préservation de la font locale, cf. B7).
   - **Objectif : trouver les bugs réels avant le packaging.** Consigner les résultats dans un `tests/e2e/CHECKLIST.md`.
-- [ ] **P0.3 — Stratégie d'embarquement de l'agent dans l'app** (pose les bases de P3). L'app doit-elle **bundler** l'agent Python (sidecar Tauri) pour une install en un seul `.app`, ou **piloter** un agent installé à part (Homebrew/pkg) ? Recommandation : **sidecar bundlé** (meilleure UX « glisser dans Applications »), ce qui **rouvre la question PyInstaller** fermée en B10 (justifié par le choix app native). Trancher : PyInstaller, venv embarqué, ou binaire figé.
+- [x] **P0.3 — Stratégie d'embarquement de l'agent dans l'app** (pose les bases de P3). **Tranché : sidecar bundlé via venv Python relocatable embarqué** (un seul `.app` « glisser dans Applications », plutôt que piloter un agent installé à part en Homebrew/pkg). Le détail (build, signature, taille mesurée) et les alternatives écartées (PyInstaller, Nuitka) sont consignés dans « Décisions arrêtées ». Conséquence pour P3.4 / B10 : la question PyInstaller, rouverte par l'idée du sidecar, est **re-fermée** — le venv embarqué est retenu.
 
 ## Phase P1 — Sécurité minimale (token partagé + transport)
 
@@ -113,7 +118,7 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 | Écart | Source | Statut |
 |---|---|---|
 | App native menu bar (Swift/SwiftUI, signée) | PLAN.md « ni Electron ni `.app` » / ROADMAP #5 | **Assumé** : Mac-only v1 + Developer ID en main → Swift est le plus propre. Tauri (escape hatch ROADMAP) reporté au cross-platform |
-| PyInstaller possiblement rouvert (sidecar) | B10 « pas de PyInstaller » | À trancher en **P0.3** |
+| Embarquement agent = venv relocatable embarqué (sidecar) | B10 « pas de PyInstaller » | **Tranché en P0.3** : venv embarqué retenu, PyInstaller/Nuitka écartés → B10 tient |
 | Token partagé serveur | CLAUDE.md « pas d'auth MVP » / ROADMAP #4 | **Assumé** : minimum vital, sans `account_id` |
 | B12 (PLAN.md) éclaté | PLAN.md B12 | Repris : serveur → **P2**, agent Homebrew → **P5** (optionnel) |
 | Licence à trancher | ROADMAP #6 | Devient **P0.1** |
