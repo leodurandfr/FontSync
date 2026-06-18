@@ -1,3 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Leo Durand
+#
+# This file is part of FontSync, a self-hosted font manager.
+# FontSync is free software: you can redistribute it and/or modify it under the
+# terms of the GNU Affero General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. It is distributed WITHOUT ANY WARRANTY; see the GNU AGPL for details.
+# You should have received a copy of the license with this program (see LICENSE),
+# or at <https://www.gnu.org/licenses/>.
+
 from pathlib import Path
 
 from fastapi import FastAPI, Request

@@ -1,0 +1,119 @@
+# FontSync — Plan de publication (self-hosted v1, macOS)
+
+> Suite de `PLAN.md`. Le socle **refonte backend + agent + frontend minimal** (Phases A/B/C)
+> est terminé. Ce plan couvre ce qui manque pour rendre la version **self-hosted publiable** :
+> valider le cœur en conditions réelles, le **sécuriser** (auth minimale), et le **distribuer**
+> (serveur Docker pour NAS + app Mac menu bar). Le **cap long terme** reste `ROADMAP.md`.
+
+**STATUT : P0.1 (licence) terminé → AGPL-3.0-or-later. Prochaine étape = P0.2 (validation E2E).**
+
+---
+
+## Comment travailler ce plan (multi-conversations)
+
+Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine étape du plan** ». Alors :
+
+1. Lire ce fichier en entier, repérer la **première tâche non cochée**.
+2. L'implémenter complètement, avec tests si applicable. **Rester dans le périmètre de l'étape.**
+3. Cocher la/les tâche(s), mettre à jour la ligne **STATUT**.
+4. `ruff format`/`ruff check` (backend/agent), `prettier` (front), `cargo fmt`/`clippy` (app Tauri), lancer les tests, puis **commit** en Conventional Commits.
+5. S'arrêter en fin d'étape, résumer ce qui a été fait + la prochaine.
+
+---
+
+## Décisions arrêtées (ne pas re-litiguer)
+
+- **Auth = token partagé unique.** Un secret serveur (`FONTSYNC_TOKEN`) vérifié sur tout `/api/*`. **Pas de comptes utilisateurs** (ça reste le mode cloud / Phase 7). Écart assumé au « pas d'auth MVP » (CLAUDE.md) : un serveur self-hosted potentiellement exposé sur un NAS ne peut pas rester ouvert.
+  - *Note ROADMAP #4 (tenancy)* : on **n'introduit pas `account_id`** maintenant — le token protège un instance mono-utilisateur implicite. La frontière de tenancy se décidera au passage cloud, comme prévu. Choix conscient de ne pas sur-anticiper pour un v1 self-host.
+- **App Mac = menu bar 100 % native en Swift/SwiftUI** (`NSStatusItem` + `WKWebView`), **signée** (Developer ID déjà en possession). Choix le plus propre pour un v1 **macOS-only** : zéro runtime embarqué, et une app signée **rouvre les notifications natives** (`UNUserNotifications`) que B9 avait dû retirer faute de bundle signé. *(Alternative écartée : **Tauri** — l'échappatoire cross-platform de ROADMAP #5. Reportée : le cross-platform est long terme/non-actionable, et l'app n'est qu'une **télécommande mince** au-dessus de l'agent Python — déjà platform-agnostique (ROADMAP #3) — donc la réécriture de cette couche UI pour Windows/Linux plus tard est de coût borné. Anti-Electron respecté : Swift est encore plus léger que Tauri.)*
+- **Fenêtre « nue » = la webview pointe sur l'UI web servie par le serveur.** `backend/main.py` sert déjà le SPA (catch-all). Inutile de faire servir le frontend par l'agent → on supprime cette complexité de l'ancien B12.
+- **Distribution serveur = image Docker multi-arch** (amd64 + arm64), idiomatique NAS (Synology Container Manager…).
+- **Transport = HTTP en LAN par défaut + doc reverse-proxy TLS** (Caddy/nginx). Pas de TLS natif dans l'app : le reverse proxy est la voie standard sur NAS.
+- **macOS uniquement** pour ce v1. Windows/Linux = ROADMAP #3, hors-scope.
+- **Le cœur reste : agent stateless (launchd) + serveur source de vérité.** L'app Tauri est une **télécommande** par-dessus l'agent CLI existant, elle ne réécrit aucune logique de sync.
+
+---
+
+## Architecture cible (v1 public)
+
+```
+   Mac (utilisateur)                              Serveur FontSync (NAS, Docker)
+ ┌───────────────────────────┐                 ┌──────────────────────────────────┐
+ │ App FontSync (Swift .app)  │                 │ FastAPI + SQLite + storage        │
+ │  • menu bar : statut/sync  │── HTTP+token ──►│  • /api/* protégé par token       │
+ │  • fenêtre webview ────────┼─── web UI ─────►│  • sert le SPA (UI web)           │
+ │  • préférences (url+token) │                 │  • SSE "re-sync" → agents         │
+ │  • gère launchd            │                 │  • alembic upgrade au boot        │
+ │      │ contrôle                              └──────────────────────────────────┘
+ │      ▼                                         ▲            ▲
+ │ fontsync-agent (launchd)   │── push/pull ──────┘            │
+ │  sync (WatchPaths) + listen (SSE) ────────────── signal ────┘
+ └───────────────────────────┘
+```
+
+---
+
+## Phase P0 — Choix bloquants & validation du cœur (avant d'emballer)
+
+> On valide et on tranche **avant** d'investir dans la signature / le packaging.
+
+- [x] **P0.1 — Licence** *(ROADMAP #6, désormais actionnable)*. **Tranché : AGPL-3.0-or-later** (Plausible, Cal.com) plutôt que BSL — protège le combo « self-host gratuit + cloud payant » par copyleft réseau (§13) + dual-licensing (copyright conservé), tout en gardant le vrai badge OSS. `LICENSE` (texte FSF verbatim) ajouté à la racine ; en-têtes SPDX sur les points d'entrée (`backend/main.py`, `agent/__main__.py`) ; mentions de licence dans `pyproject.toml` (classifier), `frontend/package.json` et `README.md` (note DCO pour préserver le relicensing). *(Inconvénient assumé : l'AGPL ne bloque pas un revendeur verbatim du cloud ; bascule possible vers BSL sur les versions futures si une vraie menace émerge, copyright conservé.)*
+- [ ] **P0.2 — Validation end-to-end réelle** (2 Macs + 1 serveur). Les 99 tests agent tournent sur FS isolé / `MockTransport` — le cœur produit (push→SSE→pull→install entre deux machines) n'a **jamais** été validé bout-en-bout. Dérouler et documenter une checklist :
+  - push local (WatchPaths) → import serveur → signal SSE → pull + install sur l'autre Mac ;
+  - upload via le frontend → apparition sur les deux machines ;
+  - désinstallation explicite depuis le frontend (font reste sur le serveur) ;
+  - coupure réseau → reconnexion `listen` → rattrapage ;
+  - cache de hash (2e scan quasi instantané) ; `.ttc` ; font malformée (métadonnées partielles) ; soft-delete + résurrection ;
+  - collision de noms à l'install (préservation de la font locale, cf. B7).
+  - **Objectif : trouver les bugs réels avant le packaging.** Consigner les résultats dans un `tests/e2e/CHECKLIST.md`.
+- [ ] **P0.3 — Stratégie d'embarquement de l'agent dans l'app** (pose les bases de P3). L'app doit-elle **bundler** l'agent Python (sidecar Tauri) pour une install en un seul `.app`, ou **piloter** un agent installé à part (Homebrew/pkg) ? Recommandation : **sidecar bundlé** (meilleure UX « glisser dans Applications »), ce qui **rouvre la question PyInstaller** fermée en B10 (justifié par le choix app native). Trancher : PyInstaller, venv embarqué, ou binaire figé.
+
+## Phase P1 — Sécurité minimale (token partagé + transport)
+
+- [ ] **P1.1 — Token serveur.** `FONTSYNC_TOKEN` (env, via `config.py`). Dependency FastAPI sur tout `/api/*` (sauf un `/health`) → `401` si absent/incorrect. Si non défini au boot : générer + logguer une valeur (et la rendre visible dans les logs du conteneur).
+- [ ] **P1.2 — Token sur SSE + WS.** Agent SSE (`httpx`) : header `Authorization`. Navigateur (`EventSource` + WS frontend) : header impossible → token en query param ou cookie. Couvrir `agent_events.py` et `ws.py`.
+- [ ] **P1.3 — Agent envoie le token.** `SyncClient` ajoute `Authorization: Bearer <token>` depuis la config. Clarifier la sémantique de `device_token` (par-device) vs le **token partagé** d'instance — pour le v1, un seul token d'instance suffit.
+- [ ] **P1.4 — Frontend : saisie du token.** Écran/champ « token serveur » (stocké `localStorage`), injecté dans tous les `fetch` + connexions WS/SSE. `401` → réafficher la saisie.
+- [ ] **P1.5 — Doc transport.** README : bind LAN par défaut, **avertissement** « ne jamais exposer sans reverse-proxy TLS », exemple Caddy/nginx.
+- [ ] **P1.6 — Tests.** Endpoints rejettent sans token / acceptent avec ; SSE et WS idem.
+
+## Phase P2 — Distribution serveur (Docker NAS) — *ex-B12 (serveur)*
+
+- [ ] **P2.1 — Migrations au boot.** Entrypoint conteneur lance `alembic upgrade head` avant Uvicorn (sinon DB cassée au 1er run / après update).
+- [ ] **P2.2 — Image multi-arch.** Build `linux/amd64` + `linux/arm64`, publication sur **ghcr.io** ; workflow CI (build + push) déclenché sur tag.
+- [ ] **P2.3 — `docker-compose.yml` d'exemple NAS.** Un seul conteneur ; volumes **DB SQLite** (WAL) + **fonts** ; variable `FONTSYNC_TOKEN` ; port ; `healthcheck` ; `restart: unless-stopped`.
+- [ ] **P2.4 — Doc install NAS.** Guide Synology Container Manager (ou compose), + **stratégie de backup** (volume SQLite + volume fonts).
+
+## Phase P3 — App Mac menu bar (Swift/SwiftUI, signée)
+
+- [ ] **P3.1 — Squelette menu bar.** `NSStatusItem` (ou `MenuBarExtra` SwiftUI) : indicateur connecté/déconnecté, dernière sync, nombre de fonts (source : `fontsync-agent status` et/ou `/api/stats`). Pas de fenêtre principale par défaut.
+- [ ] **P3.2 — Fenêtre « nue ».** Bouton « Ouvrir FontSync » → fenêtre `WKWebView` chargeant l'URL du serveur (UI web). Pas de chrome custom.
+- [ ] **P3.3 — Préférences.** Saisie URL serveur + token, écrites dans `~/.fontsync/config.yaml` (réutilise `agent/config.py`), avec test de connexion.
+- [ ] **P3.4 — Cycle de vie de l'agent.** Selon P0.3 : embarquer/lancer l'agent + installer les jobs launchd via `fontsync-agent setup` (déjà fait en B10). Statut launchd remonté dans le menu.
+- [ ] **P3.5 — Actions menu.** Sync now (kickstart), Ouvrir les logs (`~/Library/Logs/FontSync/`), Préférences, Quitter.
+- [ ] **P3.6 — Notifications natives (rouvre B9).** Bundle signé → `UNUserNotifications` : notifier les fonts pull/install, les erreurs de sync. *(Impossible en B9 car CLI non signé ; débloqué par l'app signée.)*
+- [ ] **P3.7 — Signature & distribution.** **Developer ID** (déjà en possession) + **notarisation** (`notarytool`) + stapling ; artefact `.dmg`. Mises à jour : **Sparkle**. Plus un bloqueur — procédure connue.
+
+## Phase P4 — Onboarding & docs publiques
+
+- [ ] **P4.1 — Premier lancement guidé.** Au 1er run de l'app : saisie URL + token, test de connexion, install des jobs launchd, 1re sync.
+- [ ] **P4.2 — README public.** Install serveur (Docker) + install agent (DMG), quickstart « 2 machines », dépannage.
+- [ ] **P4.3 — GitHub Releases.** Artefacts versionnés : image Docker taggée + `.dmg` signé.
+
+## Phase P5 — (optionnel) canal Homebrew CLI — *ex-B12 (agent)*
+
+> Pour les utilisateurs « power users » / serveurs headless qui ne veulent pas l'app.
+
+- [ ] **P5.1 — Formula Homebrew** dans un tap (`brew install <user>/tap/fontsync-agent`) via `virtualenv_install_with_resources`. Dégradé en **optionnel** : l'app Tauri (P3) devient le canal principal grand public.
+
+---
+
+## Annexe — écarts assumés vs plans existants (traçabilité)
+
+| Écart | Source | Statut |
+|---|---|---|
+| App native menu bar (Swift/SwiftUI, signée) | PLAN.md « ni Electron ni `.app` » / ROADMAP #5 | **Assumé** : Mac-only v1 + Developer ID en main → Swift est le plus propre. Tauri (escape hatch ROADMAP) reporté au cross-platform |
+| PyInstaller possiblement rouvert (sidecar) | B10 « pas de PyInstaller » | À trancher en **P0.3** |
+| Token partagé serveur | CLAUDE.md « pas d'auth MVP » / ROADMAP #4 | **Assumé** : minimum vital, sans `account_id` |
+| B12 (PLAN.md) éclaté | PLAN.md B12 | Repris : serveur → **P2**, agent Homebrew → **P5** (optionnel) |
+| Licence à trancher | ROADMAP #6 | Devient **P0.1** |
