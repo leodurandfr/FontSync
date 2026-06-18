@@ -1,0 +1,47 @@
+# Déploiement FontSync sur NAS (Synology Container Manager, QNAP, ou tout hôte
+# Docker) — exemple prêt à l'emploi (P2.3, PLAN-PUBLICATION.md).
+#
+# Un seul conteneur : FastAPI + SQLite (WAL) + storage filesystem. Image
+# multi-arch publiée sur ghcr.io (amd64 + arm64) → aucun build local requis.
+#
+# Démarrage rapide :
+#   1. Générer un token :   openssl rand -base64 32
+#   2. Le poser dans un fichier .env à côté de ce compose :
+#        FONTSYNC_TOKEN=le-token-généré
+#   3. docker compose -f docker-compose.nas.yml up -d
+#
+# ⚠️  HTTP en clair : à réserver au LAN, ou à placer derrière un reverse-proxy
+#     TLS (cf. README, section « Transport & sécurité réseau »).
+# 📖  Guide pas-à-pas + stratégie de backup : docs/INSTALL-NAS.md
+
+services:
+  fontsync:
+    image: ghcr.io/leodurandfr/fontsync:latest
+    container_name: fontsync
+    restart: unless-stopped
+    ports:
+      - "8080:8000"          # hôte:conteneur — ajustez le port hôte si occupé
+    environment:
+      # Secret d'instance protégeant tout /api/*, SSE et WS. Obligatoire ici :
+      # le compose refuse de démarrer s'il n'est pas défini (voir .env).
+      FONTSYNC_TOKEN: ${FONTSYNC_TOKEN:?Définissez FONTSYNC_TOKEN (ex. dans un fichier .env)}
+      DATABASE_URL: sqlite+aiosqlite:////data/fontsync.db
+      STORAGE_BACKEND: filesystem
+      FONT_STORAGE_PATH: /fonts
+    volumes:
+      - db:/data             # base SQLite : fontsync.db (+ -wal, -shm)
+      - fonts:/fonts         # fichiers de polices stockés
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  db:
+  fonts:

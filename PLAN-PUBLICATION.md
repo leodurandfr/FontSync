@@ -5,7 +5,7 @@
 > valider le cœur en conditions réelles, le **sécuriser** (auth minimale), et le **distribuer**
 > (serveur Docker pour NAS + app Mac menu bar). Le **cap long terme** reste `ROADMAP.md`.
 
-**STATUT : P0 et P1 terminées. P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés ; P0.2 (validation E2E) validée — E2E 9/9 + 2-Macs OK, B2 corrigé (propagation upload), B1 ramené à un stop-gap v1 (la sélection par-device est reportée). P1 complète et testée (P1.1–P1.6 : auth par token `/api/*` + SSE/WS, agent émetteur, saisie/stockage du token côté frontend, doc transport, tests). Prochaine étape : packaging — P2 (Docker NAS) puis P3 (app Mac). Dette tracée : redesign per-device « manifeste désiré » (cf. Annexe).**
+**STATUT : P0, P1 et P2 terminées. P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés ; P0.2 (validation E2E) validée — E2E 9/9 + 2-Macs OK, B2 corrigé (propagation upload), B1 ramené à un stop-gap v1 (la sélection par-device est reportée). P1 complète et testée (P1.1–P1.6 : auth par token `/api/*` + SSE/WS, agent émetteur, saisie/stockage du token côté frontend, doc transport, tests). P2 complète (P2.1–P2.4 : migrations au boot via entrypoint, image multi-arch amd64+arm64 + workflow CI ghcr.io, `docker-compose.nas.yml` d'exemple, `docs/INSTALL-NAS.md` + backup ; build des 2 arches et boot vérifiés ; legacy Postgres supprimé). Prochaine étape : P3 (app Mac menu bar Swift/SwiftUI signée). Dette tracée : redesign per-device « manifeste désiré » (cf. Annexe).**
 
 ---
 
@@ -86,10 +86,10 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 
 ## Phase P2 — Distribution serveur (Docker NAS) — *ex-B12 (serveur)*
 
-- [ ] **P2.1 — Migrations au boot.** Entrypoint conteneur lance `alembic upgrade head` avant Uvicorn (sinon DB cassée au 1er run / après update).
-- [ ] **P2.2 — Image multi-arch.** Build `linux/amd64` + `linux/arm64`, publication sur **ghcr.io** ; workflow CI (build + push) déclenché sur tag.
-- [ ] **P2.3 — `docker-compose.yml` d'exemple NAS.** Un seul conteneur ; volumes **DB SQLite** (WAL) + **fonts** ; variable `FONTSYNC_TOKEN` ; port ; `healthcheck` ; `restart: unless-stopped`.
-- [ ] **P2.4 — Doc install NAS.** Guide Synology Container Manager (ou compose), + **stratégie de backup** (volume SQLite + volume fonts).
+- [x] **P2.1 — Migrations au boot.** `scripts/docker-entrypoint.sh` (`ENTRYPOINT`) crée le dossier de la base + le storage puis lance `alembic upgrade head` avant d'`exec` la commande (Uvicorn). Idempotent et robuste hors volume (corrige le cryptique « unable to open database file »). Vérifié : 1er boot applique `fbca947b83c5`, reboot ne rejoue rien (les 6 tables sont créées).
+- [x] **P2.2 — Image multi-arch.** `Dockerfile` self-contained (build SPA + backend + entrypoint, labels OCI, `HEALTHCHECK` sans curl/wget). Workflow `.github/workflows/docker-publish.yml` : QEMU + Buildx, login GHCR, `docker/metadata-action` (tags semver + `latest`), build & push `linux/amd64` + `linux/arm64` sur **ghcr.io** déclenché sur tag `v*` (+ `workflow_dispatch`). **Build des deux arches validé localement** (builder docker-container).
+- [x] **P2.3 — `docker-compose.nas.yml` d'exemple NAS.** Un seul conteneur (image ghcr) ; volumes **DB SQLite** (`db:/data`, WAL) + **fonts** (`fonts:/fonts`) ; `FONTSYNC_TOKEN` **requis** (`${FONTSYNC_TOKEN:?…}`) ; port `8080:8000` ; `healthcheck` ; `restart: unless-stopped`. Validé (`compose config`). *(Les anciens `Dockerfile.prod` / `docker-compose.prod.yml` basés sur Postgres — abandonné — sont supprimés : ils contredisaient la cible SQLite mono-conteneur.)*
+- [x] **P2.4 — Doc install NAS.** `docs/INSTALL-NAS.md` : guide Synology Container Manager + compose, tableaux variables/volumes, mises à jour, et **stratégie de backup** (à froid : stop + `tar` des 2 volumes ; à chaud : SQLite `.backup` + `tar` du volume fonts) + restauration. Pointeur ajouté au README.
 
 ## Phase P3 — App Mac menu bar (Swift/SwiftUI, signée)
 

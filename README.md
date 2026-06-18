@@ -5,9 +5,25 @@ un serveur Docker centralise la bibliothèque de polices, un agent Python détec
 synchronise automatiquement les fonts entre machines, une interface web permet de
 naviguer et gérer la collection.
 
-> ℹ️ README minimal (mention de licence — P0.1). Le guide d'installation et le
-> quickstart « 2 machines » arrivent en **P4.2** (cf. `PLAN-PUBLICATION.md`).
-> Voir `SPECS.md` pour la vision produit et l'architecture.
+> ℹ️ README minimal (mention de licence — P0.1). Le quickstart public complet
+> « 2 machines » arrive en **P4.2** (cf. `PLAN-PUBLICATION.md`). Voir `SPECS.md`
+> pour la vision produit et l'architecture.
+
+## Installer le serveur (NAS / Docker)
+
+L'image serveur est **multi-arch** (amd64 + arm64), publiée sur
+`ghcr.io/leodurandfr/fontsync`. Déploiement en un conteneur :
+
+```bash
+# 1. Générer un token d'instance
+openssl rand -base64 32          # → à mettre dans un fichier .env : FONTSYNC_TOKEN=...
+# 2. Démarrer (exemple NAS fourni)
+docker compose -f docker-compose.nas.yml up -d
+```
+
+Les migrations de schéma s'appliquent automatiquement au démarrage. Guide
+détaillé (Synology Container Manager, variables, volumes, **sauvegarde &
+restauration**) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
 ## Transport & sécurité réseau
 
