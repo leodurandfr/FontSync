@@ -55,11 +55,18 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var isRefreshing = false
 
+    /// Dernier total de fonts notifié avec succès — base de comparaison pour
+    /// détecter les polices nouvellement synchronisées (P3.6). `nil` tant
+    /// qu'aucune sonde n'a abouti ⇒ pas de notification au tout premier scan.
+    private var lastNotifiedFontCount: Int?
+
     /// Intervalle de sonde — assez court pour un menu vivant, assez long pour
     /// rester discret.
     private let refreshInterval: TimeInterval = 20
 
     func start() {
+        guard timer == nil else { return }
+        NotificationManager.requestAuthorization()
         refresh()
         let timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) {
             [weak self] _ in
@@ -96,6 +103,7 @@ final class AppModel: ObservableObject {
         }
 
         let client = ServerClient(baseURL: baseURL, token: config.token)
+        let previousConnection = connection
         Task { @MainActor in
             defer { isRefreshing = false }
             do {
@@ -109,6 +117,30 @@ final class AppModel: ObservableObject {
             } catch {
                 connection = .offline
             }
+            notifyTransition(from: previousConnection)
+        }
+    }
+
+    /// Émet les notifications natives (P3.6) déduites du changement d'état
+    /// observé lors de cette sonde :
+    /// - **polices synchronisées** quand le total serveur augmente (pull/install) ;
+    /// - **erreur de sync** quand une connexion qui marchait vient de tomber
+    ///   (injoignable) ou d'être rejetée (token invalide). On exige `previous ==
+    ///   .connected` pour ne notifier qu'une *interruption* réelle, pas un
+    ///   serveur déjà éteint au lancement ni une sonde offline répétée.
+    private func notifyTransition(from previous: ConnectionState) {
+        if connection == .connected, let count = fontCount {
+            if let baseline = lastNotifiedFontCount, count > baseline {
+                NotificationManager.notifyFontsSynced(delta: count - baseline, total: count)
+            }
+            lastNotifiedFontCount = count
+        }
+
+        guard previous == .connected else { return }
+        switch connection {
+        case .offline: NotificationManager.notifySyncOffline()
+        case .unauthorized: NotificationManager.notifySyncUnauthorized()
+        default: break
         }
     }
 
@@ -122,10 +154,20 @@ final class AppModel: ObservableObject {
     /// une fois terminé.
     func syncNow() {
         Task.detached {
+            // `kickstart` ne fait que relancer le job launchd (ses erreurs
+            // restent dans les journaux de l'agent) ; seul le repli `sync`
+            // direct nous remonte un code de sortie exploitable (P3.6).
+            var failure: String?
             if !LaunchdStatus.kickstartSync() {
-                _ = AgentController.sync()
+                let result = AgentController.sync()
+                if !result.succeeded { failure = result.output }
             }
-            await MainActor.run { self.refresh() }
+            await MainActor.run {
+                if let failure {
+                    NotificationManager.notifySyncFailed(detail: failure)
+                }
+                self.refresh()
+            }
         }
     }
 

@@ -22,7 +22,11 @@ struct FontSyncApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
+            // L'icône de la barre de menus est présente dès le lancement (app
+            // LSUIElement, sans fenêtre) : c'est le point d'amorçage de la sonde
+            // périodique et de la demande d'autorisation des notifications (P3.6).
             Image(systemName: model.connection.symbolName)
+                .task { model.start() }
         }
         .menuBarExtraStyle(.menu)
 
