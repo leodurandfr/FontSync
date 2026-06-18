@@ -22,6 +22,15 @@ enum LaunchdStatus {
         return result == 0
     }
 
+    /// Relance immédiatement le job `sync` via `launchctl kickstart -k` — la
+    /// même voie qu'un déclenchement `WatchPaths` (P3.5 « Sync now »). Le job
+    /// doit être chargé ; `false` sinon (l'appelant retombe sur `agent sync`).
+    static func kickstartSync() -> Bool {
+        guard isLoaded(syncLabel) else { return false }
+        let uid = getuid()
+        return run("/bin/launchctl", ["kickstart", "-k", "gui/\(uid)/\(syncLabel)"]) == 0
+    }
+
     /// Lance un process et renvoie son code de sortie (-1 si non lançable).
     private static func run(_ launchPath: String, _ arguments: [String]) -> Int32 {
         let process = Process()

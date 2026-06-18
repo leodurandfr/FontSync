@@ -48,6 +48,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var listenJobLoaded = false
     @Published private(set) var serverURL: URL?
 
+    /// `true` si un agent (venv embarqué ou override dev) est pilotable :
+    /// conditionne l'activation des actions de cycle de vie / sync (P3.4/P3.5).
+    @Published private(set) var agentAvailable = AgentController.isAvailable
+
     private var timer: Timer?
     private var isRefreshing = false
 
@@ -78,6 +82,7 @@ final class AppModel: ObservableObject {
 
         let config = AppConfig.load()
         serverURL = config.serverURL
+        agentAvailable = AgentController.isAvailable
 
         // État launchd (rapide, hors réseau).
         syncJobLoaded = LaunchdStatus.isLoaded(LaunchdStatus.syncLabel)
@@ -105,5 +110,37 @@ final class AppModel: ObservableObject {
                 connection = .offline
             }
         }
+    }
+
+    // MARK: - Actions (P3.4 / P3.5)
+
+    /// Déclenche une synchronisation immédiate (P3.5 « Sync now »).
+    ///
+    /// Voie privilégiée : `launchctl kickstart -k` du job `sync` — identique à
+    /// un déclenchement `WatchPaths`. Si le job n'est pas chargé, on retombe sur
+    /// un `fontsync-agent sync` direct via le venv embarqué. Rafraîchit le menu
+    /// une fois terminé.
+    func syncNow() {
+        Task.detached {
+            if !LaunchdStatus.kickstartSync() {
+                _ = AgentController.sync()
+            }
+            await MainActor.run { self.refresh() }
+        }
+    }
+
+    /// Installe et charge les LaunchAgents de l'agent (`fontsync-agent setup`).
+    /// Renvoie le résultat pour affichage dans les préférences, puis rafraîchit.
+    func installAgent() async -> AgentResult {
+        let result = await Task.detached { AgentController.setup() }.value
+        refresh()
+        return result
+    }
+
+    /// Décharge et supprime les LaunchAgents (`fontsync-agent teardown`).
+    func uninstallAgent() async -> AgentResult {
+        let result = await Task.detached { AgentController.teardown() }.value
+        refresh()
+        return result
     }
 }

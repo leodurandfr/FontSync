@@ -14,7 +14,16 @@ FontSync. Couvre la Phase P3 de [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.m
   (`com.fontsync.sync` / `com.fontsync.listen`).
 - **P3.2 — Fenêtre « nue »** ✅ « Ouvrir FontSync » → fenêtre `WKWebView` chargeant
   l'UI web servie par le serveur.
-- P3.3+ (préférences, cycle de vie agent, actions, notifications, signature) : à venir.
+- **P3.3 — Préférences** ✅ Fenêtre `Settings` (⌘,) : saisie URL + token, **écriture
+  chirurgicale** dans `~/.fontsync/config.yaml` (préserve `device_id`/`scan`/`sync`),
+  avec **test de connexion** (`GET /api/stats`).
+- **P3.4 — Cycle de vie de l'agent** ✅ `AgentController` résout le venv Python
+  **embarqué** (`Contents/Resources/agent-venv/`, cf. P0.3) et pilote
+  `fontsync-agent setup`/`teardown` ; installation/désinstallation depuis les
+  préférences, statut launchd remonté.
+- **P3.5 — Actions menu** ✅ Synchroniser maintenant (`launchctl kickstart`, repli
+  `agent sync`), Ouvrir les journaux (`~/Library/Logs/FontSync/`), Préférences, Quitter.
+- P3.6+ (notifications natives, signature/notarisation, distribution) : à venir.
 
 ## Architecture
 
@@ -27,7 +36,13 @@ FontSync. Couvre la Phase P3 de [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.m
 | `FontSync/LaunchdStatus.swift` | État des LaunchAgents via `launchctl print` |
 | `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + token) |
 | `FontSync/WebView.swift` | `WKWebView` (NSViewRepresentable) + contenu de la fenêtre |
+| `FontSync/PreferencesView.swift` | Préférences (URL/token + test de connexion, actions agent) |
+| `FontSync/AgentController.swift` | Résolution du venv embarqué + `fontsync-agent setup/teardown/sync` |
 | `Info.plist` | `LSUIElement` (hors Dock) + ATS (HTTP clair en LAN) |
+
+> **Développement sans bundle agent** : tant que le venv embarqué n'est pas packagé
+> (P3.7), exportez `FONTSYNC_AGENT_PYTHON` vers le Python du repo (`pip install -e .`)
+> pour activer les actions agent depuis l'app lancée à la main.
 
 ## Build
 

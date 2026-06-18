@@ -30,5 +30,10 @@ struct FontSyncApp: App {
             WebWindowContent(serverURL: model.serverURL)
         }
         .windowResizability(.contentMinSize)
+
+        // Fenêtre de préférences standard (⌘,) — P3.3/P3.4.
+        Settings {
+            PreferencesView(model: model)
+        }
     }
 }

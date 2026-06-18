@@ -35,8 +35,24 @@ struct MenuContent: View {
         }
         .disabled(model.serverURL == nil)
 
+        Button("Synchroniser maintenant") {
+            model.syncNow()
+        }
+        .disabled(!model.agentAvailable && !model.syncJobLoaded)
+
         Button("Rafraîchir") {
             model.refresh()
+        }
+
+        Divider()
+
+        SettingsLink {
+            Text("Préférences…")
+        }
+        .keyboardShortcut(",")
+
+        Button("Ouvrir les journaux") {
+            openLogs()
         }
 
         Divider()
@@ -45,6 +61,15 @@ struct MenuContent: View {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// Ouvre `~/Library/Logs/FontSync/` dans le Finder (P3.5). Crée le dossier
+    /// s'il n'existe pas encore (avant la 1re sync, il peut être absent).
+    private func openLogs() {
+        let dir = AgentController.logDirectory
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
     }
 
     private var statusLine: String {
