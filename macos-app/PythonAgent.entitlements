@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Entitlements appliquées en re-signant l'interpréteur Python embarqué
+	     (Contents/Resources/agent-venv/bin/python3) sous Hardened Runtime, P3.7.
+
+	     • allow-unsigned-executable-memory : pyobjc s'appuie sur libffi, qui
+	       génère des trampolines exécutables à l'exécution. Sans cette
+	       entitlement, le Hardened Runtime tue le process (le bridge Core Text
+	       de la découverte macOS planterait).
+	     • disable-library-validation : autorise CPython à charger les .so de la
+	       stdlib et des wheels même si l'ordre/identité de signature diffère du
+	       binaire principal (les .so sont re-signés inside-out par notre
+	       Developer ID, mais on garde la marge pour les extensions chargées
+	       dynamiquement par pyobjc/bridgesupport).
+
+	     Ces entitlements ne s'appliquent QU'À l'interpréteur agent, pas à l'app
+	     elle-même (cf. FontSync.entitlements). -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

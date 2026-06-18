@@ -14,13 +14,14 @@ import SwiftUI
 @main
 struct FontSyncApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var updater = UpdaterViewModel()
 
     /// Identifiant de la fenêtre webview, ouverte à la demande via `openWindow`.
     static let webWindowID = "fontsync-web"
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model)
+            MenuContent(model: model, updater: updater)
         } label: {
             // L'icône de la barre de menus est présente dès le lancement (app
             // LSUIElement, sans fenêtre) : c'est le point d'amorçage de la sonde

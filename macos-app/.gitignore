@@ -1,5 +1,6 @@
 # Xcode build artifacts & user state
 build/
+dist/
 DerivedData/
 *.xcuserstate
 xcuserdata/

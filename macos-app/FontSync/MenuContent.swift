@@ -9,6 +9,7 @@ import SwiftUI
 /// dernière sync, état de l'agent launchd, et les actions principales.
 struct MenuContent: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updater: UpdaterViewModel
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -54,6 +55,11 @@ struct MenuContent: View {
         Button("Ouvrir les journaux") {
             openLogs()
         }
+
+        Button("Rechercher des mises à jour…") {
+            updater.checkForUpdates()
+        }
+        .disabled(!updater.canCheckForUpdates)
 
         Divider()
 

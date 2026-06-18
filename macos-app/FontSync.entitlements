@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Entitlements de l'app FontSync (P3.7).
+	     L'app n'est PAS sandboxée (elle pilote launchd et lance l'interpréteur
+	     Python embarqué hors process — incompatible avec l'App Sandbox ; la
+	     distribution se fait via Developer ID + notarisation, pas le Mac App
+	     Store). Sparkle 2 hors-sandbox ne requiert aucune entitlement
+	     particulière. Le Hardened Runtime est activé via ENABLE_HARDENED_RUNTIME.
+	     L'interpréteur Python embarqué est re-signé séparément avec
+	     PythonAgent.entitlements (libffi/pyobjc), cf. RELEASE.md. -->
+</dict>
+</plist>

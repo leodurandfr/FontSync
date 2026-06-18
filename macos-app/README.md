@@ -23,7 +23,10 @@ FontSync. Couvre la Phase P3 de [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.m
   préférences, statut launchd remonté.
 - **P3.5 — Actions menu** ✅ Synchroniser maintenant (`launchctl kickstart`, repli
   `agent sync`), Ouvrir les journaux (`~/Library/Logs/FontSync/`), Préférences, Quitter.
-- P3.6+ (notifications natives, signature/notarisation, distribution) : à venir.
+- **P3.6 — Notifications natives** ✅ `UNUserNotifications` (`NotificationManager`) :
+  fonts pull/install (delta du total serveur) + erreurs de sync.
+- **P3.7 — Signature & distribution** ✅ Sparkle intégré (mises à jour auto),
+  chaîne Developer ID + notarisation + `.dmg` scriptée. Voir **[`RELEASE.md`](RELEASE.md)**.
 
 ## Architecture
 
@@ -38,7 +41,11 @@ FontSync. Couvre la Phase P3 de [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.m
 | `FontSync/WebView.swift` | `WKWebView` (NSViewRepresentable) + contenu de la fenêtre |
 | `FontSync/PreferencesView.swift` | Préférences (URL/token + test de connexion, actions agent) |
 | `FontSync/AgentController.swift` | Résolution du venv embarqué + `fontsync-agent setup/teardown/sync` |
-| `Info.plist` | `LSUIElement` (hors Dock) + ATS (HTTP clair en LAN) |
+| `FontSync/NotificationManager.swift` | Notifications natives (`UNUserNotifications`, P3.6) |
+| `FontSync/Updater.swift` | Pont SwiftUI au-dessus de Sparkle (mises à jour, P3.7) |
+| `Info.plist` | `LSUIElement` (hors Dock) + ATS (HTTP clair) + clés Sparkle (`SUFeedURL`/`SUPublicEDKey`) |
+| `FontSync.entitlements` | Entitlements de l'app (Hardened Runtime, non sandboxée) |
+| `PythonAgent.entitlements` | Entitlements de l'interpréteur embarqué (libffi/pyobjc) |
 
 > **Développement sans bundle agent** : tant que le venv embarqué n'est pas packagé
 > (P3.7), exportez `FONTSYNC_AGENT_PYTHON` vers le Python du repo (`pip install -e .`)
@@ -56,5 +63,20 @@ xcodebuild -project macos-app/FontSync.xcodeproj -scheme FontSync -configuration
 open macos-app/FontSync.xcodeproj
 ```
 
-La cible se signe en ad-hoc (`CODE_SIGN_IDENTITY = -`) pour le dev. La signature
-Developer ID + notarisation est traitée en P3.7.
+La cible se signe en ad-hoc (`CODE_SIGN_IDENTITY = -`) pour le dev. La **release**
+signée Developer ID + notarisée + `.dmg` + appcast Sparkle est entièrement
+scriptée — voir **[`RELEASE.md`](RELEASE.md)** :
+
+```bash
+# Construit l'agent embarqué seul (debug)
+../scripts/build-agent-venv.sh --out build/agent-venv
+
+# Release complète (signature/notarisation/dmg/appcast)
+VERSION=1.0.0 BUILD=1 DEVELOPER_ID_APP="Developer ID Application: …" \
+  TEAM_ID=… NOTARY_PROFILE=… ../scripts/release-macos-app.sh
+```
+
+> Note SPM : Sparkle est résolu depuis https://github.com/sparkle-project/Sparkle.
+> Si `git config safe.bareRepository=explicit` est posé globalement, exporter
+> `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=all`
+> avant `xcodebuild` (le script de release le fait déjà).
