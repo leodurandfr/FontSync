@@ -208,3 +208,49 @@ def test_run_listen_triggers_run_then_stops() -> None:
 
 def test_module_exposes_main() -> None:
     assert callable(listen_command.main)
+
+
+# ---- _stream_signals : token sur le flux SSE (P1.2) ----
+
+
+def _capture_stream_headers(monkeypatch: Any, config: AgentConfig) -> dict:
+    """Monkeypatch `httpx.stream` et retourne les en-têtes passés au flux SSE."""
+    import httpx
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def iter_lines(self) -> Any:
+            return iter(())  # flux vide : le générateur se termine aussitôt
+
+    class _FakeStream:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["headers"] = kwargs.get("headers")
+
+        def __enter__(self) -> _FakeResp:
+            return _FakeResp()
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    monkeypatch.setattr(httpx, "stream", _FakeStream)
+    list(listen_command._stream_signals(config, "dev-1"))
+    return captured["headers"]
+
+
+def test_stream_signals_sends_bearer_header(monkeypatch: Any) -> None:
+    headers = _capture_stream_headers(
+        monkeypatch, AgentConfig(server_url="http://nas:8080", server_token="sek")
+    )
+    assert headers["Authorization"] == "Bearer sek"
+    assert headers["Accept"] == "text/event-stream"
+
+
+def test_stream_signals_omits_header_without_token(monkeypatch: Any) -> None:
+    headers = _capture_stream_headers(
+        monkeypatch, AgentConfig(server_url="http://nas:8080")
+    )
+    assert "Authorization" not in headers

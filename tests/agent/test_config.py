@@ -53,6 +53,7 @@ def test_persists_device_id_and_token(_isolated_config: Path) -> None:
 def test_full_round_trip_preserves_all_fields(_isolated_config: Path) -> None:
     cfg = AgentConfig(
         server_url="http://nas.local:9000",
+        server_token="instance-secret",
         device_token="tok",
         device_id="dev",
         directories=["/a", "/b"],
@@ -64,6 +65,27 @@ def test_full_round_trip_preserves_all_fields(_isolated_config: Path) -> None:
 
     reloaded = AgentConfig.load()
     assert reloaded == cfg
+
+
+def test_persists_server_token(_isolated_config: Path) -> None:
+    """P1.3 : le token partagé d'instance survit à save()→load()."""
+    cfg = AgentConfig.load()
+    cfg.server_token = "instance-secret"
+    cfg.save()
+
+    assert AgentConfig.load().server_token == "instance-secret"
+    # Distinct du device_token (auth par-device, réservée au cloud / Phase 7).
+    assert AgentConfig.load().device_token is None
+
+
+def test_server_token_loaded_from_yaml_key(_isolated_config: Path) -> None:
+    """La clé YAML est bien `server.token` (pas `server.server_token`)."""
+    _isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    _isolated_config.write_text(
+        yaml.safe_dump({"server": {"token": "tok-x"}}), encoding="utf-8"
+    )
+
+    assert AgentConfig.load().server_token == "tok-x"
 
 
 def test_auto_pull_default_consistent_between_dataclass_and_load(

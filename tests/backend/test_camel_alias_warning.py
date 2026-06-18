@@ -21,14 +21,24 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from backend import auth
+from backend.config import settings
 from backend.database import get_db
 from backend.main import app
 from backend.models.base import Base
 
+_TOKEN = "test-token"
+
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
-    """Client HTTP ASGI avec une base SQLite in-memory injectée via override."""
+async def client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncGenerator[AsyncClient, None]:
+    """Client HTTP ASGI authentifié, sur une base SQLite in-memory (override)."""
+    # Auth par token (P1) : tout `/api/*` exige le Bearer ; on fixe un token
+    # connu et on le pose par défaut sur le client.
+    monkeypatch.setattr(settings, "fontsync_token", _TOKEN)
+    monkeypatch.setattr(auth, "_generated_token", None)
     engine = create_async_engine(
         "sqlite+aiosqlite://",
         poolclass=StaticPool,
@@ -56,7 +66,11 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = _override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {_TOKEN}"},
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
     await engine.dispose()

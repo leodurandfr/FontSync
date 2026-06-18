@@ -9,25 +9,42 @@
 # avec des jeux de fonts séparés, sans jamais toucher le vrai ~/Library/Fonts.
 #
 # Usage :
-#   scripts/dev/run-agent.sh <profil> <commande agent...>
-#     ex : scripts/dev/run-agent.sh A sync
-#          scripts/dev/run-agent.sh B sync
+#   scripts/dev/run-agent.sh [profil] <commande agent...>
+#     ex : scripts/dev/run-agent.sh sync        (profil par défaut)
+#          scripts/dev/run-agent.sh listen      (profil par défaut)
+#          scripts/dev/run-agent.sh A sync      (profil explicite)
 #          scripts/dev/run-agent.sh B listen
+#
+# Le profil est optionnel : s'il est omis (1er argument = une commande agent
+# connue), on utilise FONTSYNC_PROFILE (défaut : « A »). Indiquer un profil
+# explicite reste nécessaire pour simuler plusieurs devices sur un seul Mac.
 #
 # Variables d'env utiles :
 #   FONTSYNC_DEV_ROOT    racine des profils (défaut : <repo>/.dev)
 #   FONTSYNC_SERVER_URL  serveur ciblé      (défaut : http://localhost:8080)
+#   FONTSYNC_PROFILE     profil par défaut quand il est omis (défaut : A)
+#   FONTSYNC_TOKEN       token d'instance partagé (= côté serveur) ; injecté
+#                        dans la config du profil (défaut : null = pas d'auth)
 
 set -euo pipefail
 
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <profil> <commande agent...>" >&2
-  echo "  ex : $0 A sync   |   $0 B listen" >&2
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 [profil] <commande agent...>" >&2
+  echo "  ex : $0 sync   |   $0 A listen" >&2
   exit 2
 fi
 
-profile="$1"
-shift
+# Profil optionnel : si le 1er argument est une commande agent connue, on
+# n'attend pas de profil et on retombe sur FONTSYNC_PROFILE (défaut « A »).
+case "$1" in
+  sync | listen | setup | teardown | status)
+    profile="${FONTSYNC_PROFILE:-A}"
+    ;;
+  *)
+    profile="$1"
+    shift
+    ;;
+esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dev_root="${FONTSYNC_DEV_ROOT:-$repo_root/.dev}"
@@ -54,6 +71,7 @@ if [ ! -f "$config" ]; then
   cat > "$config" <<YAML
 server:
   url: ${FONTSYNC_SERVER_URL:-http://localhost:8080}
+  token: ${FONTSYNC_TOKEN:-null}
   device_token: null
   device_id: null
 scan:

@@ -24,7 +24,8 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable
 
 from agent.config import AGENT_VERSION, AgentConfig
-from agent.sync_command import _configure_logging, run_sync
+from agent.sync_client import SyncClientError
+from agent.sync_command import SyncError, _configure_logging, run_sync
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -77,6 +78,10 @@ def _stream_signals(config: AgentConfig, device_id: str) -> "Iterator[None]":
         "Accept": "text/event-stream",
         "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
     }
+    # Token partagé d'instance (P1.2) : l'agent SSE passe par httpx → en-tête
+    # `Authorization` (le query param est réservé à un EventSource navigateur).
+    if config.server_token:
+        headers["Authorization"] = f"Bearer {config.server_token}"
     with httpx.stream("GET", url, timeout=timeout, headers=headers) as resp:
         resp.raise_for_status()
         logger.info("Flux SSE connecté (%s)", url)
@@ -226,4 +231,7 @@ def main() -> int:
         run_listen(config)
     except KeyboardInterrupt:
         pass
+    except (SyncClientError, SyncError) as e:
+        logger.error("Listener arrêté : %s", e)
+        return 1
     return 0

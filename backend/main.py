@@ -9,21 +9,46 @@
 # You should have received a copy of the license with this program (see LICENSE),
 # or at <https://www.gnu.org/licenses/>.
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.auth import get_server_token, require_token, require_token_stream
 from backend.routers import agent_events, devices, font_families, fonts, stats, sync, ws
 
-app = FastAPI(title="FontSync", version="0.1.0")
-app.include_router(fonts.router)
-app.include_router(devices.router)
-app.include_router(sync.router)
-app.include_router(font_families.router)
-app.include_router(stats.router)
-app.include_router(agent_events.router)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Au boot : résoudre le token d'instance (le génère + loggue si absent).
+
+    Garantit que le token est visible dans les logs du conteneur dès le
+    démarrage (P1.1), sans attendre la première requête.
+    """
+    get_server_token()
+    logger.info("Auth par token activée sur /api/* (token d'instance résolu).")
+    yield
+
+
+app = FastAPI(title="FontSync", version="0.1.0", lifespan=lifespan)
+
+# Auth par token partagé d'instance (P1) : tout `/api/*` exige le token. Les
+# routes REST le veulent en en-tête `Authorization: Bearer` ; le flux SSE
+# accepte en plus un query param (EventSource navigateur). Le WebSocket vérifie
+# le token dans son propre handler (handshake sans en-tête côté navigateur).
+# `/health` et la SPA restent publics.
+app.include_router(fonts.router, dependencies=[Depends(require_token)])
+app.include_router(devices.router, dependencies=[Depends(require_token)])
+app.include_router(sync.router, dependencies=[Depends(require_token)])
+app.include_router(font_families.router, dependencies=[Depends(require_token)])
+app.include_router(stats.router, dependencies=[Depends(require_token)])
+app.include_router(agent_events.router, dependencies=[Depends(require_token_stream)])
 app.include_router(ws.router)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"

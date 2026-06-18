@@ -5,9 +5,10 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.future import select
 
+from backend.auth import verify_websocket_token
 from backend.database import async_session
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
@@ -21,6 +22,12 @@ router = APIRouter(tags=["websocket"])
 @router.websocket("/ws/client")
 async def ws_client(websocket: WebSocket) -> None:
     """Connexion WebSocket pour les clients frontend."""
+    # Auth par token (P1) : le handshake navigateur ne peut pas poser d'en-tête,
+    # donc le token arrive en query param (ou cookie). On refuse avant `accept`.
+    if not verify_websocket_token(websocket):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await ws_manager.connect_client(websocket)
 
     # Envoyer la liste des agents actuellement connectés. La présence vient
@@ -45,6 +52,10 @@ async def ws_client(websocket: WebSocket) -> None:
 @router.websocket("/ws/agent/{device_id}")
 async def ws_agent(websocket: WebSocket, device_id: str) -> None:
     """Connexion WebSocket pour un agent identifié par device_id."""
+    if not verify_websocket_token(websocket):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await ws_manager.connect_agent(websocket, device_id)
 
     # Notifier les clients frontend de la connexion

@@ -58,8 +58,41 @@ def test_client_configured_with_base_url_and_default_headers() -> None:
         headers = client._client.headers
         assert headers["user-agent"] == f"fontsync-agent/{AGENT_VERSION}"
         assert headers["accept"] == "application/json"
+        # Sans token configuré (cf. `_config`), pas d'en-tête d'auth.
+        assert "authorization" not in headers
     finally:
         client.close()
+
+
+def test_client_sets_bearer_header_when_token_present() -> None:
+    """P1.3 : le token partagé d'instance part en `Authorization: Bearer`."""
+    config = AgentConfig(server_url="http://nas.local:8080/", server_token="sek-1")
+    client = SyncClient(
+        config, transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
+    try:
+        assert client._client.headers["authorization"] == "Bearer sek-1"
+    finally:
+        client.close()
+
+
+def test_bearer_header_is_sent_on_each_request() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(201, json={"id": "dev-1", "name": "Mac"})
+
+    config = AgentConfig(server_url="http://nas.local:8080/", server_token="sek-2")
+    client = SyncClient(
+        config, sleep=lambda _d: None, transport=httpx.MockTransport(handler)
+    )
+    try:
+        client.register_device()
+    finally:
+        client.close()
+
+    assert seen["auth"] == "Bearer sek-2"
 
 
 # ---- register / delta ----

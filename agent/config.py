@@ -9,7 +9,10 @@ Schéma YAML :
 
     server:
       url: http://…
-      device_token: …        # réservé à une future auth (pas d'auth au MVP)
+      token: …               # token partagé d'instance (= FONTSYNC_TOKEN côté
+                              #   serveur) → envoyé en `Authorization: Bearer`
+      device_token: …        # réservé à une future auth PAR-DEVICE (Phase 7 /
+                              #   cloud) ; distinct du token d'instance ci-dessus
       device_id: …           # persisté après le 1er enregistrement
     scan:
       directories: [...]
@@ -17,6 +20,12 @@ Schéma YAML :
     sync:
       auto_pull: false        # le serveur fait foi ; ceci n'est que le défaut
       auto_push: true         #   envoyé au premier `register`
+
+Sémantique des deux « tokens » (cf. PLAN-PUBLICATION.md P1.3) : pour le v1
+self-hosted, **un seul token d'instance** (`server.token`) suffit — c'est le
+secret partagé qui authentifie *toutes* les requêtes vers le serveur. Le
+`device_token` par-device reste réservé à une éventuelle auth fine en mode
+cloud (Phase 7) et n'est pas utilisé pour l'authentification HTTP du v1.
 """
 
 from __future__ import annotations
@@ -58,6 +67,9 @@ class AgentConfig:
     """
 
     server_url: str = "http://localhost:8080"
+    # Token partagé d'instance, envoyé en `Authorization: Bearer` (cf. P1.3).
+    server_token: str | None = None
+    # Réservé à une future auth par-device (cloud / Phase 7), pas l'auth HTTP v1.
     device_token: str | None = None
     device_id: str | None = None
     directories: list[str] = field(
@@ -93,6 +105,7 @@ class AgentConfig:
 
         return cls(
             server_url=server.get("url", defaults.server_url),
+            server_token=server.get("token", defaults.server_token),
             device_token=server.get("device_token", defaults.device_token),
             device_id=server.get("device_id", defaults.device_id),
             directories=scan.get("directories", defaults.directories),
@@ -113,6 +126,7 @@ class AgentConfig:
         data = {
             "server": {
                 "url": self.server_url,
+                "token": self.server_token,
                 "device_token": self.device_token,
                 "device_id": self.device_id,
             },

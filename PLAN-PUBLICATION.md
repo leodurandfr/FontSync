@@ -5,7 +5,7 @@
 > valider le cœur en conditions réelles, le **sécuriser** (auth minimale), et le **distribuer**
 > (serveur Docker pour NAS + app Mac menu bar). Le **cap long terme** reste `ROADMAP.md`.
 
-**STATUT : P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés. Reste P0.2 (validation E2E) avant le packaging.**
+**STATUT : P0.1 (licence → AGPL-3.0-or-later) et P0.3 (embarquement agent → venv relocatable embarqué) tranchés ; P1.1–P1.3 (auth par token : serveur `/api/*` + SSE/WS + agent émetteur) faits et testés. Reste P0.2 (validation E2E réelle — bugs B1/B2 à corriger), P1.4 (saisie du token côté frontend), P1.5 (doc transport), P1.6 (consolidation tests) avant le packaging.**
 
 ---
 
@@ -75,9 +75,9 @@ Identique à `PLAN.md` : l'utilisateur écrit « **Implémente la prochaine éta
 
 ## Phase P1 — Sécurité minimale (token partagé + transport)
 
-- [ ] **P1.1 — Token serveur.** `FONTSYNC_TOKEN` (env, via `config.py`). Dependency FastAPI sur tout `/api/*` (sauf un `/health`) → `401` si absent/incorrect. Si non défini au boot : générer + logguer une valeur (et la rendre visible dans les logs du conteneur).
-- [ ] **P1.2 — Token sur SSE + WS.** Agent SSE (`httpx`) : header `Authorization`. Navigateur (`EventSource` + WS frontend) : header impossible → token en query param ou cookie. Couvrir `agent_events.py` et `ws.py`.
-- [ ] **P1.3 — Agent envoie le token.** `SyncClient` ajoute `Authorization: Bearer <token>` depuis la config. Clarifier la sémantique de `device_token` (par-device) vs le **token partagé** d'instance — pour le v1, un seul token d'instance suffit.
+- [x] **P1.1 — Token serveur.** `FONTSYNC_TOKEN` ajouté à `backend/config.py`. Nouveau module `backend/auth.py` : `get_server_token()` (token configuré, sinon généré + loggé au boot via le `lifespan` de `main.py` → jamais de serveur ouvert par défaut) + dependency `require_token` (header `Authorization: Bearer`, `401` + `WWW-Authenticate: Bearer` si absent/incorrect, comparaison à temps constant). Appliquée à tout `/api/*` (`fonts`, `devices`, `sync`, `font-families`, `stats`) au niveau des `include_router`. `/health` et la SPA restent publics.
+- [x] **P1.2 — Token sur SSE + WS.** SSE (`agent_events`) : dependency `require_token_stream` = header `Authorization` **ou** query param `?token=` (agent httpx → header ; `EventSource` navigateur → query). WS (`ws.py`, `/ws/client` + `/ws/agent`) : `verify_websocket_token` (query param, header, ou cookie `fontsync_token`) vérifié **avant `accept`** → refus `WS_1008_POLICY_VIOLATION` (le handshake navigateur ne peut pas poser d'en-tête).
+- [x] **P1.3 — Agent envoie le token.** `agent/config.py` : nouveau champ `server.token` (token partagé d'instance) — `SyncClient` pose `Authorization: Bearer <token>` sur le client httpx, le `listen` SSE l'ajoute aussi à `httpx.stream`. Sémantique clarifiée dans la docstring : `server.token` = **token d'instance** (auth HTTP v1) ; `device_token` reste réservé à une future auth **par-device** (cloud / Phase 7). `scripts/dev/run-agent.sh` injecte `FONTSYNC_TOKEN` dans la config du profil pour le banc E2E.
 - [ ] **P1.4 — Frontend : saisie du token.** Écran/champ « token serveur » (stocké `localStorage`), injecté dans tous les `fetch` + connexions WS/SSE. `401` → réafficher la saisie.
 - [ ] **P1.5 — Doc transport.** README : bind LAN par défaut, **avertissement** « ne jamais exposer sans reverse-proxy TLS », exemple Caddy/nginx.
 - [ ] **P1.6 — Tests.** Endpoints rejettent sans token / acceptent avec ; SSE et WS idem.
