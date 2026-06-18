@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
+import { apiFetch } from "@/lib/api";
 import type {
   FontFamily,
   FontFamilyListResponse,
@@ -45,7 +46,7 @@ export const useFamiliesStore = defineStore("families", () => {
     error.value = null;
     try {
       const params = buildParams(filters);
-      const res = await fetch(`/api/font-families?${params}`, { signal });
+      const res = await apiFetch(`/api/font-families?${params}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: FontFamilyListResponse = await res.json();
 
@@ -70,7 +71,7 @@ export const useFamiliesStore = defineStore("families", () => {
     try {
       const nextPage = page.value + 1;
       const params = buildParams({ ...filters, page: nextPage });
-      const res = await fetch(`/api/font-families?${params}`);
+      const res = await apiFetch(`/api/font-families?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: FontFamilyListResponse = await res.json();
 

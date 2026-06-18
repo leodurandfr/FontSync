@@ -34,6 +34,19 @@ from backend.services.ws_manager import WebSocketManager
 
 TOKEN = "test-secret-token"
 
+# Tout `/api/*` exige le token : on couvre chaque router monté avec
+# `Depends(require_token)` (fonts, devices, sync, font-families, stats).
+_MISSING_UUID = "00000000-0000-0000-0000-000000000000"
+REST_GET_PATHS = [
+    "/api/stats",
+    "/api/devices",
+    "/api/fonts",
+    "/api/font-families",
+]
+# `sync` n'expose qu'un GET paramétré : le token est vérifié **avant** la
+# validation des query params, donc le rejet sans token vaut aussi pour lui.
+SYNC_PULL_PATH = f"/api/sync/pull/{_MISSING_UUID}?device_id={_MISSING_UUID}"
+
 
 @pytest.fixture(autouse=True)
 def _set_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,7 +120,7 @@ async def test_health_is_public(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("path", ["/api/stats", "/api/devices"])
+@pytest.mark.parametrize("path", [*REST_GET_PATHS, SYNC_PULL_PATH])
 async def test_rest_rejects_without_token(client: AsyncClient, path: str) -> None:
     resp = await client.get(path)
     assert resp.status_code == 401
@@ -127,10 +140,19 @@ async def test_rest_rejects_non_bearer_scheme(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("path", ["/api/stats", "/api/devices"])
+@pytest.mark.parametrize("path", REST_GET_PATHS)
 async def test_rest_accepts_valid_token(client: AsyncClient, path: str) -> None:
     resp = await client.get(path, headers=_bearer())
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_sync_accepts_valid_token(client: AsyncClient) -> None:
+    # Token accepté → on atteint le handler, qui renvoie 404 (device/font
+    # absents de la base de test). L'essentiel : surtout pas 401.
+    resp = await client.get(SYNC_PULL_PATH, headers=_bearer())
+    assert resp.status_code != 401
+    assert resp.status_code == 404
 
 
 # ---- SSE : header OU query param ----

@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Copy, Download, Server, Check } from 'lucide-vue-next'
+import { Copy, Download, Server, Check, KeyRound } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useWsStore } from '@/stores/ws'
+import { useAuthStore } from '@/stores/auth'
 import { storeToRefs } from 'pinia'
 
 const wsStore = useWsStore()
 const { status } = storeToRefs(wsStore)
+
+const authStore = useAuthStore()
+
+// Redemander le token : on efface celui mémorisé, ce qui réaffiche l'écran de
+// saisie (App.vue gate sur `needsToken`).
+function changeToken() {
+  authStore.clearToken()
+}
 
 const serverUrl = computed(() => window.location.origin)
 const copied = ref(false)
@@ -78,6 +87,26 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
             <Badge :variant="wsStatusVariant">{{ wsStatusLabel }}</Badge>
           </div>
         </div>
+      </div>
+
+      <!-- Token d'accès -->
+      <div class="rounded-xl border bg-card p-6 space-y-4">
+        <div class="flex items-center gap-2">
+          <KeyRound class="h-5 w-5 text-muted-foreground" />
+          <h2 class="text-lg font-semibold">Token d'accès</h2>
+        </div>
+
+        <p class="text-sm text-muted-foreground">
+          Le token d'instance (<code class="font-mono">FONTSYNC_TOKEN</code>)
+          protège l'accès à cette bibliothèque. Il est mémorisé dans ce
+          navigateur. Changez-le pour saisir un autre token ou vous déconnecter
+          de cette instance.
+        </p>
+
+        <Button variant="outline" @click="changeToken">
+          <KeyRound class="mr-2 h-4 w-4" />
+          Changer le token
+        </Button>
       </div>
 
       <!-- Agent download -->

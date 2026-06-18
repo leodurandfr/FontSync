@@ -9,6 +9,7 @@ import {
   FolderOpen,
 } from "lucide-vue-next";
 import { useDevicesStore } from "@/stores/devices";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,7 @@ onMounted(() => {
 
 async function handleRescan(deviceId: string) {
   try {
-    const res = await fetch(`/api/devices/${deviceId}/rescan`, {
+    const res = await apiFetch(`/api/devices/${deviceId}/rescan`, {
       method: "POST",
     });
     if (!res.ok) {

@@ -1,5 +1,6 @@
 import { storeToRefs } from "pinia";
 import { useWsStore } from "@/stores/ws";
+import { useAuthStore } from "@/stores/auth";
 import { useFontsStore } from "@/stores/fonts";
 import { useDevicesStore } from "@/stores/devices";
 import { useFamiliesStore } from "@/stores/families";
@@ -14,7 +15,12 @@ let isManualClose = false;
 
 function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/client`;
+  const base = `${proto}//${window.location.host}/ws/client`;
+  // Le handshake WebSocket du navigateur ne peut pas poser d'en-tête : le token
+  // (P1.4) passe en query param `?token=` (cf. `verify_websocket_token` côté
+  // serveur).
+  const token = useAuthStore().token;
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
 function dispatch(message: WsMessage) {
@@ -112,9 +118,17 @@ function connect() {
     }
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     socket = null;
     wsStore.status = "disconnected";
+
+    // 1008 = WS_1008_POLICY_VIOLATION : le serveur a refusé le token (absent,
+    // invalide, ou tourné). Inutile de reconnecter avec le même token — on
+    // redemande la saisie et on s'arrête.
+    if (event.code === 1008) {
+      useAuthStore().markUnauthorized();
+      return;
+    }
 
     if (!isManualClose) {
       scheduleReconnect();

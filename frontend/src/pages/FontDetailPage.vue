@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
+import { apiFetch } from "@/lib/api";
 import type { Font } from "@/types/api";
 
 const props = defineProps<{ id: string }>();
@@ -82,7 +83,7 @@ async function fetchFont() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await fetch(`/api/fonts/${props.id}`, {
+    const res = await apiFetch(`/api/fonts/${props.id}`, {
       signal: fetchAbort.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -97,11 +98,13 @@ async function fetchFont() {
 
 async function loadFontFace() {
   try {
-    fontFace = new FontFace(
-      fontFamily.value,
-      `url(/api/fonts/${props.id}/preview)`,
-      { display: "swap" },
-    );
+    // `/api/fonts/:id/preview` exige le token : on récupère les octets avec
+    // `apiFetch` (en-tête `Authorization`) puis on construit la `FontFace` à
+    // partir du buffer — `url(...)` ne peut pas porter d'en-tête d'auth.
+    const res = await apiFetch(`/api/fonts/${props.id}/preview`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buffer = await res.arrayBuffer();
+    fontFace = new FontFace(fontFamily.value, buffer, { display: "swap" });
     await fontFace.load();
     document.fonts.add(fontFace);
     fontLoaded.value = true;
@@ -110,14 +113,25 @@ async function loadFontFace() {
   }
 }
 
-function handleDownload() {
+async function handleDownload() {
   if (!font.value) return;
-  const a = document.createElement("a");
-  a.href = `/api/fonts/${props.id}/file`;
-  a.download = font.value.originalFilename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  // Téléchargement via blob authentifié : un `<a href>` direct ne peut pas
+  // porter le token sur une route `/api/*` protégée.
+  try {
+    const res = await apiFetch(`/api/fonts/${props.id}/file`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = font.value.originalFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch {
+    // Échec réseau / 401 (la saisie du token reprend la main).
+  }
 }
 
 function isSafeUrl(url: string | null): boolean {

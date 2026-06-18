@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { apiFetch } from '@/lib/api'
 import type { Device } from '@/types/api'
 
 export const useDevicesStore = defineStore('devices', () => {
@@ -20,7 +21,7 @@ export const useDevicesStore = defineStore('devices', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await fetch('/api/devices')
+      const res = await apiFetch('/api/devices')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       devices.value = await res.json()
     } catch (e) {
@@ -48,7 +49,7 @@ export const useDevicesStore = defineStore('devices', () => {
   }
 
   async function updateDevice(deviceId: string, fields: Partial<Pick<Device, 'name' | 'autoPull' | 'autoPush'>>) {
-    const res = await fetch(`/api/devices/${deviceId}`, {
+    const res = await apiFetch(`/api/devices/${deviceId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),

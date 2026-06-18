@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { Monitor, Loader2 } from "lucide-vue-next";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,7 +61,7 @@ async function fetchDeviceStatuses() {
   devicesLoading.value = true;
   try {
     // For multi-font, fetch statuses for the first font (all devices are the same)
-    const res = await fetch(`/api/fonts/${props.fontIds[0]}/devices`);
+    const res = await apiFetch(`/api/fonts/${props.fontIds[0]}/devices`);
     if (res.ok) {
       deviceStatuses.value = await res.json();
     }
@@ -76,7 +77,9 @@ async function handleInstall(deviceId: string) {
   try {
     const results = await Promise.allSettled(
       props.fontIds.map((fontId) =>
-        fetch(`/api/fonts/${fontId}/install/${deviceId}`, { method: "POST" }),
+        apiFetch(`/api/fonts/${fontId}/install/${deviceId}`, {
+          method: "POST",
+        }),
       ),
     );
     const allOk = results.every(
@@ -106,7 +109,9 @@ async function handleUninstall(deviceId: string) {
   try {
     const results = await Promise.allSettled(
       props.fontIds.map((fontId) =>
-        fetch(`/api/fonts/${fontId}/uninstall/${deviceId}`, { method: "POST" }),
+        apiFetch(`/api/fonts/${fontId}/uninstall/${deviceId}`, {
+          method: "POST",
+        }),
       ),
     );
     const allOk = results.every(
@@ -141,7 +146,9 @@ async function handleActivate(deviceId: string) {
   try {
     const results = await Promise.allSettled(
       props.fontIds.map((fontId) =>
-        fetch(`/api/fonts/${fontId}/activate/${deviceId}`, { method: "POST" }),
+        apiFetch(`/api/fonts/${fontId}/activate/${deviceId}`, {
+          method: "POST",
+        }),
       ),
     );
     const allOk = results.every(
@@ -167,7 +174,7 @@ async function handleDeactivate(deviceId: string) {
   try {
     const results = await Promise.allSettled(
       props.fontIds.map((fontId) =>
-        fetch(`/api/fonts/${fontId}/deactivate/${deviceId}`, {
+        apiFetch(`/api/fonts/${fontId}/deactivate/${deviceId}`, {
           method: "POST",
         }),
       ),

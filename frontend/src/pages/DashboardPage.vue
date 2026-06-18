@@ -4,6 +4,7 @@ import { RouterLink } from "vue-router";
 import { ArrowRight } from "lucide-vue-next";
 import { useFontsStore } from "@/stores/fonts";
 import { useDevicesStore } from "@/stores/devices";
+import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +27,7 @@ const fontsCount = computed(() =>
 
 async function fetchStats() {
   try {
-    const res = await fetch("/api/stats");
+    const res = await apiFetch("/api/stats");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data: Stats = await res.json();
     totalFonts.value = data.totalFonts;
@@ -42,7 +43,9 @@ const onlineDevices = computed(() =>
 async function fetchRecentFonts() {
   recentLoading.value = true;
   try {
-    const res = await fetch("/api/fonts?sort=created_at&order=desc&per_page=5");
+    const res = await apiFetch(
+      "/api/fonts?sort=created_at&order=desc&per_page=5",
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     recentFonts.value = data.items ?? [];

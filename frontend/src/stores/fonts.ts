@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
+import { apiFetch } from "@/lib/api";
 import type {
   Font,
   FontListResponse,
@@ -59,7 +60,7 @@ export const useFontsStore = defineStore("fonts", () => {
     error.value = null;
     try {
       const params = buildParams(filters);
-      const res = await fetch(`/api/fonts?${params}`, { signal });
+      const res = await apiFetch(`/api/fonts?${params}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: FontListResponse = await res.json();
 
@@ -84,7 +85,7 @@ export const useFontsStore = defineStore("fonts", () => {
     try {
       const nextPage = page.value + 1;
       const params = buildParams({ ...filters, page: nextPage });
-      const res = await fetch(`/api/fonts?${params}`);
+      const res = await apiFetch(`/api/fonts?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: FontListResponse = await res.json();
 
@@ -103,7 +104,7 @@ export const useFontsStore = defineStore("fonts", () => {
     const form = new FormData();
     for (const file of files) form.append("files", file);
 
-    const res = await fetch("/api/fonts/upload", {
+    const res = await apiFetch("/api/fonts/upload", {
       method: "POST",
       body: form,
     });

@@ -9,6 +9,89 @@ naviguer et gérer la collection.
 > quickstart « 2 machines » arrivent en **P4.2** (cf. `PLAN-PUBLICATION.md`).
 > Voir `SPECS.md` pour la vision produit et l'architecture.
 
+## Transport & sécurité réseau
+
+FontSync écoute en **HTTP clair** (le conteneur expose le port `8000`, mappé sur
+`8080` dans le `docker-compose` d'exemple). C'est le mode prévu pour un **réseau
+local de confiance** (LAN domestique, VLAN d'un NAS) : simple, sans certificat à
+gérer.
+
+L'accès est protégé par un **token partagé d'instance** (`FONTSYNC_TOKEN`, voir
+plus bas), mais ce token transite **en clair** sur une connexion HTTP — lisible
+par quiconque sur le chemin réseau.
+
+> ⚠️ **N'exposez jamais FontSync directement sur Internet en HTTP.** Sur un réseau
+> non maîtrisé, placez **toujours** un reverse-proxy TLS devant le serveur : le
+> token et tout le trafic doivent voyager chiffrés. C'est la voie standard sur un
+> NAS (Synology, etc.).
+
+### Le token d'instance (`FONTSYNC_TOKEN`)
+
+Le token protège tout `/api/*`, le flux SSE (`/api/agent/<device>/events`) et les
+WebSocket (`/ws/*`). Définissez-le via l'environnement du conteneur :
+
+```yaml
+environment:
+  FONTSYNC_TOKEN: "<un secret long et aléatoire>"
+```
+
+S'il n'est **pas** défini, le serveur en **génère un au démarrage et le loggue**
+(à récupérer dans les logs du conteneur) — jamais de serveur ouvert par défaut. Le
+navigateur le demande au premier accès et le mémorise (`localStorage`) ; l'agent le
+lit depuis sa config (`server.token`). Pour le générer :
+
+```bash
+openssl rand -base64 32
+# ou : python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### Reverse-proxy TLS — Caddy
+
+Caddy obtient et renouvelle le certificat automatiquement (Let's Encrypt) et relaie
+nativement WebSocket et SSE — aucune configuration supplémentaire :
+
+```caddy
+fontsync.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+### Reverse-proxy TLS — nginx
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name fontsync.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/fontsync.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fontsync.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket (/ws/*) + SSE (/api/agent/<device>/events)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # SSE : pas de bufferisation, connexions longues
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+Une fois derrière TLS, pointez le navigateur et l'agent sur
+`https://fontsync.example.com` : les WebSocket basculent automatiquement en `wss://`.
+
 ## Licence
 
 FontSync est distribué sous **GNU Affero General Public License v3.0 ou ultérieure**

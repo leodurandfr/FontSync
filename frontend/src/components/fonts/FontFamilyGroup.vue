@@ -4,6 +4,7 @@ import { ChevronRight, RotateCcw } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiFetch } from "@/lib/api";
 import FontStyleRow from "./FontStyleRow.vue";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FontFamily, FamilyMember } from "@/types/api";
@@ -45,7 +46,7 @@ async function fetchMembers() {
   loadingMembers.value = true;
   fetchError.value = false;
   try {
-    const res = await fetch(`/api/font-families/${props.family.id}`, {
+    const res = await apiFetch(`/api/font-families/${props.family.id}`, {
       signal: abortController.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

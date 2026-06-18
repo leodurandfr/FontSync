@@ -1,9 +1,11 @@
 import { ref, onScopeDispose } from "vue";
+import { apiFetch } from "@/lib/api";
 
 export function useFontPreview() {
   const observer = ref<IntersectionObserver | null>(null);
   const entries = new Map<Element, string>();
   const loadedFonts = new Map<string, FontFace>();
+  const loadingFonts = new Set<string>();
 
   function getFontFamily(fontId: string): string {
     return `preview-${fontId}`;
@@ -14,19 +16,28 @@ export function useFontPreview() {
   }
 
   async function loadFont(fontId: string) {
-    if (loadedFonts.has(fontId)) return;
+    if (loadedFonts.has(fontId) || loadingFonts.has(fontId)) return;
+    loadingFonts.add(fontId);
 
     const family = getFontFamily(fontId);
     try {
-      const face = new FontFace(family, `url(${getPreviewUrl(fontId)})`, {
-        display: "swap",
-      });
+      // `/api/fonts/:id/preview` exige le token : on récupère les octets avec
+      // `apiFetch` (en-tête `Authorization`) puis on construit la `FontFace` à
+      // partir du buffer — `url(...)` ne peut pas porter d'en-tête d'auth.
+      const res = await apiFetch(getPreviewUrl(fontId));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buffer = await res.arrayBuffer();
+      const face = new FontFace(family, buffer, { display: "swap" });
       loadedFonts.set(fontId, face);
       document.fonts.add(face);
       await face.load();
     } catch {
       // Font failed to load — card will show fallback
+      const face = loadedFonts.get(fontId);
+      if (face) document.fonts.delete(face);
       loadedFonts.delete(fontId);
+    } finally {
+      loadingFonts.delete(fontId);
     }
   }
 
