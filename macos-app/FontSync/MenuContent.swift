@@ -56,6 +56,11 @@ struct MenuContent: View {
             openLogs()
         }
 
+        Button("Assistant de configuration…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: FontSyncApp.onboardingWindowID)
+        }
+
         Button("Rechercher des mises à jour…") {
             updater.checkForUpdates()
         }

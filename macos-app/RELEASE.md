@@ -123,12 +123,21 @@ ARCH=universal2 scripts/release-macos-app.sh
 
 ### Publication
 
-1. Créer la **GitHub Release** taggée `vX.Y.Z`.
-2. Y attacher `FontSync-X.Y.Z.dmg` **et** `appcast.xml`.
-3. `appcast.xml` doit rester accessible à l'URL `SUFeedURL` (lien
-   `releases/latest/download/appcast.xml`) → les clients existants y trouvent la
-   mise à jour. `generate_appcast` accumule les versions : republier le fichier
-   à jour à chaque release (le garder versionné/archivé hors-git si besoin).
+La publication (tag → image Docker + `.dmg` attachés à une même GitHub Release)
+est décrite de bout en bout dans **[`../docs/RELEASE.md`](../docs/RELEASE.md)** et
+automatisée par `scripts/publish-release.sh` (build du `.dmg` ici + `gh release
+upload`). En résumé :
+
+1. `git tag vX.Y.Z && git push origin vX.Y.Z` → CI publie l'image Docker
+   (`docker-publish.yml`) et crée la **Release en draft** (`release.yml`).
+2. Sur ce Mac : `scripts/publish-release.sh` construit le `.dmg` signé +
+   `appcast.xml` et les téléverse sur la Release.
+3. `PUBLISH=1 scripts/publish-release.sh` (ou via l'UI) retire le draft.
+
+`appcast.xml` doit rester accessible à l'URL `SUFeedURL` (lien
+`releases/latest/download/appcast.xml`) → les clients existants y trouvent la
+mise à jour. `generate_appcast` accumule les versions : republier le fichier
+à jour à chaque release (le garder versionné/archivé hors-git si besoin).
 
 ---
 

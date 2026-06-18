@@ -2,12 +2,90 @@
 
 Font manager **self-hosted** avec synchronisation multi-machines en temps réel :
 un serveur Docker centralise la bibliothèque de polices, un agent Python détecte et
-synchronise automatiquement les fonts entre machines, une interface web permet de
+synchronise automatiquement les fonts entre vos Macs, et une interface web permet de
 naviguer et gérer la collection.
 
-> ℹ️ README minimal (mention de licence — P0.1). Le quickstart public complet
-> « 2 machines » arrive en **P4.2** (cf. `PLAN-PUBLICATION.md`). Voir `SPECS.md`
-> pour la vision produit et l'architecture.
+- 🗄️ **Serveur source de vérité** — toutes vos polices au même endroit (NAS, Docker).
+- 🔄 **Sync automatique** — l'agent surveille `~/Library/Fonts` et propage les
+  changements en quasi temps réel (push/pull + signal SSE).
+- 🍎 **App Mac native** — menu bar Swift signée, agent embarqué, premier lancement
+  guidé, notifications et mises à jour automatiques.
+- 🌐 **UI web** — parcourir, prévisualiser, importer et gérer la bibliothèque.
+- 🔒 **Token d'instance** — tout `/api/*` protégé par un secret partagé.
+
+> Pour la vision produit complète et le modèle de données, voir [`SPECS.md`](SPECS.md).
+> Plan de publication : [`PLAN-PUBLICATION.md`](PLAN-PUBLICATION.md).
+
+## Architecture
+
+```
+   Mac (utilisateur)                              Serveur FontSync (NAS, Docker)
+ ┌───────────────────────────┐                 ┌──────────────────────────────────┐
+ │ App FontSync (menu bar)    │── HTTP+token ──►│ FastAPI + SQLite + storage        │
+ │  • statut / sync / prefs   │                 │  • /api/* protégé par token       │
+ │  • fenêtre webview ────────┼─── web UI ─────►│  • sert l'UI web (SPA)            │
+ │  • gère l'agent (launchd)  │                 │  • SSE « re-sync » → agents       │
+ │      │                                       │  • migrations au boot             │
+ │      ▼                                       └──────────────────────────────────┘
+ │ fontsync-agent (launchd)   │── push/pull ───────────────▲
+ │  sync (WatchPaths) + listen (SSE) ───────── signal ──────┘
+ └───────────────────────────┘
+```
+
+Le **serveur** (toujours allumé) est la **source de vérité**. L'agent est
+**stateless** : chaque `sync` repart de l'état réel du disque.
+
+---
+
+## Quickstart « 2 machines »
+
+L'objectif : un serveur, deux Macs, les polices synchronisées entre les deux.
+
+### 1. Démarrer le serveur (une fois)
+
+Sur le NAS (ou tout hôte Docker) :
+
+```bash
+# Générer un token d'instance et le placer dans un .env
+echo "FONTSYNC_TOKEN=$(openssl rand -base64 32)" > .env
+
+# Récupérer l'exemple de compose et démarrer
+curl -O https://raw.githubusercontent.com/leodurand/FontSync/main/docker-compose.nas.yml
+docker compose -f docker-compose.nas.yml up -d
+```
+
+Le serveur écoute sur `http://<hôte>:8080`. Notez son URL et le token : ce sont les
+**deux seules informations** à saisir sur chaque Mac. Guide NAS détaillé (Synology,
+volumes, sauvegarde) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
+
+### 2. Configurer le **premier** Mac
+
+1. Téléchargez `FontSync-X.Y.Z.dmg` depuis la
+   [dernière release](https://github.com/leodurand/FontSync/releases/latest),
+   ouvrez-le et glissez **FontSync** dans `Applications`.
+2. Lancez l'app : l'icône apparaît dans la barre des menus et l'**assistant de
+   premier lancement** s'ouvre. Il vous guide en quatre étapes :
+   - **Serveur** : collez l'URL (`http://<hôte>:8080`) et le token, puis
+     « Tester la connexion » ;
+   - **Agent** : « Installer l'agent » (met en place les jobs launchd qui
+     surveillent `~/Library/Fonts`) ;
+   - **Première synchronisation** : récupère la bibliothèque du serveur ;
+   - **Terminé**.
+3. Vos polices locales remontent vers le serveur ; vérifiez-les dans la fenêtre
+   « Ouvrir FontSync » (UI web) ou via le navigateur sur l'URL serveur.
+
+### 3. Configurer le **second** Mac
+
+Répétez l'étape 2 sur le deuxième Mac (même URL, même token). À la première sync,
+il **récupère** toutes les polices déjà présentes sur le serveur et les installe.
+
+### 4. Vérifier la synchronisation temps réel
+
+Ajoutez une police dans `~/Library/Fonts` sur le Mac A (ou importez-la depuis l'UI
+web) : en quelques secondes, le serveur la reçoit, émet un signal SSE, et le Mac B
+la récupère et l'installe automatiquement. ✅
+
+---
 
 ## Installer le serveur (NAS / Docker)
 
@@ -24,6 +102,27 @@ docker compose -f docker-compose.nas.yml up -d
 Les migrations de schéma s'appliquent automatiquement au démarrage. Guide
 détaillé (Synology Container Manager, variables, volumes, **sauvegarde &
 restauration**) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
+
+## Installer l'agent (app Mac)
+
+L'agent de synchronisation est **embarqué dans l'app Mac** (menu bar, signée et
+notarisée) : il n'y a **rien à installer séparément**.
+
+1. Téléchargez le `.dmg` depuis les
+   [GitHub Releases](https://github.com/leodurand/FontSync/releases/latest).
+2. Glissez **FontSync** dans `Applications`, lancez-le.
+3. L'**assistant de premier lancement** (URL + token → test → installation de
+   l'agent → première sync) fait le reste. Vous pouvez le relancer à tout moment
+   depuis le menu (« Assistant de configuration… »).
+
+L'app met à jour l'agent et se met à jour elle-même automatiquement (Sparkle).
+Préférences, statut, « Synchroniser maintenant » et journaux sont accessibles
+depuis le menu de la barre des menus.
+
+> Un canal **Homebrew CLI** pour les serveurs headless / power users est prévu
+> (optionnel, cf. `PLAN-PUBLICATION.md` P5).
+
+---
 
 ## Transport & sécurité réseau
 
@@ -107,6 +206,39 @@ server {
 
 Une fois derrière TLS, pointez le navigateur et l'agent sur
 `https://fontsync.example.com` : les WebSocket basculent automatiquement en `wss://`.
+
+---
+
+## Dépannage
+
+| Symptôme | Cause probable / solution |
+|---|---|
+| **« Token invalide » dans l'app** | URL ou token incorrect. Re-testez la connexion dans Préférences ; comparez avec `FONTSYNC_TOKEN` (ou le token loggé au démarrage du conteneur). |
+| **« Serveur injoignable »** | Mauvaise URL/port, conteneur arrêté, ou pare-feu. Vérifiez `docker compose ps` et que `http://<hôte>:8080/health` répond. |
+| **Les polices ne se synchronisent pas** | L'agent n'est pas chargé. Menu → « Assistant de configuration… » → réinstaller l'agent, ou « Synchroniser maintenant ». Logs : menu → « Ouvrir les journaux » (`~/Library/Logs/FontSync/`). |
+| **Une police n'apparaît pas sur l'autre Mac** | Attendez la prochaine sync (filet de sécurité `StartInterval`) ou forcez-la via « Synchroniser maintenant ». Les `.woff`/`.woff2` sont stockés et prévisualisables mais **jamais installés** au niveau système. |
+| **App « non identifiée » au 1er lancement** | Téléchargez le `.dmg` officiel signé/notarisé depuis les Releases. En dernier recours : clic droit → « Ouvrir ». |
+| **`unable to open database file` au boot serveur** | Le volume DB n'est pas monté en écriture. Vérifiez le volume `db:/data` du compose. |
+
+Le serveur expose `GET /health` (non authentifié) pour les sondes ; tout le reste
+de `/api/*` exige le token.
+
+---
+
+## Développement
+
+```bash
+docker compose up -d                                   # serveur + dépendances
+docker compose exec fontsync alembic upgrade head      # migrations
+docker compose exec fontsync pytest tests/backend/ -v  # tests backend
+cd frontend && npm run dev                             # UI web en dev
+```
+
+L'app Mac vit dans [`macos-app/`](macos-app/) (procédure de release :
+[`macos-app/RELEASE.md`](macos-app/RELEASE.md)). Les conventions de code et la
+structure du projet sont décrites dans [`CLAUDE.md`](CLAUDE.md).
+
+---
 
 ## Licence
 

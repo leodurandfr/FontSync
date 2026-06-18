@@ -1,0 +1,78 @@
+name: Create GitHub Release
+
+# Crée la GitHub Release (P4.3, PLAN-PUBLICATION.md) à laquelle sont attachés les
+# artefacts versionnés :
+#   • image Docker multi-arch → publiée en parallèle par `docker-publish.yml` sur
+#     le même tag (ghcr.io) ; référencée dans les notes ci-dessous ;
+#   • `.dmg` signé + `appcast.xml` → construits localement (signature Developer ID
+#     hors CI, cf. macos-app/RELEASE.md) puis téléversés via `scripts/publish-release.sh`.
+#
+# La release est créée en **draft** : le mainteneur y attache le `.dmg` et
+# `appcast.xml` signés, puis la publie. Publier seulement une fois l'`appcast.xml`
+# en place garde l'URL Sparkle `releases/latest/download/appcast.xml` cohérente.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag à (re)publier, ex. v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          IMAGE="ghcr.io/$(echo "$REPO" | tr '[:upper:]' '[:lower:]')"
+
+          NOTES="$(mktemp)"
+          {
+            echo "## FontSync $TAG"
+            echo
+            echo "### Serveur (Docker)"
+            echo
+            echo '```bash'
+            echo "docker pull ${IMAGE}:${VERSION}"
+            echo '```'
+            echo
+            echo "Image multi-arch (amd64 + arm64) publiée sur GHCR par le workflow \`docker-publish\`."
+            echo "Guide d'installation NAS : \`docs/INSTALL-NAS.md\`."
+            echo
+            echo "### App Mac"
+            echo
+            echo "Téléchargez **\`FontSync-${VERSION}.dmg\`** ci-dessous (signé Developer ID + notarisé)."
+            echo "Au premier lancement, l'assistant guide la configuration (serveur, agent, 1re sync)."
+            echo "Les mises à jour ultérieures sont automatiques (Sparkle / \`appcast.xml\`)."
+            echo
+            echo "---"
+          } > "$NOTES"
+
+          # Idempotent : si la release existe déjà (re-tag / workflow_dispatch), on
+          # met à jour ses notes plutôt que d'échouer.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$REPO" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "FontSync $TAG" \
+              --notes-file "$NOTES" \
+              --draft \
+              --generate-notes
+          fi

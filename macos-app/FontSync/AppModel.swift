@@ -55,6 +55,11 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var isRefreshing = false
 
+    /// Clé `UserDefaults` mémorisant que l'assistant de premier lancement (P4.1)
+    /// a été mené à son terme (ou explicitement passé). Évite de le ré-imposer à
+    /// chaque démarrage une fois l'utilisateur configuré.
+    private let onboardingCompletedKey = "fontsync.onboardingCompleted"
+
     /// Dernier total de fonts notifié avec succès — base de comparaison pour
     /// détecter les polices nouvellement synchronisées (P3.6). `nil` tant
     /// qu'aucune sonde n'a abouti ⇒ pas de notification au tout premier scan.
@@ -184,5 +189,34 @@ final class AppModel: ObservableObject {
         let result = await Task.detached { AgentController.teardown() }.value
         refresh()
         return result
+    }
+
+    /// Lance une **première** synchronisation directe (`fontsync-agent sync`),
+    /// utilisée par l'assistant de premier lancement (P4.1). On passe par
+    /// l'appel direct plutôt que `kickstart` car les jobs viennent peut-être
+    /// d'être installés et `sync` n'est pas forcément déjà chargé ; on veut de
+    /// plus un code de sortie exploitable pour le retour visuel de l'assistant.
+    func runFirstSync() async -> AgentResult {
+        let result = await Task.detached { AgentController.sync() }.value
+        refresh()
+        return result
+    }
+
+    // MARK: - Premier lancement guidé (P4.1)
+
+    /// `true` si l'assistant de configuration doit s'ouvrir automatiquement au
+    /// démarrage : jamais mené à terme **et** serveur pas encore configuré (on
+    /// ne ré-impose pas l'assistant à un utilisateur qui a déjà une config —
+    /// cas d'une mise à jour depuis une version antérieure à P4.1).
+    var shouldPresentOnboarding: Bool {
+        !UserDefaults.standard.bool(forKey: onboardingCompletedKey)
+            && AppConfig.load().serverURL == nil
+    }
+
+    /// Marque l'assistant comme terminé (ou explicitement passé) : il ne se
+    /// rouvrira plus tout seul. L'utilisateur peut toujours le relancer depuis
+    /// le menu.
+    func markOnboardingComplete() {
+        UserDefaults.standard.set(true, forKey: onboardingCompletedKey)
     }
 }
