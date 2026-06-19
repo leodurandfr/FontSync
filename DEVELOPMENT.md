@@ -143,7 +143,7 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # fournit `fontsync-agent`
 mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
 server:
   url: http://192.168.1.172:8080      # IP LAN du 1er Mac
-  device_token: null
+  token: <FONTSYNC_TOKEN du serveur>  # token d'instance (loggé au boot s'il n'est pas fixé)
   device_id: null
 scan:
   directories: ['~/Library/Fonts', '/Library/Fonts']

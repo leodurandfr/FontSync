@@ -107,7 +107,7 @@ Le MVP cible un **usage personnel** entre les machines d'un seul utilisateur. C'
 | Déploiement | Docker Compose (un seul conteneur) |
 
 > **Pourquoi SQLite ?** Usage mono-utilisateur, un seul process serveur sur le NAS, base petite et
-> jetable en dev. Postgres ne redevient pertinent qu'à un éventuel mode multi-utilisateurs (Phase 7).
+> jetable en dev. Postgres ne redevient pertinent qu'à un éventuel mode multi-utilisateurs (long terme).
 
 ### Abstraction storage
 
@@ -150,6 +150,11 @@ L'agent ne « pousse » pas d'événements temps réel vers le serveur : tout pa
 
 ### 4.1 Tables MVP
 
+> Les types ci-dessous sont **portables** (mappés sur les types SQLAlchemy
+> correspondants — `Uuid`, `DateTime(timezone=True)`, `JSON`, `String`, `Boolean`…) :
+> sur SQLite, `Uuid` est stocké en `CHAR(32)` et `JSON` en `TEXT`. Pas de type
+> dialect-spécifique (ni `UUID`/`JSONB`/`TIMESTAMPTZ` Postgres).
+
 #### `fonts`
 
 Chaque enregistrement = un fichier font physique unique, identifié par son hash SHA-256.
@@ -178,19 +183,19 @@ Chaque enregistrement = un fichier font physique unique, identifié par son hash
 | `is_oblique` | BOOLEAN | fsSelection flag |
 | `panose` | VARCHAR(30) | Classification Panose |
 | `classification` | VARCHAR(50) | Auto-détecté : `serif`, `sans-serif`, `monospace`, `display`, `handwriting`, `symbol` |
-| `unicode_ranges` | JSONB | Ranges Unicode supportés |
-| `supported_scripts` | JSONB | Ex: `["latin", "cyrillic", "arabic"]` |
+| `unicode_ranges` | JSON | Ranges Unicode supportés |
+| `supported_scripts` | JSON | Ex: `["latin", "cyrillic", "arabic"]` |
 | `glyph_count` | INTEGER | Nombre de glyphes |
 | `is_variable` | BOOLEAN | Est-ce une Variable Font ? |
-| `variable_axes` | JSONB | Axes de variation si variable (tag, min, max, default) |
+| `variable_axes` | JSON | Axes de variation si variable (tag, min, max, default) |
 | `source` | VARCHAR(50) | `upload`, `local_scan`, `google_fonts` |
-| `source_device_id` | UUID (FK → devices, nullable) | Device d'origine si scan local |
+| `source_device_id` | UUID, nullable | Device d'origine si scan local |
 | `google_fonts_id` | VARCHAR(200) | Identifiant Google Fonts si applicable |
-| `created_at` | TIMESTAMPTZ | |
-| `updated_at` | TIMESTAMPTZ | |
-| `deleted_at` | TIMESTAMPTZ, nullable | Soft delete |
+| `created_at` | DateTime (tz) | |
+| `updated_at` | DateTime (tz) | |
+| `deleted_at` | DateTime (tz), nullable | Soft delete |
 
-Index : `family_name`, `classification`, `file_hash`, `source`, `deleted_at`, GIN sur `supported_scripts`.
+Index : `family_name`, `classification`, `file_hash`, `source`, `deleted_at`.
 
 #### `devices`
 
@@ -204,12 +209,13 @@ Machines enregistrées auprès du serveur.
 | `os` | VARCHAR(50) | `macos`, `linux`, `windows` |
 | `os_version` | VARCHAR(100) | |
 | `agent_version` | VARCHAR(20) | |
-| `last_seen_at` | TIMESTAMPTZ | Dernier heartbeat |
-| `last_sync_at` | TIMESTAMPTZ | Dernière sync complète |
+| `last_seen_at` | DateTime (tz) | Dernier heartbeat |
+| `last_sync_at` | DateTime (tz) | Dernière sync complète |
 | `sync_status` | VARCHAR(20) | `idle`, `syncing`, `error` |
-| `font_directories` | JSONB | Dossiers surveillés |
-| `auto_pull` | BOOLEAN | Installer auto les nouvelles fonts du serveur |
-| `created_at` | TIMESTAMPTZ | |
+| `font_directories` | JSON | Dossiers surveillés |
+| `auto_pull` | BOOLEAN | Installer auto les nouvelles fonts du serveur (défaut `false`) |
+| `auto_push` | BOOLEAN | Pousser auto les fonts locales vers le serveur (défaut `true`) |
+| `created_at` | DateTime (tz) | |
 
 #### `device_fonts`
 
@@ -220,26 +226,24 @@ Fonts connues comme étant présentes sur un device.
 | `device_id` | UUID (FK → devices) | |
 | `font_id` | UUID (FK → fonts) | |
 | `local_path` | VARCHAR(1000) | Chemin sur le device |
-| `installed_at` | TIMESTAMPTZ | |
+| `activated` | BOOLEAN | Font active sur le device (défaut `true`) |
+| `installed_at` | DateTime (tz) | |
 | PK | (device_id, font_id) | |
 
 > **Note** : l'ancienne table `sync_queue` a été supprimée lors de la refonte —
 > l'agent est **stateless** (chaque `sync` recalcule le delta depuis l'état réel
 > du disque), il n'y a donc plus de file d'attente côté serveur.
 
-### 4.2 Tables ajoutées en phases ultérieures
+### 4.2 Familles (livré)
 
-**Phase 4 — Familles & Organisation :**
+Le regroupement en familles est implémenté. Deux tables réelles (cf.
+[`backend/models/font_family.py`](backend/models/font_family.py)) :
+
 - `font_families` (id, name, slug, designer, manufacturer, classification, description, style_count, is_auto_grouped)
 - `font_family_members` (font_id PK → fonts, family_id → font_families, sort_order)
-- `categories` (id, name, slug, description, color, parent_id self-ref, sort_order)
-- `font_categories` (font_id, category_id)
-- `collections` (id, name, slug, description, color, icon)
-- `collection_fonts` (collection_id, font_id, sort_order, added_at)
 
-**Phase 5 — Doublons :**
-- `duplicate_groups` (id, status, resolved_font_id, created_at, resolved_at)
-- `duplicate_group_members` (group_id, font_id)
+> Les tables d'**organisation** (catégories, collections, tags) et de **doublons**
+> évoquées dans le [`ROADMAP.md`](ROADMAP.md) ne sont **pas** créées à ce jour.
 
 #### Sémantique du regroupement en familles (figée)
 
@@ -277,7 +281,7 @@ Fonts connues comme étant présentes sur un device.
    (cf. Phase A3), donc pas de cas multi-sous-fonts à arbitrer.
 
 6. **Regroupement 100 % automatique pour le MVP.** `group_font` tourne à chaque
-   import/sync ; `regroup_all` (endpoint `POST /api/families/regroup`) est un
+   import/sync ; `regroup_all` (endpoint `POST /api/font-families/regroup`) est un
    rebuild de maintenance, **destructif sur les familles auto-groupées** (et
    sans danger puisqu'il n'y a pas d'édition manuelle à préserver). **L'édition
    manuelle de familles** (merge, déplacement de membre, création/renommage) est
@@ -310,6 +314,12 @@ En mode S3, même structure utilisée comme clé d'objet (`fonts/ab/abcdef...ttf
 
 ## 5. API Backend (FastAPI)
 
+> **Auth :** tout `/api/*`, le flux SSE et le WebSocket exigent le token partagé
+> d'instance (`FONTSYNC_TOKEN`) en header `Authorization: Bearer` — sauf le WS
+> navigateur qui l'accepte en query `?token=` (URL-encodé). Seul `GET /health`
+> est public. Préfixes réels : `/api/fonts`, `/api/devices`, `/api/sync`,
+> `/api/font-families`, `/api/stats`, `/api/agent`.
+
 ### 5.1 Endpoints MVP
 
 #### Fonts
@@ -324,6 +334,12 @@ En mode S3, même structure utilisée comme clé d'objet (`fonts/ab/abcdef...ttf
 | `PATCH` | `/api/fonts/{id}` | Modifier les métadonnées |
 | `DELETE` | `/api/fonts/{id}` | Soft delete |
 | `POST` | `/api/fonts/{id}/restore` | Restaurer |
+| `GET` | `/api/fonts/{id}/devices` | Sur quels devices la font est installée |
+| `POST` | `/api/fonts/{id}/install/{device_id}` | Demander l'installation (signal SSE → agent) |
+
+> Les routes `uninstall` / `activate` / `deactivate` (`POST /api/fonts/{id}/{action}/{device_id}`)
+> existent en **stub** (réponse `501`) — désinstallation par hash et activation/désactivation
+> sont différées hors-MVP.
 
 **Filtres sur `GET /api/fonts` :**
 
@@ -345,19 +361,25 @@ En mode S3, même structure utilisée comme clé d'objet (`fonts/ab/abcdef...ttf
 |---------|----------|-------------|
 | `POST` | `/api/devices/register` | Enregistrer un device |
 | `GET` | `/api/devices` | Lister les devices |
-| `PATCH` | `/api/devices/{id}` | Mettre à jour |
+| `PATCH` | `/api/devices/{id}` | Mettre à jour (nom, `auto_pull`, `auto_push`…) |
 | `DELETE` | `/api/devices/{id}` | Supprimer |
+| `POST` | `/api/devices/{id}/rescan` | Forcer un re-scan (signal SSE → agent) |
 | `POST` | `/api/sync/delta` | Delta sync : hashes locaux → différences |
 | `POST` | `/api/sync/push` | Push font(s) vers le serveur |
 | `GET` | `/api/sync/pull/{font_id}` | Pull une font depuis le serveur |
-| `GET` | `/api/sync/queue/{device_id}` | File d'attente de sync |
 
-#### WebSocket
+> Pas d'endpoint « file d'attente » : l'agent étant stateless, chaque `sync` recalcule
+> son delta via `POST /api/sync/delta` (l'ancienne table/route `sync_queue` a été supprimée).
+
+#### Temps réel (WebSocket + SSE)
 
 | Endpoint | Description |
 |----------|-------------|
-| `WS /ws/client` | Connexion WebSocket pour le frontend |
-| `WS /ws/agent/{device_id}` | Connexion WebSocket pour un agent |
+| `WS /ws/client` | Canal frontend ↔ serveur (token en query `?token=`, URL-encodé) |
+| `GET /api/agent/{device_id}/events` | **SSE** serveur → agent : signal « re-sync » consommé par `listen` |
+
+> Un endpoint `WS /ws/agent/{device_id}` **subsiste dans le code mais est inutilisé** :
+> l'agent est passé au canal SSE ci-dessus. À considérer comme du legacy.
 
 #### Statistiques
 
@@ -365,13 +387,30 @@ En mode S3, même structure utilisée comme clé d'objet (`fonts/ab/abcdef...ttf
 |---------|----------|-------------|
 | `GET` | `/api/stats` | Stats globales |
 
-### 5.2 Endpoints ajoutés par phase
+#### Familles (livré)
 
-| Phase | Endpoints |
-|-------|-----------|
-| Phase 4 | CRUD `/api/families`, CRUD `/api/categories`, CRUD `/api/collections`, batch operations |
-| Phase 5 | `/api/google-fonts` (browse, import), `/api/duplicates` (scan, resolve) |
-| Phase 7 | `/api/auth/login`, `/api/share/create`, `GET /api/share/{token}` (public, sans auth) |
+La vue par familles étant la vue principale de la bibliothèque, les familles
+sont **implémentées** (préfixe `/api/font-families`, pas `/api/families`) :
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/font-families` | Lister (avec membres, filtres) |
+| `GET` | `/api/font-families/{id}` | Détail d'une famille |
+| `POST` | `/api/font-families` | Créer |
+| `PATCH` | `/api/font-families/{id}` | Renommer / éditer |
+| `DELETE` | `/api/font-families/{id}` | Supprimer |
+| `POST` | `/api/font-families/merge` | Fusionner |
+| `POST` | `/api/font-families/regroup` | Rebuild de maintenance (auto-groupage) |
+| `POST` / `DELETE` | `/api/font-families/{id}/fonts[/{font_id}]` | Ajouter / retirer un membre |
+
+> L'auto-groupage tourne à chaque import/sync (`family_grouper`). Les routes
+> d'édition manuelle existent mais ne sont pas (encore) exposées dans l'UI (cf. §4.2).
+
+### 5.2 Endpoints non implémentés (vision long terme)
+
+Catégories, collections, Google Fonts, doublons, auth multi-utilisateurs et partage
+public relèvent du [`ROADMAP.md`](ROADMAP.md) — **aucun endpoint correspondant n'existe
+à ce jour**.
 
 ### 5.3 Pipeline d'import
 
@@ -495,15 +534,20 @@ Plus de WebSocket côté agent (ni reconnexion avec backoff, ni delta-sync « au
 
 ### 6.8 Configuration
 
-Fichier `~/.fontsync/config.yaml` :
+Fichier `~/.fontsync/config.yaml` (cf. [`agent/config.py`](agent/config.py)) :
 - `server.url` : URL du serveur FontSync
-- `device_token` : token d'identification (généré à l'enregistrement, **persisté**)
-- `device_id` : identifiant du device (reçu à l'enregistrement, **persisté**)
-- `scan.directories` : override des dossiers gérés
-- `scan.ignore_patterns` : patterns à ignorer (ex: `.*`, `System*`)
-- `sync.auto_pull` : install auto des fonts du serveur
+- `server.token` : **token partagé d'instance** (= `FONTSYNC_TOKEN`), envoyé en `Authorization: Bearer`
+- `server.device_token` : réservé à une future auth **par-device** (cloud / long terme), **inutilisé** en v1
+- `server.device_id` : identifiant du device (reçu à l'enregistrement, **persisté**)
+- `scan.directories` : dossiers gérés (défaut `~/Library/Fonts`, `/Library/Fonts`)
+- `scan.ignore_patterns` : patterns à ignorer (défaut `.*`, `System*`)
+- `sync.auto_pull` : install auto des fonts du serveur (défaut `false`)
+- `sync.auto_push` : push auto des fonts locales (défaut `true`)
 
-> Le push est déclenché par `WatchPaths` : il n'y a plus de flag `auto_push` ni d'`interval_minutes` (remplacé par `StartInterval` launchd). Le `save()` de config préserve `device_id`/token.
+> `auto_pull`/`auto_push` ne sont que les valeurs envoyées au **premier** `register` :
+> ensuite, c'est le serveur qui fait foi (piloté via le frontend). Il n'y a plus
+> d'`interval_minutes` (remplacé par le `StartInterval` launchd). Le `save()` de config
+> préserve l'identité persistée (`device_id`/tokens).
 
 ### 6.9 Déclenchement depuis le frontend
 
@@ -698,118 +742,7 @@ fontsync/
 
 ---
 
-## 10. Roadmap détaillée
-
-### Phase 1 — Backend serveur
-
-> Un backend qui accepte des fonts, les parse et les sert via API.
-
-- [ ] Docker Compose (FastAPI + PostgreSQL)
-- [ ] Configuration (BaseSettings, storage backend, DB)
-- [ ] Modèles SQLAlchemy : `fonts`, `devices`, `device_fonts`, `sync_queue`
-- [ ] Migrations Alembic
-- [ ] Service `storage` : abstraction filesystem + S3 (store, retrieve, delete, exists)
-- [ ] Service `font_analyzer` : parsing fonttools complet (métadonnées, classification, scripts/langues)
-- [ ] Service `font_importer` : pipeline (validation → hash → doublon check → store → parse → classify → insert)
-- [ ] API fonts : upload, liste avec filtres/pagination, détail, fichier, delete, restore
-- [ ] API devices : register, list, update, delete
-- [ ] API sync : delta, push, pull, queue
-- [ ] API stats
-- [ ] WebSocket manager : connexions clients et agents, broadcast d'événements
-- [ ] Gestion d'erreurs (fonts malformées, doublons, formats inconnus)
-
-### Phase 2 — Agent Python
-
-> L'agent détecte, push et installe les fonts automatiquement.
-
-- [ ] Structure agent (config YAML, point d'entrée)
-- [ ] Découverte initiale via APIs système (macOS prioritaire)
-- [ ] File watcher (watchdog) sur les dossiers de fonts
-- [ ] Scan périodique en backup
-- [ ] Hashing SHA-256
-- [ ] UX première sync (progression, compteur, résumé)
-- [ ] Connexion WebSocket persistante avec le serveur (+ reconnexion auto)
-- [ ] Push auto : détection → hash → push vers serveur
-- [ ] Pull : téléchargement + installation per-user
-- [ ] Gestion auto_pull (on/off)
-- [ ] Tray icon (pystray) avec menu contextuel
-- [ ] Notifications système
-- [ ] Endpoint local `localhost:7850/status` (optionnel)
-- [ ] Packaging PyInstaller + signature + notarisation macOS
-
-### Phase 3 — Interface web
-
-> L'interface pour naviguer, chercher et gérer les fonts.
-
-- [ ] Setup Vue 3 + Vite + TypeScript + shadcn-vue + Tailwind
-- [ ] Layout (sidebar, header, routing)
-- [ ] Composable `useWebSocket` : connexion WS, reconnexion auto, mise à jour réactive des stores
-- [ ] Composable `useFontPreview` : chargement @font-face dynamique + lazy loading
-- [ ] Page Dashboard (stats, fonts récentes, devices connectés)
-- [ ] Page Fonts : grille FontCards, lazy loading, mise à jour temps réel
-- [ ] Panneau de filtres : recherche, classification, format, scripts, poids, tri
-- [ ] Upload basique (formulaire simple)
-- [ ] Page détail font : preview interactive, waterfall, métadonnées, langues, glyphes, devices
-- [ ] Page Devices : liste, état temps réel, config, déclenchement re-scan
-- [ ] Page Settings
-- [ ] Build production servi par FastAPI en static files
-
-### Phase 4 — Familles & Organisation
-
-> Auto-groupement, catégories, collections, actions en lot.
-
-- [ ] Tables familles, catégories, collections + migrations
-- [x] Service `family_grouper` : auto-regroupement par family_name (sémantique figée, cf. §4.2 « Sémantique du regroupement en familles »)
-- [ ] Re-parse des fonts existantes pour groupement
-- [ ] API familles (CRUD, merge, membres)
-- [ ] API catégories (CRUD, hiérarchie)
-- [ ] API collections (CRUD, membres)
-- [ ] API batch (suppression, catégorisation en lot)
-- [ ] Frontend : page familles, détail famille
-- [ ] Frontend : sidebar catégories + drag & drop
-- [ ] Frontend : collections, gestion, vue par collection
-- [ ] Frontend : sélection multiple + actions en lot
-
-### Phase 5 — Google Fonts & Doublons
-
-> Enrichissement et nettoyage.
-
-- [ ] Proxy API Google Fonts avec cache 24h
-- [ ] Page "Explorer Google Fonts" (recherche, filtres, preview)
-- [ ] Import en un clic
-- [ ] Service détection de doublons visuels
-- [ ] Tables doublons + migrations
-- [ ] Page résolution doublons
-- [ ] Mode comparaison (2-3 fonts côte à côte)
-
-### Phase 6 — Polish & Features avancées
-
-> Finitions.
-
-- [ ] Conversion TTF/OTF → WOFF2 (fonttools) pour export web
-- [ ] Variable Fonts : preview interactive (sliders axes)
-- [ ] Export webfont kit (CSS + fichiers)
-- [ ] Grille de glyphes complète
-- [ ] Thème sombre / clair
-- [ ] Agent : support Windows et Linux
-- [ ] Recherche avancée (pg_trgm ou tsvector)
-
-### Phase 7 — Multi-utilisateurs & Partage
-
-> Usage en équipe.
-
-- [ ] Authentification JWT
-- [ ] Rôles (admin, éditeur, viewer)
-- [ ] Espace personnel vs. bibliothèque d'équipe
-- [ ] Gestion licences (tags, quotas, alertes)
-- [ ] Sync sélective par device
-- [ ] Invitation d'utilisateurs
-- [ ] Partage public via lien URL (preview + téléchargement sans auth)
-- [ ] Logs d'activité
-
----
-
-## 11. Contraintes et points d'attention
+## 10. Contraintes et points d'attention
 
 ### Contraintes techniques
 
@@ -826,8 +759,8 @@ fontsync/
 
 ### Décisions techniques
 
-- **Pas d'auth pour le MVP** — réseau de confiance
-- **SQLite** comme base (mono-utilisateur) ; Postgres réservé à un éventuel multi-utilisateurs (Phase 7)
+- **Auth = token partagé d'instance** (`FONTSYNC_TOKEN`) vérifié sur tout `/api/*`, le SSE et le WS ; pas de comptes utilisateurs (réservé au multi-utilisateurs, long terme)
+- **SQLite** comme base (mono-utilisateur) ; Postgres réservé à un éventuel multi-utilisateurs (long terme)
 - **Soft delete** (`deleted_at`) pour toutes les suppressions
 - **UUID** pour toutes les PK (type SQLAlchemy portable)
 - **Le serveur (NAS, toujours ON) est la source de vérité** ; l'agent est **stateless**
@@ -847,6 +780,5 @@ fontsync/
 
 ---
 
-*Document v3.0 — 8 mars 2026*
-*À utiliser comme contexte initial pour Claude Code.*
-*Le code d'implémentation n'est pas dans ce document — Claude Code implémente selon les meilleures pratiques.*
+*Référence technique de l'architecture livrée (0.0.1).*
+*Les extraits de schéma sont illustratifs : la source de vérité du code reste `backend/` et `agent/`.*
