@@ -23,7 +23,12 @@ export const useDevicesStore = defineStore('devices', () => {
     try {
       const res = await apiFetch('/api/devices')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      devices.value = await res.json()
+      const list: Device[] = await res.json()
+      devices.value = list
+      // Amorce la présence « en ligne » depuis le REST : sinon un device déjà
+      // connecté (SSE établi avant l'ouverture de l'UI) resterait affiché
+      // « non connecté » faute d'événement WS device.connected à rejouer.
+      onlineDeviceIds.value = new Set(list.filter((d) => d.isOnline).map((d) => d.id))
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Erreur inconnue'
     } finally {

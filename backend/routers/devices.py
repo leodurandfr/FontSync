@@ -24,6 +24,19 @@ async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
     return device
 
 
+def _to_response(device: Device) -> DeviceResponse:
+    """Sérialise un device en y injectant la présence « en ligne ».
+
+    Le statut online n'est pas une colonne : il vient des connexions SSE
+    `listen` actives (`ws_manager`). L'exposer dans le REST permet au frontend
+    d'afficher le bon état **dès le chargement**, sans dépendre uniquement des
+    événements WebSocket `device.connected` (qui ne rejouent pas l'historique).
+    """
+    resp = DeviceResponse.model_validate(device)
+    resp.is_online = str(device.id) in ws_manager.connected_sse_devices
+    return resp
+
+
 @router.post("/register", response_model=DeviceResponse, status_code=201)
 async def register_device(
     body: DeviceRegister,
@@ -58,7 +71,7 @@ async def register_device(
 
     await db.commit()
     await db.refresh(device)
-    return DeviceResponse.model_validate(device)
+    return _to_response(device)
 
 
 @router.get("", response_model=list[DeviceResponse])
@@ -68,7 +81,7 @@ async def list_devices(
     """Liste tous les devices enregistrés."""
     result = await db.execute(select(Device).order_by(Device.created_at.desc()))
     devices = result.scalars().all()
-    return [DeviceResponse.model_validate(d) for d in devices]
+    return [_to_response(d) for d in devices]
 
 
 @router.patch("/{device_id}", response_model=DeviceResponse)
@@ -87,7 +100,7 @@ async def update_device(
     device.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(device)
-    return DeviceResponse.model_validate(device)
+    return _to_response(device)
 
 
 @router.post("/{device_id}/rescan", status_code=202)

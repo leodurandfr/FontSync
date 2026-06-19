@@ -48,6 +48,9 @@ class DeviceResponse(CamelModel):
     auto_pull: bool
     auto_push: bool
     created_at: datetime
+    # Présence « en ligne » : calculée à la volée depuis les connexions SSE
+    # `listen` (cf. routeur), pas une colonne en base.
+    is_online: bool = False
 
     model_config = {
         "from_attributes": True,

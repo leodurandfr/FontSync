@@ -84,6 +84,8 @@ export interface Device {
   autoPull: boolean;
   autoPush: boolean;
   createdAt: string;
+  /** Présence « en ligne » (connexion SSE `listen` active), calculée serveur. */
+  isOnline?: boolean;
 }
 
 export interface Stats {
