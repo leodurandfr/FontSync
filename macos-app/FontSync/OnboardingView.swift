@@ -161,6 +161,13 @@ struct OnboardingView: View {
             }
             if let agentFeedback { agentFeedback.view }
         }
+        // Installation automatique dès l'arrivée sur l'étape : l'utilisateur n'a
+        // rien à cliquer. Le bouton reste un repli (retry) en cas d'échec.
+        .onAppear {
+            if model.agentAvailable && !agentInstalled && !agentBusy {
+                installAgent()
+            }
+        }
     }
 
     private var syncStep: some View {
@@ -176,6 +183,12 @@ struct OnboardingView: View {
                 if syncBusy { ProgressView().controlSize(.small) }
             }
             if let syncFeedback { syncFeedback.view }
+        }
+        // Première sync lancée automatiquement à l'arrivée sur l'étape.
+        .onAppear {
+            if !syncBusy && !syncDone {
+                runFirstSync()
+            }
         }
     }
 
