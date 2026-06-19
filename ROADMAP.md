@@ -1,94 +1,94 @@
-# FontSync — Roadmap (vision long terme)
+# FontSync — Roadmap (long-term vision)
 
-> **Statut : orientant, non-actionable.** Ce fichier capture les décisions de *cap*
-> produit/archi au-delà de la version livrée (self-hosted v1, `0.0.1`). Il n'est
-> **pas** une checklist exécutable. L'architecture actuelle est dans
-> [`ARCHITECTURE.md`](ARCHITECTURE.md). Chaque initiative ci-dessous sera découpée
-> **au moment où on l'attaquera**, pas avant (découper trop tôt = des docs qui dérivent).
-
----
-
-## Différenciateur central
-
-Le vrai avantage vs la concurrence (ex. **FontCap**) = **le self-host léger et réel.**
-FontCap se dit « self-hostable » mais c'est en fait du **BYO-cloud** : chaque
-utilisateur doit provisionner *son propre* Supabase + *son propre* Cloudflare R2
-(tiers gratuits) et câbler ~7 clés API. Il n'y a **aucun serveur central** et
-**aucune offre cloud payante** — l'archi BYO-cloud l'interdit par conception.
-
-Toute décision de cap doit **protéger** cet atout : démarrage en une commande,
-données chez l'utilisateur, zéro dépendance à un SaaS tiers.
+> **Status: orienting, non-actionable.** This file captures the product/architecture
+> *direction* decisions beyond the shipped version (self-hosted v1, `0.0.1`). It is
+> **not** an executable checklist. The current architecture lives in
+> [`ARCHITECTURE.md`](ARCHITECTURE.md). Each initiative below will be broken down
+> **when we actually tackle it**, not before (breaking it down too early = docs that drift).
 
 ---
 
-## Décisions de cap
+## Core differentiator
 
-### 1. Modèle de distribution : self-hosted (gratuit) **ou** cloud (payant)
+The real advantage vs. the competition (e.g. **FontCap**) = **lightweight, genuine self-hosting.**
+FontCap calls itself "self-hostable" but it's actually **BYO-cloud**: every
+user must provision *their own* Supabase + *their own* Cloudflare R2
+(free tiers) and wire up ~7 API keys. There is **no central server** and
+**no paid cloud offering** — the BYO-cloud architecture forbids it by design.
 
-Deux modes, **un seul cœur de code** (jamais de fork) :
-
-- **Self-hosted — gratuit.** Vrai self-host sur le matériel de l'utilisateur
-  (NAS), pas du BYO-cloud. Cible : `docker compose up` → un seul conteneur
-  **FastAPI + SQLite** + storage filesystem. Données 100 % chez l'utilisateur,
-  fonctionne en LAN/hors-ligne. C'est l'argument que FontCap n'a pas.
-- **Cloud — payant.** Même app FastAPI, hébergée par nous. On échange
-  SQLite→Postgres (SQLAlchemy abstrait déjà) et storage local→S3/R2 (abstraction
-  storage déjà en place), on active le multi-tenant. **On vend la commodité**
-  (pas de NAS, backups, fiabilité, volumes), pas des fonctionnalités amputées au
-  self-host. Contrairement à FontCap, ce mode est *possible* parce qu'on héberge
-  réellement — eux ne le peuvent pas.
-
-### 2. Backend : garder FastAPI + SQLite/Postgres — **pas Supabase**
-
-Supabase tuerait le différenciateur self-host (stack lourde à faire tourner sur
-un NAS vs un seul conteneur) et coupler à un vendeur. Notre backend n'est pas du
-CRUD : parsing fonttools, pipeline d'import idempotent, regroupement de familles,
-sémantique de delta-sync = vraie logique serveur. L'archi anticipe déjà le
-dual-mode (types SQLAlchemy portables, storage FS/S3, Postgres flaggé Phase 7).
-RLS n'est **pas** exclusif à Supabase : c'est une feature Postgres réutilisable.
-
-### 3. Cross-platform : Windows + Linux via une frontière `PlatformAdapter`
-
-Le cœur agent (`sync_command`, `hashing`, delta, client HTTP, cache) est déjà
-platform-agnostique. Le macOS-spécifique est isolé dans 3 endroits :
-`discovery.py` (pyobjc/Core Text → dossiers de fonts par OS), `font_installer.py`
-(Windows : registre + `AddFontResource` ; Linux : copie + `fc-cache`), et
-`agent/launchd/` (le plus pénible : launchd → Windows Task Scheduler, Linux
-systemd user units + path units). **Poser l'abstraction `PlatformAdapter`
-(discover / install / uninstall / schedule) tôt**, même avec une seule implé
-macOS — l'ajouter après coup est douloureux.
-
-### 4. Authentification : décider la **tenancy** tôt, provider pluggable
-
-Le piège n'est pas le *comment* mais le *quand* : ajouter un `account_id` sur un
-schéma mono-utilisateur déjà peuplé est un refacto très coûteux. → **Décider la
-frontière de tenancy (`account_id` partout) tôt**, même si le self-host MVP a un
-compte implicite unique. **Découpler « provider d'auth » de « plateforme »** :
-adopter un provider managé léger (WorkOS, Clerk, Authentik, ou Supabase Auth
-*seul*) sans adopter toute une plateforme. Deux postures : self-host = auth
-simple/optionnelle (mot de passe admin, voire rien sur LAN) ; cloud = vrai IdP.
-*(Deviendra `PLAN-auth.md` quand on l'attaquera.)*
-
-### 5. UI : pur localhost-web, **anti-Electron**
-
-Modèle Syncthing : l'agent sert son UI sur `localhost`, le frontend est une web
-app, **zéro fenêtre native**. C'est paradoxalement le plus natif possible (aucun
-moteur de rendu embarqué, le navigateur de l'OS fait le travail, cross-platform
-gratuit). Si un jour un tray/menubar est nécessaire : **Tauri** (webview système,
-pas Electron) — mais à différer.
-
-### 6. Licence : à trancher **avant le premier release public**
-
-Décision business la plus irréversible. Le combo « self-host gratuit + cloud
-payant » se protège quasi toujours en **AGPL** (Plausible, Cal.com) ou
-source-available **BSL** (Sentry), pour empêcher un concurrent de revendre notre
-propre cloud. À arbitrer tôt.
+Every direction decision must **protect** this asset: one-command startup, the
+user's data on their own hardware, zero dependency on a third-party SaaS.
 
 ---
 
-## Référence concurrente
+## Direction decisions
 
-- **FontCap** (`github.com/pallestcyer/FontCap`) — même pitch produit, exécution
-  opposée : Electron + React, Supabase + Cloudflare R2, **BYO-cloud** (pas de vrai
-  self-host, pas de cloud payant). Utile comme **référence UX** (dashboard
-  multi-devices, flux « one-click install ») pour la Phase C frontend.
+### 1. Distribution model: self-hosted (free) **or** cloud (paid)
+
+Two modes, **a single code core** (never a fork):
+
+- **Self-hosted — free.** Genuine self-host on the user's own hardware
+  (NAS), not BYO-cloud. Target: `docker compose up` → a single
+  **FastAPI + SQLite** container + filesystem storage. Data 100% on the user's
+  side, works on LAN/offline. This is the argument FontCap doesn't have.
+- **Cloud — paid.** Same FastAPI app, hosted by us. We swap
+  SQLite→Postgres (SQLAlchemy already abstracts it) and local storage→S3/R2 (storage
+  abstraction already in place), and enable multi-tenancy. **We sell convenience**
+  (no NAS, backups, reliability, volumes), not features crippled in
+  self-host. Unlike FontCap, this mode is *possible* because we actually host —
+  they can't.
+
+### 2. Backend: keep FastAPI + SQLite/Postgres — **not Supabase**
+
+Supabase would kill the self-host differentiator (a heavy stack to run on
+a NAS vs. a single container) and couple us to a vendor. Our backend isn't
+CRUD: fonttools parsing, idempotent import pipeline, family grouping,
+delta-sync semantics = real server logic. The architecture already anticipates
+dual-mode (portable SQLAlchemy types, FS/S3 storage, Postgres flagged Phase 7).
+RLS is **not** exclusive to Supabase: it's a reusable Postgres feature.
+
+### 3. Cross-platform: Windows + Linux via a `PlatformAdapter` boundary
+
+The agent core (`sync_command`, `hashing`, delta, HTTP client, cache) is already
+platform-agnostic. The macOS-specific parts are isolated in 3 places:
+`discovery.py` (pyobjc/Core Text → font folders per OS), `font_installer.py`
+(Windows: registry + `AddFontResource`; Linux: copy + `fc-cache`), and
+`agent/launchd/` (the most painful: launchd → Windows Task Scheduler, Linux
+systemd user units + path units). **Lay down the `PlatformAdapter` abstraction
+(discover / install / uninstall / schedule) early**, even with a single macOS
+implementation — adding it after the fact is painful.
+
+### 4. Authentication: decide **tenancy** early, pluggable provider
+
+The trap isn't the *how* but the *when*: adding an `account_id` to an
+already-populated single-user schema is a very costly refactor. → **Decide the
+tenancy boundary (`account_id` everywhere) early**, even if the self-host MVP has a
+single implicit account. **Decouple "auth provider" from "platform"**:
+adopt a lightweight managed provider (WorkOS, Clerk, Authentik, or Supabase Auth
+*alone*) without adopting a whole platform. Two stances: self-host = simple/optional
+auth (admin password, or even nothing on LAN); cloud = a real IdP.
+*(Will become `PLAN-auth.md` when we tackle it.)*
+
+### 5. UI: pure localhost-web, **anti-Electron**
+
+Syncthing model: the agent serves its UI on `localhost`, the frontend is a web
+app, **zero native window**. This is paradoxically as native as possible (no
+embedded rendering engine, the OS browser does the work, cross-platform for
+free). If a tray/menubar is ever needed: **Tauri** (system webview,
+not Electron) — but to be deferred.
+
+### 6. License: to be settled **before the first public release**
+
+The most irreversible business decision. The "free self-host + paid cloud"
+combo is almost always protected with **AGPL** (Plausible, Cal.com) or
+source-available **BSL** (Sentry), to prevent a competitor from reselling our
+own cloud. To be settled early.
+
+---
+
+## Competitive reference
+
+- **FontCap** (`github.com/pallestcyer/FontCap`) — same product pitch, opposite
+  execution: Electron + React, Supabase + Cloudflare R2, **BYO-cloud** (no genuine
+  self-host, no paid cloud). Useful as a **UX reference** (multi-device
+  dashboard, "one-click install" flow) for frontend Phase C.

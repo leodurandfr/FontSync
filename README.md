@@ -1,169 +1,169 @@
 # FontSync
 
-Font manager **self-hosted** avec synchronisation multi-machines en temps réel :
-un serveur Docker centralise la bibliothèque de polices, un agent Python détecte et
-synchronise automatiquement les fonts entre vos Macs, et une interface web permet de
-naviguer et gérer la collection.
+A **self-hosted** font manager with real-time multi-machine synchronization:
+a Docker server centralizes your font library, a Python agent automatically detects and
+synchronizes fonts across your Macs, and a web interface lets you browse and manage the
+collection.
 
-- 🗄️ **Serveur source de vérité** — toutes vos polices au même endroit (NAS, Docker).
-- 🔄 **Sync automatique** — l'agent surveille `~/Library/Fonts` et propage les
-  changements en quasi temps réel (push/pull + signal SSE).
-- 🍎 **App Mac native** — menu bar Swift signée, agent embarqué, premier lancement
-  guidé, notifications et mises à jour automatiques.
-- 🌐 **UI web** — parcourir, prévisualiser, importer et gérer la bibliothèque.
-- 🔒 **Token d'instance** — tout `/api/*` protégé par un secret partagé.
+- 🗄️ **Server as source of truth** — all your fonts in one place (NAS, Docker).
+- 🔄 **Automatic sync** — the agent watches `~/Library/Fonts` and propagates
+  changes in near real time (push/pull + SSE signal).
+- 🍎 **Native Mac app** — signed Swift menu bar app, embedded agent, guided first
+  launch, notifications, and automatic updates.
+- 🌐 **Web UI** — browse, preview, import, and manage the library.
+- 🔒 **Instance token** — all of `/api/*` protected by a shared secret.
 
-> Pour l'architecture complète, le modèle de données et l'API, voir [`ARCHITECTURE.md`](ARCHITECTURE.md).
-> Vision long terme : [`ROADMAP.md`](ROADMAP.md).
+> For the complete architecture, the data model, and the API, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+> Long-term vision: [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture
 
 ```
-   Mac (utilisateur)                              Serveur FontSync (NAS, Docker)
+   Mac (user)                                     FontSync server (NAS, Docker)
  ┌───────────────────────────┐                 ┌──────────────────────────────────┐
- │ App FontSync (menu bar)    │── HTTP+token ──►│ FastAPI + SQLite + storage        │
- │  • statut / sync / prefs   │                 │  • /api/* protégé par token       │
- │  • fenêtre webview ────────┼─── web UI ─────►│  • sert l'UI web (SPA)            │
- │  • gère l'agent (launchd)  │                 │  • SSE « re-sync » → agents       │
- │      │                                       │  • migrations au boot             │
+ │ FontSync app (menu bar)    │── HTTP+token ──►│ FastAPI + SQLite + storage        │
+ │  • status / sync / prefs   │                 │  • /api/* protected by token      │
+ │  • webview window ─────────┼─── web UI ─────►│  • serves the web UI (SPA)        │
+ │  • manages the agent (launchd) │             │  • SSE “re-sync” → agents         │
+ │      │                                       │  • migrations at boot             │
  │      ▼                                       └──────────────────────────────────┘
  │ fontsync-agent (launchd)   │── push/pull ───────────────▲
  │  sync (WatchPaths) + listen (SSE) ───────── signal ──────┘
  └───────────────────────────┘
 ```
 
-Le **serveur** (toujours allumé) est la **source de vérité**. L'agent est
-**stateless** : chaque `sync` repart de l'état réel du disque.
+The **server** (always on) is the **source of truth**. The agent is
+**stateless**: each `sync` starts over from the actual state of the disk.
 
 ---
 
-## Quickstart « 2 machines »
+## “2 machines” quickstart
 
-L'objectif : un serveur, deux Macs, les polices synchronisées entre les deux.
+The goal: one server, two Macs, fonts synchronized between them.
 
-### 1. Démarrer le serveur (une fois)
+### 1. Start the server (once)
 
-Sur le NAS (ou tout hôte Docker) :
+On the NAS (or any Docker host):
 
 ```bash
-# Générer un token d'instance et le placer dans un .env
+# Generate an instance token and put it in a .env
 echo "FONTSYNC_TOKEN=$(openssl rand -base64 32)" > .env
 
-# Récupérer l'exemple de compose et démarrer
+# Fetch the example compose file and start
 curl -O https://raw.githubusercontent.com/leodurandfr/FontSync/main/docker-compose.nas.yml
 docker compose -f docker-compose.nas.yml up -d
 ```
 
-Le serveur écoute sur `http://<hôte>:8080`. Notez son URL et le token : ce sont les
-**deux seules informations** à saisir sur chaque Mac. Guide NAS détaillé (Synology,
-volumes, sauvegarde) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
+The server listens on `http://<host>:8080`. Note its URL and the token: these are the
+**only two pieces of information** to enter on each Mac. Detailed NAS guide (Synology,
+volumes, backup): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
-### 2. Configurer le **premier** Mac
+### 2. Configure the **first** Mac
 
-1. Téléchargez `FontSync-X.Y.Z.dmg` depuis la
-   [dernière release](https://github.com/leodurandfr/FontSync/releases/latest),
-   ouvrez-le et glissez **FontSync** dans `Applications`.
-2. Lancez l'app : l'icône apparaît dans la barre des menus et l'**assistant de
-   premier lancement** s'ouvre. Il vous guide en quatre étapes :
-   - **Serveur** : collez l'URL (`http://<hôte>:8080`) et le token, puis
-     « Tester la connexion » ;
-   - **Agent** : « Installer l'agent » (met en place les jobs launchd qui
-     surveillent `~/Library/Fonts`) ;
-   - **Première synchronisation** : récupère la bibliothèque du serveur ;
-   - **Terminé**.
-3. Vos polices locales remontent vers le serveur ; vérifiez-les dans la fenêtre
-   « Ouvrir FontSync » (UI web) ou via le navigateur sur l'URL serveur.
+1. Download `FontSync-X.Y.Z.dmg` from the
+   [latest release](https://github.com/leodurandfr/FontSync/releases/latest),
+   open it, and drag **FontSync** into `Applications`.
+2. Launch the app: the icon appears in the menu bar and the **first-launch
+   assistant** opens. It guides you through four steps:
+   - **Server**: paste the URL (`http://<host>:8080`) and the token, then
+     “Test the connection”;
+   - **Agent**: “Install the agent” (sets up the launchd jobs that
+     watch `~/Library/Fonts`);
+   - **First synchronization**: fetches the library from the server;
+   - **Done**.
+3. Your local fonts are uploaded to the server; check them in the
+   “Open FontSync” window (web UI) or via the browser at the server URL.
 
-### 3. Configurer le **second** Mac
+### 3. Configure the **second** Mac
 
-Répétez l'étape 2 sur le deuxième Mac (même URL, même token). À la première sync,
-il **récupère** toutes les polices déjà présentes sur le serveur et les installe.
+Repeat step 2 on the second Mac (same URL, same token). On the first sync,
+it **fetches** all the fonts already present on the server and installs them.
 
-### 4. Vérifier la synchronisation temps réel
+### 4. Verify real-time synchronization
 
-Ajoutez une police dans `~/Library/Fonts` sur le Mac A (ou importez-la depuis l'UI
-web) : en quelques secondes, le serveur la reçoit, émet un signal SSE, et le Mac B
-la récupère et l'installe automatiquement. ✅
+Add a font to `~/Library/Fonts` on Mac A (or import it from the web
+UI): within a few seconds, the server receives it, emits an SSE signal, and Mac B
+fetches and installs it automatically. ✅
 
 ---
 
-## Installer le serveur (NAS / Docker)
+## Install the server (NAS / Docker)
 
-L'image serveur est **multi-arch** (amd64 + arm64), publiée sur
-`ghcr.io/leodurandfr/fontsync`. Déploiement en un conteneur :
+The server image is **multi-arch** (amd64 + arm64), published on
+`ghcr.io/leodurandfr/fontsync`. Single-container deployment:
 
 ```bash
-# 1. Générer un token d'instance
-openssl rand -base64 32          # → à mettre dans un fichier .env : FONTSYNC_TOKEN=...
-# 2. Démarrer (exemple NAS fourni)
+# 1. Generate an instance token
+openssl rand -base64 32          # → put it in a .env file: FONTSYNC_TOKEN=...
+# 2. Start (provided NAS example)
 docker compose -f docker-compose.nas.yml up -d
 ```
 
-Les migrations de schéma s'appliquent automatiquement au démarrage. Guide
-détaillé (Synology Container Manager, variables, volumes, **sauvegarde &
-restauration**) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
+Schema migrations are applied automatically at startup. Detailed
+guide (Synology Container Manager, variables, volumes, **backup &
+restore**): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
-## Installer l'agent (app Mac)
+## Install the agent (Mac app)
 
-L'agent de synchronisation est **embarqué dans l'app Mac** (menu bar, signée et
-notarisée) : il n'y a **rien à installer séparément**.
+The synchronization agent is **embedded in the Mac app** (menu bar, signed and
+notarized): there is **nothing to install separately**.
 
-1. Téléchargez le `.dmg` depuis les
+1. Download the `.dmg` from the
    [GitHub Releases](https://github.com/leodurandfr/FontSync/releases/latest).
-2. Glissez **FontSync** dans `Applications`, lancez-le.
-3. L'**assistant de premier lancement** (URL + token → test → installation de
-   l'agent → première sync) fait le reste. Vous pouvez le relancer à tout moment
-   depuis le menu (« Assistant de configuration… »).
+2. Drag **FontSync** into `Applications` and launch it.
+3. The **first-launch assistant** (URL + token → test → agent
+   installation → first sync) does the rest. You can re-run it at any time
+   from the menu (“Setup assistant…”).
 
-L'app met à jour l'agent et se met à jour elle-même automatiquement (Sparkle).
-Préférences, statut, « Synchroniser maintenant » et journaux sont accessibles
-depuis le menu de la barre des menus.
+The app updates the agent and updates itself automatically (Sparkle).
+Preferences, status, “Sync now”, and logs are accessible
+from the menu bar menu.
 
-> Un canal **Homebrew CLI** pour les serveurs headless / power users est
-> disponible (optionnel) : voir [`packaging/homebrew/`](packaging/homebrew/).
+> A **Homebrew CLI** channel for headless servers / power users is
+> available (optional): see [`packaging/homebrew/`](packaging/homebrew/).
 
 ---
 
-## Transport & sécurité réseau
+## Network transport & security
 
-FontSync écoute en **HTTP clair** (le conteneur expose le port `8000`, mappé sur
-`8080` dans le `docker-compose` d'exemple). C'est le mode prévu pour un **réseau
-local de confiance** (LAN domestique, VLAN d'un NAS) : simple, sans certificat à
-gérer.
+FontSync listens over **plain HTTP** (the container exposes port `8000`, mapped to
+`8080` in the example `docker-compose`). This is the mode intended for a **trusted
+local network** (home LAN, a NAS VLAN): simple, with no certificate to
+manage.
 
-L'accès est protégé par un **token partagé d'instance** (`FONTSYNC_TOKEN`, voir
-plus bas), mais ce token transite **en clair** sur une connexion HTTP — lisible
-par quiconque sur le chemin réseau.
+Access is protected by a **shared instance token** (`FONTSYNC_TOKEN`, see
+below), but this token travels **in the clear** over an HTTP connection — readable
+by anyone on the network path.
 
-> ⚠️ **N'exposez jamais FontSync directement sur Internet en HTTP.** Sur un réseau
-> non maîtrisé, placez **toujours** un reverse-proxy TLS devant le serveur : le
-> token et tout le trafic doivent voyager chiffrés. C'est la voie standard sur un
+> ⚠️ **Never expose FontSync directly on the Internet over HTTP.** On an untrusted
+> network, **always** place a TLS reverse proxy in front of the server: the
+> token and all traffic must travel encrypted. This is the standard approach on a
 > NAS (Synology, etc.).
 
-### Le token d'instance (`FONTSYNC_TOKEN`)
+### The instance token (`FONTSYNC_TOKEN`)
 
-Le token protège tout `/api/*`, le flux SSE (`/api/agent/<device>/events`) et les
-WebSocket (`/ws/*`). Définissez-le via l'environnement du conteneur :
+The token protects all of `/api/*`, the SSE stream (`/api/agent/<device>/events`), and the
+WebSockets (`/ws/*`). Set it via the container’s environment:
 
 ```yaml
 environment:
-  FONTSYNC_TOKEN: "<un secret long et aléatoire>"
+  FONTSYNC_TOKEN: "<a long, random secret>"
 ```
 
-S'il n'est **pas** défini, le serveur en **génère un au démarrage et le loggue**
-(à récupérer dans les logs du conteneur) — jamais de serveur ouvert par défaut. Le
-navigateur le demande au premier accès et le mémorise (`localStorage`) ; l'agent le
-lit depuis sa config (`server.token`). Pour le générer :
+If it is **not** set, the server **generates one at startup and logs it**
+(to be retrieved from the container logs) — never an open server by default. The
+browser asks for it on first access and remembers it (`localStorage`); the agent
+reads it from its config (`server.token`). To generate it:
 
 ```bash
 openssl rand -base64 32
-# ou : python -c "import secrets; print(secrets.token_urlsafe(32))"
+# or: python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### Reverse-proxy TLS — Caddy
+### TLS reverse proxy — Caddy
 
-Caddy obtient et renouvelle le certificat automatiquement (Let's Encrypt) et relaie
-nativement WebSocket et SSE — aucune configuration supplémentaire :
+Caddy obtains and renews the certificate automatically (Let's Encrypt) and natively
+relays WebSocket and SSE — no additional configuration:
 
 ```caddy
 fontsync.example.com {
@@ -171,7 +171,7 @@ fontsync.example.com {
 }
 ```
 
-### Reverse-proxy TLS — nginx
+### TLS reverse proxy — nginx
 
 ```nginx
 map $http_upgrade $connection_upgrade {
@@ -197,64 +197,64 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
 
-        # SSE : pas de bufferisation, connexions longues
+        # SSE: no buffering, long-lived connections
         proxy_buffering off;
         proxy_read_timeout 1h;
     }
 }
 ```
 
-Une fois derrière TLS, pointez le navigateur et l'agent sur
-`https://fontsync.example.com` : les WebSocket basculent automatiquement en `wss://`.
+Once behind TLS, point the browser and the agent at
+`https://fontsync.example.com`: WebSockets switch automatically to `wss://`.
 
 ---
 
-## Dépannage
+## Troubleshooting
 
-| Symptôme | Cause probable / solution |
+| Symptom | Likely cause / solution |
 |---|---|
-| **« Token invalide » dans l'app** | URL ou token incorrect. Re-testez la connexion dans Préférences ; comparez avec `FONTSYNC_TOKEN` (ou le token loggé au démarrage du conteneur). |
-| **« Serveur injoignable »** | Mauvaise URL/port, conteneur arrêté, ou pare-feu. Vérifiez `docker compose ps` et que `http://<hôte>:8080/health` répond. |
-| **Les polices ne se synchronisent pas** | L'agent n'est pas chargé. Menu → « Assistant de configuration… » → réinstaller l'agent, ou « Synchroniser maintenant ». Logs : menu → « Ouvrir les journaux » (`~/Library/Logs/FontSync/`). |
-| **Une police n'apparaît pas sur l'autre Mac** | Attendez la prochaine sync (filet de sécurité `StartInterval`) ou forcez-la via « Synchroniser maintenant ». Les `.woff`/`.woff2` sont stockés et prévisualisables mais **jamais installés** au niveau système. |
-| **App « non identifiée » au 1er lancement** | Téléchargez le `.dmg` officiel signé/notarisé depuis les Releases. En dernier recours : clic droit → « Ouvrir ». |
-| **`unable to open database file` au boot serveur** | Le volume DB n'est pas monté en écriture. Vérifiez le volume `db:/data` du compose. |
+| **“Invalid token” in the app** | Incorrect URL or token. Re-test the connection in Preferences; compare with `FONTSYNC_TOKEN` (or the token logged at container startup). |
+| **“Server unreachable”** | Wrong URL/port, container stopped, or firewall. Check `docker compose ps` and that `http://<host>:8080/health` responds. |
+| **Fonts don’t sync** | The agent isn’t loaded. Menu → “Setup assistant…” → reinstall the agent, or “Sync now”. Logs: menu → “Open logs” (`~/Library/Logs/FontSync/`). |
+| **A font doesn’t appear on the other Mac** | Wait for the next sync (`StartInterval` safety net) or force it via “Sync now”. `.woff`/`.woff2` files are stored and previewable but **never installed** at the system level. |
+| **App “unidentified” on first launch** | Download the official signed/notarized `.dmg` from the Releases. As a last resort: right-click → “Open”. |
+| **`unable to open database file` at server boot** | The DB volume isn’t mounted as writable. Check the `db:/data` volume in the compose file. |
 
-Le serveur expose `GET /health` (non authentifié) pour les sondes ; tout le reste
-de `/api/*` exige le token.
+The server exposes `GET /health` (unauthenticated) for probes; everything else
+under `/api/*` requires the token.
 
 ---
 
-## Développement
+## Development
 
 ```bash
-docker compose up -d                                   # serveur + dépendances
+docker compose up -d                                   # server + dependencies
 docker compose exec fontsync alembic upgrade head      # migrations
-docker compose exec fontsync pytest tests/backend/ -v  # tests backend
-cd frontend && npm run dev                             # UI web en dev
+docker compose exec fontsync pytest tests/backend/ -v  # backend tests
+cd frontend && npm run dev                             # web UI in dev
 ```
 
-L'app Mac vit dans [`macos-app/`](macos-app/) (procédure de release :
-[`macos-app/RELEASE.md`](macos-app/RELEASE.md)). Les conventions de code et la
-structure du projet sont décrites dans [`CLAUDE.md`](CLAUDE.md).
+The Mac app lives in [`macos-app/`](macos-app/) (release procedure:
+[`macos-app/RELEASE.md`](macos-app/RELEASE.md)). The code conventions and the
+project structure are described in [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
-## Licence
+## License
 
-FontSync est distribué sous **GNU Affero General Public License v3.0 ou ultérieure**
-(AGPL-3.0-or-later) — voir [`LICENSE`](LICENSE).
+FontSync is distributed under the **GNU Affero General Public License v3.0 or later**
+(AGPL-3.0-or-later) — see [`LICENSE`](LICENSE).
 
-L'AGPL garantit que la version **self-hosted reste libre et gratuite** : quiconque
-exécute une version modifiée comme service réseau doit en publier les sources
-(copyleft réseau, §13). C'est le modèle des projets « self-host gratuit + cloud
-payant » comme Plausible et Cal.com.
+The AGPL guarantees that the **self-hosted version stays free and open**: anyone
+who runs a modified version as a network service must publish its sources
+(network copyleft, §13). This is the model of “free self-host + paid cloud”
+projects like Plausible and Cal.com.
 
-Le détenteur du copyright (Leo Durand) conserve l'intégralité des droits et se
-réserve la possibilité de proposer des **licences commerciales** et d'opérer un
-service cloud — l'AGPL ne lie pas l'auteur. Pour préserver cette faculté, les
-contributions externes sont acceptées sous **DCO** (`Signed-off-by`), garantissant
-que l'auteur peut continuer à relicencier le projet.
+The copyright holder (Leo Durand) retains all rights and
+reserves the ability to offer **commercial licenses** and to operate a
+cloud service — the AGPL does not bind the author. To preserve this ability, external
+contributions are accepted under the **DCO** (`Signed-off-by`), guaranteeing
+that the author can continue to relicense the project.
 
 ```
 Copyright (C) 2026 Leo Durand

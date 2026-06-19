@@ -1,125 +1,125 @@
-# Installer le serveur FontSync sur un NAS
+# Install the FontSync server on a NAS
 
-Guide d'installation du **serveur** FontSync (Docker) sur un NAS — Synology
-(Container Manager), QNAP (Container Station) ou tout hôte Docker. Le serveur est
-la **source de vérité** : il centralise la bibliothèque, sert l'UI web et pousse
-les signaux de re-sync aux agents. L'agent macOS et l'app menu bar s'installent
-séparément (cf. [`../README.md`](../README.md) → « Installer l'agent »).
+Installation guide for the FontSync **server** (Docker) on a NAS — Synology
+(Container Manager), QNAP (Container Station) or any Docker host. The server is
+the **source of truth**: it centralizes the library, serves the web UI and pushes
+re-sync signals to the agents. The macOS agent and the menu bar app are installed
+separately (see [`../README.md`](../README.md) → "Install the agent").
 
-> L'image est **multi-arch** (`linux/amd64` + `linux/arm64`) : elle tourne aussi
-> bien sur un NAS x86 (Intel/AMD) que sur un NAS ARM (Realtek, Annapurna…). Docker
-> sélectionne automatiquement la bonne variante.
+> The image is **multi-arch** (`linux/amd64` + `linux/arm64`): it runs just as
+> well on an x86 NAS (Intel/AMD) as on an ARM NAS (Realtek, Annapurna…). Docker
+> automatically selects the right variant.
 
 ---
 
-## 1. Ce qu'il vous faut
+## 1. What you need
 
-- Un NAS avec Docker (Synology **Container Manager**, QNAP **Container Station**)
-  ou un hôte avec `docker` + `docker compose`.
-- Le port `8080` libre sur le NAS (ajustable).
-- Un **token d'instance** (secret partagé). Générez-le :
+- A NAS with Docker (Synology **Container Manager**, QNAP **Container Station**)
+  or a host with `docker` + `docker compose`.
+- The `8080` port free on the NAS (adjustable).
+- An **instance token** (shared secret). Generate it:
 
   ```bash
   openssl rand -base64 32
-  # ou : python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+  # or: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
   ```
 
-L'image est publiée sur **GitHub Container Registry** :
-`ghcr.io/leodurandfr/fontsync:latest` (ou un tag de version, ex. `:1.0.0`).
+The image is published on **GitHub Container Registry**:
+`ghcr.io/leodurandfr/fontsync:latest` (or a version tag, e.g. `:1.0.0`).
 
 ---
 
-## 2. Installation via docker compose (recommandé)
+## 2. Installation via docker compose (recommended)
 
-C'est la méthode la plus simple et reproductible, y compris sur Synology dont le
-**Container Manager** sait importer un fichier compose (« Projet »).
+This is the simplest and most reproducible method, including on Synology whose
+**Container Manager** can import a compose file ("Project").
 
-1. Créez un dossier sur le NAS, p. ex. `docker/fontsync/`.
-2. Déposez-y le fichier [`docker-compose.nas.yml`](../docker-compose.nas.yml) du dépôt.
-3. À côté, créez un fichier **`.env`** contenant votre token :
+1. Create a folder on the NAS, e.g. `docker/fontsync/`.
+2. Drop the [`docker-compose.nas.yml`](../docker-compose.nas.yml) file from the repo into it.
+3. Next to it, create a **`.env`** file containing your token:
 
    ```dotenv
-   FONTSYNC_TOKEN=collez-ici-le-token-généré
+   FONTSYNC_TOKEN=paste-the-generated-token-here
    ```
 
-4. Lancez :
+4. Start it:
 
    ```bash
    docker compose -f docker-compose.nas.yml up -d
    ```
 
-   Au premier démarrage, l'entrypoint applique les migrations de schéma
-   (`alembic upgrade head`) puis démarre le serveur. La base SQLite est créée
-   automatiquement dans le volume `db`.
+   On first startup, the entrypoint applies the schema migrations
+   (`alembic upgrade head`) then starts the server. The SQLite database is created
+   automatically in the `db` volume.
 
-5. Ouvrez `http://<ip-du-nas>:8080`. L'UI web demande le token au premier accès.
+5. Open `http://<nas-ip>:8080`. The web UI asks for the token on first access.
 
-### Sur Synology Container Manager (interface graphique)
+### On Synology Container Manager (graphical interface)
 
-1. **Container Manager → Projet → Créer**.
-2. Source : « Créer un docker-compose.yml » (collez le contenu de
-   `docker-compose.nas.yml`) ou « Importer » le fichier.
-3. Renseignez la variable `FONTSYNC_TOKEN` (onglet environnement, ou via le
-   `.env` placé dans le dossier du projet).
-4. Lancez le projet. Container Manager crée les volumes `db` et `fonts`.
+1. **Container Manager → Project → Create**.
+2. Source: "Create a docker-compose.yml" (paste the content of
+   `docker-compose.nas.yml`) or "Import" the file.
+3. Fill in the `FONTSYNC_TOKEN` variable (environment tab, or via the
+   `.env` placed in the project folder).
+4. Start the project. Container Manager creates the `db` and `fonts` volumes.
 
 ---
 
-## 3. Variables et volumes
+## 3. Variables and volumes
 
-| Variable env        | Rôle                                              | Valeur d'exemple                              |
+| Env variable        | Role                                              | Example value                                 |
 |---------------------|---------------------------------------------------|-----------------------------------------------|
-| `FONTSYNC_TOKEN`    | Secret protégeant `/api/*`, SSE et WS (**requis**) | sortie de `openssl rand -base64 32`           |
-| `DATABASE_URL`      | URL SQLite (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
-| `STORAGE_BACKEND`   | Backend de stockage                                | `filesystem`                                  |
-| `FONT_STORAGE_PATH` | Dossier des fichiers de polices                    | `/fonts`                                       |
+| `FONTSYNC_TOKEN`    | Secret protecting `/api/*`, SSE and WS (**required**) | output of `openssl rand -base64 32`           |
+| `DATABASE_URL`      | SQLite URL (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
+| `STORAGE_BACKEND`   | Storage backend                                    | `filesystem`                                  |
+| `FONT_STORAGE_PATH` | Font files folder                                  | `/fonts`                                       |
 
-> Si `FONTSYNC_TOKEN` est laissé vide, le serveur **génère** un token au
-> démarrage et le **loggue** (jamais de serveur ouvert par défaut). Le compose
-> d'exemple le rend **obligatoire** pour éviter qu'il change à chaque
-> redémarrage.
+> If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
+> startup and **logs** it (never an open server by default). The example
+> compose makes it **mandatory** to prevent it from changing at every
+> restart.
 
-| Volume  | Monté sur | Contenu                                         |
+| Volume  | Mounted on | Content                                         |
 |---------|-----------|-------------------------------------------------|
-| `db`    | `/data`   | Base SQLite : `fontsync.db` (+ `-wal`, `-shm`)  |
-| `fonts` | `/fonts`  | Fichiers de polices (organisés par préfixe de hash) |
+| `db`    | `/data`   | SQLite database: `fontsync.db` (+ `-wal`, `-shm`)  |
+| `fonts` | `/fonts`  | Font files (organized by hash prefix) |
 
-Ces **deux** volumes constituent l'intégralité de l'état du serveur : les
-sauvegarder, c'est sauvegarder FontSync (cf. §5).
+These **two** volumes make up the entire state of the server: backing them up
+means backing up FontSync (see §5).
 
 ---
 
-## 4. Mises à jour
+## 4. Updates
 
 ```bash
 docker compose -f docker-compose.nas.yml pull
 docker compose -f docker-compose.nas.yml up -d
 ```
 
-À chaque démarrage, l'entrypoint relance `alembic upgrade head` : les migrations
-de schéma sont appliquées automatiquement, sans intervention. `alembic` est
-idempotent — aucun effet si le schéma est déjà à jour.
+At every startup, the entrypoint re-runs `alembic upgrade head`: the schema
+migrations are applied automatically, without intervention. `alembic` is
+idempotent — no effect if the schema is already up to date.
 
-> Épinglez un tag de version (`:1.0.0`) plutôt que `:latest` si vous voulez
-> maîtriser le moment des mises à jour.
+> Pin a version tag (`:1.0.0`) rather than `:latest` if you want to
+> control when updates happen.
 
 ---
 
-## 5. Sauvegarde & restauration
+## 5. Backup & restore
 
-L'état complet tient dans les **deux volumes** : `db` (la base) et `fonts` (les
-fichiers). La base est en mode **WAL** : des écritures peuvent résider dans le
-fichier `-wal` non encore fusionné. Il faut donc une copie **cohérente**.
+The complete state fits in the **two volumes**: `db` (the database) and `fonts` (the
+files). The database is in **WAL** mode: writes may reside in the
+`-wal` file not yet merged. A **consistent** copy is therefore required.
 
-### Méthode A — sauvegarde à froid (la plus sûre)
+### Method A — cold backup (the safest)
 
-Arrêter le conteneur garantit que le WAL est fusionné et qu'aucune écriture n'est
-en cours :
+Stopping the container guarantees that the WAL is merged and that no write is
+in progress:
 
 ```bash
 docker compose -f docker-compose.nas.yml stop
 
-# Copier les deux volumes (chemins Docker → archives tar)
+# Copy the two volumes (Docker paths → tar archives)
 docker run --rm \
   -v fontsync_db:/data:ro \
   -v "$(pwd)":/backup \
@@ -133,46 +133,46 @@ docker run --rm \
 docker compose -f docker-compose.nas.yml start
 ```
 
-> Le nom réel des volumes est préfixé par le projet compose (souvent
-> `fontsync_db` / `fontsync_fonts`). Vérifiez avec `docker volume ls`.
+> The actual volume name is prefixed by the compose project (often
+> `fontsync_db` / `fontsync_fonts`). Check with `docker volume ls`.
 
-Sur Synology, ces volumes vivent sous
-`/volume1/@docker/volumes/<nom>/_data` — vous pouvez aussi les inclure dans une
-tâche **Hyper Backup** classique (idéalement conteneur arrêté).
+On Synology, these volumes live under
+`/volume1/@docker/volumes/<name>/_data` — you can also include them in a
+classic **Hyper Backup** task (ideally with the container stopped).
 
-### Méthode B — sauvegarde à chaud de la base (conteneur en marche)
+### Method B — hot backup of the database (container running)
 
-L'API `.backup` de SQLite produit une copie cohérente sans arrêter le service. La
-stdlib Python (déjà dans l'image) suffit :
+SQLite's `.backup` API produces a consistent copy without stopping the service. The
+Python stdlib (already in the image) is enough:
 
 ```bash
 docker compose -f docker-compose.nas.yml exec fontsync \
   python -c "import sqlite3; src=sqlite3.connect('/data/fontsync.db'); dst=sqlite3.connect('/data/backup.db'); src.backup(dst); dst.close(); src.close()"
 
-# Récupérer la copie hors du conteneur
+# Retrieve the copy out of the container
 docker compose -f docker-compose.nas.yml cp fontsync:/data/backup.db ./fontsync-db-$(date +%F).db
 docker compose -f docker-compose.nas.yml exec fontsync rm /data/backup.db
 ```
 
-Sauvegardez **en plus** le volume `fonts` (les fichiers ne sont pas dans la base).
-À chaud, une copie `tar` du dossier `fonts` est sûre : les fichiers sont en
-écriture-une-fois (nommés par hash), jamais modifiés en place.
+Back up the `fonts` volume **as well** (the files are not in the database).
+While running, a `tar` copy of the `fonts` folder is safe: the files are
+write-once (named by hash), never modified in place.
 
-### Restauration
+### Restore
 
-1. `docker compose -f docker-compose.nas.yml down` (sans `-v` : conserve les volumes).
-2. Restaurez le contenu des archives dans les volumes `db` et `fonts`
-   (symétrique de la méthode A : `tar xzf … -C /data` / `-C /fonts`).
-3. `docker compose -f docker-compose.nas.yml up -d`. Les migrations se
-   réappliquent au boot si besoin.
+1. `docker compose -f docker-compose.nas.yml down` (without `-v`: keeps the volumes).
+2. Restore the content of the archives into the `db` and `fonts` volumes
+   (symmetric to method A: `tar xzf … -C /data` / `-C /fonts`).
+3. `docker compose -f docker-compose.nas.yml up -d`. The migrations
+   re-apply at boot if needed.
 
 ---
 
-## 6. Exposition réseau
+## 6. Network exposure
 
-Par défaut, le serveur écoute en **HTTP clair** sur le LAN. Le token transite en
-clair : **ne l'exposez jamais directement sur Internet**. Pour un accès distant,
-placez un **reverse-proxy TLS** (Caddy / nginx) devant — voir la section
-« Transport & sécurité réseau » du [README](../README.md). Sur Synology, le
-**Reverse Proxy** intégré (Panneau de configuration → Portail des applications)
-fait l'affaire, à condition de relayer WebSocket et SSE.
+By default, the server listens over **plain HTTP** on the LAN. The token travels in
+clear text: **never expose it directly on the Internet**. For remote access,
+place a **TLS reverse proxy** (Caddy / nginx) in front — see the
+"Transport & network security" section of the [README](../README.md). On Synology, the
+built-in **Reverse Proxy** (Control Panel → Application Portal)
+does the job, provided you relay WebSocket and SSE.

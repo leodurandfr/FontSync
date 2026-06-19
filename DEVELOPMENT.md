@@ -1,149 +1,149 @@
-# FontSync — Tester en local (sans NAS)
+# FontSync — Testing locally (without a NAS)
 
-Ce guide explique comment faire tourner **le serveur et les clients en local**,
-sur un seul Mac, sans jamais pousser sur le NAS ni toucher ton vrai
+This guide explains how to run **the server and clients locally**,
+on a single Mac, without ever pushing to the NAS or touching your real
 `~/Library/Fonts`.
 
-Rappel d'architecture : le **serveur est la source de vérité**, l'**agent est
-stateless** (chaque `sync` repart de l'état réel du disque). Une « machine B »
-n'est donc rien d'autre qu'**un 2ᵉ device_id + un dossier de fonts isolé** qui
-pointe sur le même serveur — tout ça tient sur une seule machine.
+Architecture reminder: the **server is the source of truth**, the **agent is
+stateless** (each `sync` restarts from the real state of the disk). A "machine B"
+is therefore nothing more than **a 2nd device_id + an isolated fonts folder** that
+points to the same server — all of which fits on a single machine.
 
-> Un 2ᵉ Mac physique n'est utile qu'**une seule fois**, comme smoke test final
-> avant publication (vraie découverte Core Text + launchd + activation des fonts
-> dans les apps). Pas pour le dev courant.
+> A 2nd physical Mac is only useful **once**, as a final smoke test
+> before publishing (real Core Text discovery + launchd + font activation
+> in apps). Not for day-to-day dev.
 
-## Prérequis
+## Prerequisites
 
-Un virtualenv avec les deps backend **et** agent :
+A virtualenv with the backend **and** agent deps:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r agent/requirements.txt
 ```
 
-## 1. Lancer le serveur
+## 1. Start the server
 
-Deux options, au choix :
+Two options, your choice:
 
 ```bash
-# A) Hôte (boucle la plus rapide, reload à chaud, SQLite jetable dans .dev/) :
+# A) Host (fastest loop, hot reload, disposable SQLite in .dev/):
 scripts/dev/run-server.sh
 
-# B) Proche-prod (Docker) :
+# B) Near-prod (Docker):
 docker compose up
 ```
 
-### Serveur + frontend en une commande (« dev:full »)
+### Server + frontend in one command ("dev:full")
 
-Pour lancer **serveur + frontend** ensemble (Ctrl-C arrête les deux) :
+To start **server + frontend** together (Ctrl-C stops both):
 
 ```bash
 scripts/dev/up.sh
-# ou, depuis frontend/ :
+# or, from frontend/:
 npm run dev:full
 ```
 
-> L'agent n'y est pas inclus à dessein : il est one-shot (`sync`) ou par-device
-> (`listen`). La partie client passe toujours par `run-agent.sh` / `demo.sh`
-> (étapes 2-4).
+> The agent is intentionally not included: it is one-shot (`sync`) or per-device
+> (`listen`). The client side always goes through `run-agent.sh` / `demo.sh`
+> (steps 2-4).
 
-Les deux exposent le serveur sur **http://localhost:8080** — qui est déjà le
-défaut de l'agent (`server.url` dans la config). Vérifier :
+Both expose the server on **http://localhost:8080** — which is already the
+agent's default (`server.url` in the config). Check:
 
 ```bash
 curl http://localhost:8080/health   # → {"status":"ok"}
 ```
 
-## 2. Simuler plusieurs machines
+## 2. Simulate multiple machines
 
-`scripts/dev/run-agent.sh <profil> <commande>` lance l'agent sous un **profil**
-de device isolé (`A`, `B`, …). Chaque profil a, sous `.dev/<profil>/` :
+`scripts/dev/run-agent.sh <profile> <command>` runs the agent under an isolated
+device **profile** (`A`, `B`, …). Each profile has, under `.dev/<profile>/`:
 
-- son propre état (config + cache de hash + `disabled/`) ;
-- son propre dossier de fonts (`.dev/<profil>/fonts`) ;
-- un **hostname distinct** → le serveur le voit comme un device séparé
-  (l'enregistrement est un upsert par hostname).
+- its own state (config + hash cache + `disabled/`);
+- its own fonts folder (`.dev/<profile>/fonts`);
+- a **distinct hostname** → the server sees it as a separate device
+  (registration is an upsert by hostname).
 
-Cela repose sur des variables d'environnement neutres en production
-(résolues dans [`agent/paths.py`](agent/paths.py) et `agent/config.py`) :
+This relies on environment variables that are neutral in production
+(resolved in [`agent/paths.py`](agent/paths.py) and `agent/config.py`):
 
-| Variable              | Rôle                                            |
+| Variable              | Role                                            |
 |-----------------------|-------------------------------------------------|
-| `FONTSYNC_HOME`       | dossier d'état (au lieu de `~/.fontsync`)       |
-| `FONTSYNC_FONTS_DIR`  | dossier d'install (au lieu de `~/Library/Fonts`)|
-| `FONTSYNC_DISCOVERY`  | `directories` → scan du dossier isolé, pas Core Text |
-| `FONTSYNC_HOSTNAME`   | hostname (clé d'upsert serveur)                 |
-| `FONTSYNC_DEVICE_NAME`| nom affiché du device                           |
+| `FONTSYNC_HOME`       | state folder (instead of `~/.fontsync`)         |
+| `FONTSYNC_FONTS_DIR`  | install folder (instead of `~/Library/Fonts`)   |
+| `FONTSYNC_DISCOVERY`  | `directories` → scan the isolated folder, not Core Text |
+| `FONTSYNC_HOSTNAME`   | hostname (server upsert key)                    |
+| `FONTSYNC_DEVICE_NAME`| device display name                             |
 
-## 3. Démo de bout en bout
+## 3. End-to-end demo
 
 ```bash
-# Serveur lancé (étape 1), puis :
+# Server started (step 1), then:
 scripts/dev/demo.sh
 ```
 
-Le script : graine une font chez le device A → `sync A` (push) →
-`sync B` (pull + install) → vérifie que la font est arrivée chez B. C'est la
-preuve que la boucle **A → serveur → B** fonctionne.
+The script: seeds a font on device A → `sync A` (push) →
+`sync B` (pull + install) → checks that the font arrived on B. This is the
+proof that the **A → server → B** loop works.
 
-Manuellement, pas à pas :
+Manually, step by step:
 
 ```bash
-# Poser une font de test chez A (génère une vraie TTF valide) :
+# Drop a test font on A (generates a real, valid TTF):
 .venv/bin/python scripts/dev/seed-font.py .dev/A/fonts --family "Inter" --style Regular
 
-scripts/dev/run-agent.sh A sync     # A pousse vers le serveur
-scripts/dev/run-agent.sh B sync     # B pull + installe dans .dev/B/fonts
-ls .dev/B/fonts                      # → la font est là
+scripts/dev/run-agent.sh A sync     # A pushes to the server
+scripts/dev/run-agent.sh B sync     # B pulls + installs into .dev/B/fonts
+ls .dev/B/fonts                      # → the font is there
 ```
 
-## 4. Tester la sync réactive (SSE)
+## 4. Test reactive sync (SSE)
 
-Le `listen` ouvre un flux SSE et relance `sync` à chaque signal serveur :
+`listen` opens an SSE stream and re-runs `sync` on each server signal:
 
 ```bash
-scripts/dev/run-agent.sh B listen     # laisse tourner dans un terminal
-# dans un autre terminal, pousse une nouvelle font chez A :
+scripts/dev/run-agent.sh B listen     # leave running in one terminal
+# in another terminal, push a new font on A:
 .venv/bin/python scripts/dev/seed-font.py .dev/A/fonts --family "Roboto" --style Bold
 scripts/dev/run-agent.sh A sync
-# → B reçoit le signal SSE et installe automatiquement la nouvelle font
+# → B receives the SSE signal and automatically installs the new font
 ```
 
-## 5. Frontend (optionnel)
+## 5. Frontend (optional)
 
 ```bash
-cd frontend && npm install && npm run dev   # proxy vers localhost:8080
+cd frontend && npm install && npm run dev   # proxies to localhost:8080
 ```
 
-## 6. Tester avec un 2ᵉ Mac réel
+## 6. Testing with a real 2nd Mac
 
-Pour un test grandeur nature (vraie découverte Core Text, vraie installation
-système, launchd), il faut que les deux Macs parlent au **même serveur**. Le plus
-simple : ce Mac sert de serveur sur le LAN, l'autre Mac y branche son agent.
+For a full-scale test (real Core Text discovery, real system installation,
+launchd), both Macs need to talk to the **same server**. The simplest approach:
+this Mac acts as the server on the LAN, and the other Mac connects its agent to it.
 
-> ⚠️ En mode réel, `auto_pull: true` **installe vraiment** les polices reçues dans
-> `~/Library/Fonts` du 2ᵉ Mac (c'est le comportement produit). Réversible : les
-> fichiers restent sur le serveur, l'agent peut désinstaller.
+> ⚠️ In real mode, `auto_pull: true` **actually installs** the received fonts into
+> the 2nd Mac's `~/Library/Fonts` (that's the product behavior). Reversible: the
+> files stay on the server, and the agent can uninstall.
 
-**Sur ce Mac (serveur, exposé sur le LAN) :**
+**On this Mac (server, exposed on the LAN):**
 
 ```bash
-HOST=0.0.0.0 scripts/dev/run-server.sh        # réutilise la base .dev/ déjà peuplée
-# IP LAN de ce Mac : `ipconfig getifaddr en0`  (ex. 192.168.1.172)
+HOST=0.0.0.0 scripts/dev/run-server.sh        # reuses the already-populated .dev/ database
+# LAN IP of this Mac: `ipconfig getifaddr en0`  (e.g. 192.168.1.172)
 ```
 
-macOS demandera peut-être d'autoriser les connexions entrantes → accepter.
+macOS may ask you to allow incoming connections → accept.
 
-**Sur le 2ᵉ Mac (client) :**
+**On the 2nd Mac (client):**
 
 ```bash
 git clone <repo> FontSync && cd FontSync
-python3 -m venv .venv && .venv/bin/pip install -e .   # fournit `fontsync-agent`
+python3 -m venv .venv && .venv/bin/pip install -e .   # provides `fontsync-agent`
 mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
 server:
-  url: http://192.168.1.172:8080      # IP LAN du 1er Mac
-  token: <FONTSYNC_TOKEN du serveur>  # token d'instance (loggé au boot s'il n'est pas fixé)
+  url: http://192.168.1.172:8080      # LAN IP of the 1st Mac
+  token: <server's FONTSYNC_TOKEN>    # instance token (logged at boot if not set)
   device_id: null
 scan:
   directories: ['~/Library/Fonts', '/Library/Fonts']
@@ -152,21 +152,21 @@ sync:
   auto_push: true
   auto_pull: true
 YAML
-.venv/bin/fontsync-agent sync          # pousse ses fonts + pull celles du serveur
-.venv/bin/fontsync-agent listen        # (optionnel) sync réactive temps réel
+.venv/bin/fontsync-agent sync          # pushes its fonts + pulls the server's
+.venv/bin/fontsync-agent listen        # (optional) real-time reactive sync
 ```
 
-Tu verras les deux Macs apparaître dans l'onglet **Appareils**, et les polices
-d'un Mac se propager vers l'autre.
+You'll see both Macs appear in the **Devices** tab, and the fonts from
+one Mac propagate to the other.
 
-> La vraie cible de prod reste le **NAS** comme serveur permanent (les deux Macs
-> y pointent). Mais tant que le backend de la refonte n'est pas déployé sur le
-> NAS, teste avec ce Mac comme serveur LAN — sinon tu exercerais l'ancien code
-> serveur.
+> The real prod target remains the **NAS** as a permanent server (both Macs
+> point to it). But until the reworked backend is deployed to the
+> NAS, test with this Mac as the LAN server — otherwise you'd be exercising the old
+> server code.
 
-## Remettre à zéro
+## Resetting
 
-Tout l'état local de dev vit dans `.dev/` (gitignoré). Pour repartir propre :
+All local dev state lives in `.dev/` (gitignored). To start fresh:
 
 ```bash
 rm -rf .dev
