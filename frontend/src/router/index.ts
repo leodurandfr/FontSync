@@ -5,11 +5,6 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      name: "dashboard",
-      component: () => import("@/pages/DashboardPage.vue"),
-    },
-    {
-      path: "/fonts",
       name: "fonts",
       component: () => import("@/pages/FontsPage.vue"),
     },
@@ -18,11 +13,6 @@ const router = createRouter({
       name: "font-detail",
       component: () => import("@/pages/FontDetailPage.vue"),
       props: true,
-    },
-    {
-      path: "/devices",
-      name: "devices",
-      component: () => import("@/pages/DevicesPage.vue"),
     },
     {
       path: "/settings",

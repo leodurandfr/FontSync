@@ -1,17 +1,45 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Copy, Download, Server, Check, KeyRound } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import {
+  Copy,
+  Download,
+  Server,
+  Check,
+  KeyRound,
+  Palette,
+  Sun,
+  Moon,
+  Monitor,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import DevicesSection from '@/components/settings/DevicesSection.vue'
 import { useWsStore } from '@/stores/ws'
 import { useAuthStore } from '@/stores/auth'
+import { useTheme, type Theme } from '@/composables/useTheme'
 import { storeToRefs } from 'pinia'
 
 const wsStore = useWsStore()
 const { status } = storeToRefs(wsStore)
 
 const authStore = useAuthStore()
+
+const { theme, setTheme } = useTheme()
+
+const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Clair', icon: Sun },
+  { value: 'dark', label: 'Sombre', icon: Moon },
+  { value: 'system', label: 'Système', icon: Monitor },
+]
+
+function onThemeChange(value: unknown) {
+  // ToggleGroup `single` peut émettre une valeur vide si on déclique l'option
+  // active : on ignore ce cas pour garder un thème toujours sélectionné.
+  if (value === 'light' || value === 'dark' || value === 'system') {
+    setTheme(value)
+  }
+}
 
 // Redemander le token : on efface celui mémorisé, ce qui réaffiche l'écran de
 // saisie (App.vue gate sur `needsToken`).
@@ -52,13 +80,49 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
 </script>
 
 <template>
-  <div>
+  <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6">
     <h1 class="text-3xl font-bold tracking-tight">Paramètres</h1>
     <p class="text-muted-foreground mt-1">
       Configuration de votre instance FontSync.
     </p>
 
     <div class="mt-8 space-y-6">
+      <!-- Apparence -->
+      <div class="rounded-xl border bg-card p-6 space-y-4">
+        <div class="flex items-center gap-2">
+          <Palette class="h-5 w-5 text-muted-foreground" />
+          <h2 class="text-lg font-semibold">Apparence</h2>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="text-sm font-medium">Thème</p>
+            <p class="text-sm text-muted-foreground">
+              Choisissez l'apparence claire, sombre ou celle du système.
+            </p>
+          </div>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            :model-value="theme"
+            @update:model-value="onThemeChange"
+          >
+            <ToggleGroupItem
+              v-for="option in themeOptions"
+              :key="option.value"
+              :value="option.value"
+              :aria-label="option.label"
+            >
+              <component :is="option.icon" class="h-4 w-4 sm:mr-1.5" />
+              <span class="hidden sm:inline">{{ option.label }}</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+      </div>
+
+      <!-- Appareils -->
+      <DevicesSection />
+
       <!-- Server info -->
       <div class="rounded-xl border bg-card p-6 space-y-4">
         <div class="flex items-center gap-2">

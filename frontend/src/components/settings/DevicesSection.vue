@@ -74,21 +74,25 @@ function formatRelativeTime(dateStr: string | null): string {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-3xl font-bold tracking-tight">Appareils</h1>
-    <p class="text-muted-foreground mt-1">
+  <div class="rounded-xl border bg-card p-6 space-y-4">
+    <div class="flex items-center gap-2">
+      <Monitor class="h-5 w-5 text-muted-foreground" />
+      <h2 class="text-lg font-semibold">Appareils</h2>
+    </div>
+
+    <p class="text-sm text-muted-foreground">
       Machines connectées à votre bibliothèque FontSync.
     </p>
 
     <!-- Loading -->
-    <div v-if="devicesStore.loading" class="mt-8 space-y-3">
-      <Skeleton v-for="i in 3" :key="i" class="h-24 w-full rounded-xl" />
+    <div v-if="devicesStore.loading" class="space-y-3">
+      <Skeleton v-for="i in 2" :key="i" class="h-24 w-full rounded-xl" />
     </div>
 
     <!-- Empty -->
     <div
       v-else-if="devicesStore.devices.length === 0"
-      class="mt-8 rounded-xl border border-dashed p-12 text-center"
+      class="rounded-xl border border-dashed p-8 text-center"
     >
       <p class="text-muted-foreground">Aucun appareil enregistré.</p>
       <p class="text-sm text-muted-foreground mt-1">
@@ -97,11 +101,11 @@ function formatRelativeTime(dateStr: string | null): string {
     </div>
 
     <!-- Device list -->
-    <div v-else class="mt-8 space-y-4">
+    <div v-else class="space-y-4">
       <div
         v-for="device in devicesStore.devices"
         :key="device.id"
-        class="rounded-xl border bg-card p-5 space-y-4"
+        class="rounded-xl border bg-background p-5 space-y-4"
       >
         <!-- Header: info + actions -->
         <div class="flex items-center justify-between gap-4">
