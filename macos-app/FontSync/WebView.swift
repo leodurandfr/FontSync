@@ -14,12 +14,20 @@ import WebKit
 struct WebView: NSViewRepresentable {
     let url: URL
 
+    /// Requête qui **ignore le cache local** pour le document principal : le SPA
+    /// est servi par le serveur et change à chaque mise à jour (assets hashés +
+    /// index.html). Sans ça, WKWebView peut resservir une version périmée du
+    /// frontend (ex. antérieure à l'auth par token) → REST 401 / WS déconnecté.
+    private func freshRequest() -> URLRequest {
+        URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: url))
+        webView.load(freshRequest())
         context.coordinator.currentURL = url
         return webView
     }
@@ -29,7 +37,7 @@ struct WebView: NSViewRepresentable {
         // la navigation à chaque re-render SwiftUI).
         if context.coordinator.currentURL != url {
             context.coordinator.currentURL = url
-            webView.load(URLRequest(url: url))
+            webView.load(freshRequest())
         }
     }
 
