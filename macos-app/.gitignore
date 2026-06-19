@@ -1,3 +1,6 @@
+# Secrets de release locaux (Developer ID, profil notarytool) — jamais commités
+release.env
+
 # Xcode build artifacts & user state
 build/
 dist/

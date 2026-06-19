@@ -52,8 +52,12 @@ build_one() {
   #    parte du bon interpréteur (et pas de l'arm64 hôte).
   uv python install "cpython-$PYVER-macos-$archtag" >/dev/null
   local base
-  base="$(uv python find "cpython-$PYVER-macos-$archtag")"  # .../install/bin/python3
-  base="$(cd "$(dirname "$base")/.." && pwd)"               # racine de l'install
+  base="$(uv python find "cpython-$PYVER-macos-$archtag")"  # .../bin/python3.12
+  # `pwd -P` (physique) est CRUCIAL : uv expose la racine via un alias non-versionné
+  # (cpython-3.12-… → cpython-3.12.9-…) qui est lui-même un symlink. Sans -P, `base`
+  # reste ce lien et `cp -R` (BSD, défaut -P) recopierait LE LIEN absolu dans le
+  # bundle → codesign « invalid destination for symbolic link in bundle ».
+  base="$(cd "$(dirname "$base")/.." && pwd -P)"            # racine RÉELLE de l'install
 
   # 2. Copie l'arbre complet (interpréteur + stdlib) dans la cible.
   cp -R "$base" "$dest"
@@ -71,6 +75,23 @@ build_one() {
   #    est fiable ici, contrairement à un find récursif depuis un path absolu).
   ( cd "$dest" && find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true )
   ( cd "$dest" && find . -name '*.pyc' -delete 2>/dev/null || true )
+
+  # 5. Garde-fou : codesign/notarisation REFUSENT tout symlink dont la cible est
+  #    absolue ou sort du bundle. On les détecte ici (échec du build) plutôt que
+  #    de laisser exploser la signature trois étapes plus loin.
+  #    (NB: pas de `case` dans un `$(...)` — bash 3.2 de macOS plante dessus ;
+  #    process substitution + `[[ ]]` pour que le flag survive à la boucle.)
+  #    `find "$dest"` émet des chemins ABSOLUS : readlink/-e fonctionnent quel que
+  #    soit le CWD (sinon ils visent le CWD du script, pas l'arbre → faux échec).
+  local found_bad=0 t
+  while IFS= read -r l; do
+    t="$(readlink "$l" || true)"
+    if [[ "$t" == /* || ! -e "$l" ]]; then
+      echo "✗ symlink invalide (incompatible codesign) : $l -> $t" >&2
+      found_bad=1
+    fi
+  done < <(find "$dest" -type l)
+  [[ "$found_bad" -eq 0 ]] || { echo "Arbre embarqué rejeté." >&2; exit 1; }
 }
 
 echo "→ Construction de l'environnement agent ($ARCH, Python $PYVER)…"

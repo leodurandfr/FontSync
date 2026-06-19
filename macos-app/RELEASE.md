@@ -148,7 +148,7 @@ mise à jour. `generate_appcast` accumule les versions : republier le fichier
 | 1. Agent | `build-agent-venv.sh` : CPython standalone relocatable + `pip install .` (agent + httpx + pyyaml + pyobjc). |
 | 2. Build | `xcodebuild` Release, signé Developer ID, Hardened Runtime + `--timestamp` ; Sparkle embarqué par SPM. |
 | 3. Embarquement | `agent-venv` copié dans `Contents/Resources/`. |
-| 4. Signature | **inside-out, sans `--deep`** : d'abord chaque `.so`/`.dylib`, puis les binaires interpréteur (entitlements `PythonAgent.entitlements` : `allow-unsigned-executable-memory` pour libffi/pyobjc + `disable-library-validation`), enfin re-sceau de l'app (`FontSync.entitlements`). Sparkle garde sa signature Xcode. |
+| 4. Signature | **inside-out, sans `--deep`** : d'abord chaque `.so`/`.dylib`, puis les binaires interpréteur (entitlements `PythonAgent.entitlements` : `allow-unsigned-executable-memory` pour libffi/pyobjc + `disable-library-validation`), **puis re-signature de `Sparkle.framework`** (XPC, `Updater.app`, `Autoupdate`, binaire du framework) avec notre Developer ID + horodatage — l'artefact SPM arrive pré-signé par l'équipe Sparkle, non notarisable tel quel —, enfin re-sceau de l'app (`FontSync.entitlements`). |
 | 5. Vérif | `codesign --verify --deep --strict` + `spctl` (refusé avant notarisation : normal). |
 | 6. DMG | `create-dmg` (ou repli `hdiutil`), lien `/Applications`, puis signé. |
 | 7. Notarisation | `notarytool submit --wait` puis `stapler staple` sur le `.dmg` **et** l'app. |

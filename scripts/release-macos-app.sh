@@ -97,8 +97,25 @@ sign() { codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_AP
       fi
     done
 
-# 4c. Re-scelle l'app (l'ajout de agent-venv a invalidé le sceau extérieur).
-#     PAS de --deep : Sparkle.framework et ses XPC gardent leur signature Xcode.
+# 4b-bis. Re-signer Sparkle.framework avec NOTRE Developer ID + horodatage.
+#     L'artefact SPM de Sparkle arrive pré-signé par l'équipe Sparkle (pas par
+#     nous) et xcodebuild ne re-signe pas ses helpers imbriqués → la notarisation
+#     les rejette (« not signed with a valid Developer ID », « no secure
+#     timestamp »). On les re-signe inside-out : helpers (Updater.app, XPC,
+#     Autoupdate, binaire du framework) AVANT le wrapper .framework.
+SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$SPARKLE_FW" ]]; then
+  SV="$SPARKLE_FW/Versions/Current"
+  for xpc in "$SV/XPCServices/"*.xpc; do [[ -e "$xpc" ]] && sign "$xpc"; done
+  [[ -e "$SV/Updater.app" ]] && sign "$SV/Updater.app"
+  [[ -e "$SV/Autoupdate" ]]  && sign "$SV/Autoupdate"
+  [[ -e "$SV/Sparkle" ]]     && sign "$SV/Sparkle"
+  sign "$SPARKLE_FW"
+fi
+
+# 4c. Re-scelle l'app (l'ajout de agent-venv + la re-signature de Sparkle ont
+#     invalidé le sceau extérieur). PAS de --deep : on a déjà signé chaque
+#     composant interne à la main, dans le bon ordre.
 sign --entitlements "$APP_ENTS" "$APP"
 
 # ---------------------------------------------------------------------------

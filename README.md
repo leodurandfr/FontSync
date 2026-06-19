@@ -50,7 +50,7 @@ Sur le NAS (ou tout hôte Docker) :
 echo "FONTSYNC_TOKEN=$(openssl rand -base64 32)" > .env
 
 # Récupérer l'exemple de compose et démarrer
-curl -O https://raw.githubusercontent.com/leodurand/FontSync/main/docker-compose.nas.yml
+curl -O https://raw.githubusercontent.com/leodurandfr/FontSync/main/docker-compose.nas.yml
 docker compose -f docker-compose.nas.yml up -d
 ```
 
@@ -61,7 +61,7 @@ volumes, sauvegarde) : [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 ### 2. Configurer le **premier** Mac
 
 1. Téléchargez `FontSync-X.Y.Z.dmg` depuis la
-   [dernière release](https://github.com/leodurand/FontSync/releases/latest),
+   [dernière release](https://github.com/leodurandfr/FontSync/releases/latest),
    ouvrez-le et glissez **FontSync** dans `Applications`.
 2. Lancez l'app : l'icône apparaît dans la barre des menus et l'**assistant de
    premier lancement** s'ouvre. Il vous guide en quatre étapes :
@@ -109,7 +109,7 @@ L'agent de synchronisation est **embarqué dans l'app Mac** (menu bar, signée e
 notarisée) : il n'y a **rien à installer séparément**.
 
 1. Téléchargez le `.dmg` depuis les
-   [GitHub Releases](https://github.com/leodurand/FontSync/releases/latest).
+   [GitHub Releases](https://github.com/leodurandfr/FontSync/releases/latest).
 2. Glissez **FontSync** dans `Applications`, lancez-le.
 3. L'**assistant de premier lancement** (URL + token → test → installation de
    l'agent → première sync) fait le reste. Vous pouvez le relancer à tout moment
