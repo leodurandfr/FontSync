@@ -1,6 +1,6 @@
 # FontSync — Process de release (GitHub Releases)
 
-Runbook **unifié** pour publier une version (P4.3, [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.md)).
+Runbook **unifié** pour publier une version.
 Une release FontSync = **deux artefacts versionnés** attachés à une même
 **GitHub Release** taggée `vX.Y.Z** :
 

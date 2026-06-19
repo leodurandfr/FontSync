@@ -4,7 +4,7 @@
 
 FontSync est un font manager self-hosted avec synchronisation multi-machines en temps réel. Le serveur Docker centralise toutes les polices de l'utilisateur, un agent Python détecte et synchronise automatiquement les fonts entre machines, et une interface web permet de naviguer et gérer la bibliothèque.
 
-Lire `SPECS.md` pour l'architecture complète, le modèle de données, les endpoints API et le scope de chaque phase.
+Lire `ARCHITECTURE.md` pour l'architecture complète, le modèle de données et les endpoints API. `ROADMAP.md` porte la vision long terme (non-actionable).
 
 ## Stack technique
 
@@ -72,7 +72,9 @@ Lire `SPECS.md` pour l'architecture complète, le modèle de données, les endpo
 ```
 fontsync/
 ├── CLAUDE.md                  # Ce fichier
-├── SPECS.md                   # Spécifications techniques complètes
+├── ARCHITECTURE.md            # Architecture, modèle de données, API (source de vérité technique)
+├── ROADMAP.md                 # Vision long terme (non-actionable)
+├── DEVELOPMENT.md             # Tester en local (serveur + clients simulés)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -105,12 +107,12 @@ fontsync/
 
 ## Règles importantes
 
-- **Refonte en cours : la source de vérité du périmètre est `PLAN.md` à la racine.** SPECS.md décrit la vision produit ; pour l'architecture cible (SQLite, agent stateless + SSE) c'est PLAN.md qui prime. La **vision long terme** (dual-mode self-host/cloud, cross-platform, auth, licence) vit dans `ROADMAP.md` — orientant, **non-actionable** : ne jamais l'implémenter hors phase active.
-- **Ne jamais implémenter de fonctionnalités hors de la phase en cours.** Consulter PLAN.md (puis SPECS.md) pour connaître le scope de chaque phase.
+- **Refonte + publication terminées : `0.0.1` est livrée** (self-hosted v1 publiable — SQLite, agent stateless + SSE, auth par token, image Docker NAS, app Mac menu bar Swift/SwiftUI signée/notarisée). Plus de « plan actif » : l'architecture livrée est documentée dans `ARCHITECTURE.md`, la **vision long terme** (dual-mode self-host/cloud, cross-platform, multi-utilisateurs) vit dans `ROADMAP.md` — orientante, **non-actionable**. *(Les plans historiques `PLAN.md`/`PLAN-PUBLICATION.md` ont été retirés ; récupérables via l'historique git.)*
+- **Ne pas implémenter de fonctionnalités du `ROADMAP.md` (long terme) sans demande explicite.** Le prochain palier (0.1.0) regroupe les ajustements UI/serveur décidés au coup par coup.
 - **Le serveur (NAS, toujours allumé) est la source de vérité.** L'agent est **stateless** : chaque `sync` repart de l'état réel du disque, jamais d'un état mémoire mutable. Le push réactif serveur→agent est un simple signal SSE « re-sync » (sans payload exploité).
 - **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.
 - **Robustesse du parsing fonttools** : toujours wrapper dans try/except. Une font malformée doit être stockée avec des métadonnées partielles, jamais rejetée.
-- **Pas d'authentification dans le MVP** (Phases 1-3).
+- **Auth = token partagé d'instance** (`FONTSYNC_TOKEN`), vérifié sur tout `/api/*` + SSE + WS (header `Authorization: Bearer` ; query `?token=` accepté pour le WS navigateur uniquement, **URL-encodé** car un token base64 contient des `+`). **Pas de comptes utilisateurs** — ça reste mode cloud / multi-utilisateurs (long terme).
 - **L'agent peut désinstaller des fonts localement sur ordre explicite de l'utilisateur** (via le frontend), mais la font reste toujours sur le serveur.
 - **Formats WOFF/WOFF2** : acceptés au stockage et prévisualisables, mais jamais proposés à l'installation système.
 

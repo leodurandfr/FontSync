@@ -1,8 +1,8 @@
 # Canal Homebrew (CLI) — `fontsync-agent`
 
-Canal de distribution **optionnel** (PLAN-PUBLICATION.md P5.1), destiné aux power-users
-et aux serveurs/postes headless qui veulent l'agent **sans l'app Mac**. Le canal grand
-public reste l'app menu bar signée (Phase P3), qui embarque déjà l'agent.
+Canal de distribution **optionnel**, destiné aux power-users et aux serveurs/postes
+headless qui veulent l'agent **sans l'app Mac**. Le canal grand public reste l'app
+menu bar signée, qui embarque déjà l'agent.
 
 La formule installe `fontsync-agent` dans un virtualenv isolé via
 `virtualenv_install_with_resources` : toutes les dépendances Python (httpx, pyyaml,

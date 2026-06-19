@@ -1,8 +1,7 @@
-# FontSync — Procédure de release de l'app Mac (P3.7)
+# FontSync — Procédure de release de l'app Mac
 
 Signature **Developer ID**, **notarisation** (notarytool), **stapling**, artefact
-**`.dmg`**, et mises à jour automatiques via **Sparkle**. Couvre la tâche P3.7 de
-[`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.md).
+**`.dmg`**, et mises à jour automatiques via **Sparkle**.
 
 > Toute la chaîne est scriptée par [`../scripts/release-macos-app.sh`](../scripts/release-macos-app.sh).
 > Ce document explique les **prérequis** (à faire **une fois**), puis la

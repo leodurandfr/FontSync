@@ -1,10 +1,10 @@
 # FontSync — Roadmap (vision long terme)
 
 > **Statut : orientant, non-actionable.** Ce fichier capture les décisions de *cap*
-> produit/archi au-delà de la refonte en cours. Il n'est **pas** une checklist
-> exécutable. Le plan actif reste `PLAN.md` (finir A/B/C). Chaque initiative
-> ci-dessous deviendra son propre `PLAN-xxx.md` **au moment où on l'attaquera**,
-> pas avant (découper avant d'exécuter = des docs qui dérivent).
+> produit/archi au-delà de la version livrée (self-hosted v1, `0.0.1`). Il n'est
+> **pas** une checklist exécutable. L'architecture actuelle est dans
+> [`ARCHITECTURE.md`](ARCHITECTURE.md). Chaque initiative ci-dessous sera découpée
+> **au moment où on l'attaquera**, pas avant (découper trop tôt = des docs qui dérivent).
 
 ---
 

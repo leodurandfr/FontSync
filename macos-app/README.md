@@ -1,7 +1,7 @@
 # FontSync — App Mac (menu bar)
 
 App macOS native (Swift/SwiftUI) servant de **télécommande** au-dessus de l'agent
-FontSync. Couvre la Phase P3 de [`../PLAN-PUBLICATION.md`](../PLAN-PUBLICATION.md).
+FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 > L'app ne réécrit aucune logique de sync : l'agent Python (`../agent/`) reste le
 > moteur, le serveur reste la source de vérité. L'app lit l'URL serveur + le token

@@ -4,7 +4,7 @@ Guide d'installation du **serveur** FontSync (Docker) sur un NAS — Synology
 (Container Manager), QNAP (Container Station) ou tout hôte Docker. Le serveur est
 la **source de vérité** : il centralise la bibliothèque, sert l'UI web et pousse
 les signaux de re-sync aux agents. L'agent macOS et l'app menu bar s'installent
-séparément (cf. `PLAN-PUBLICATION.md`, P3).
+séparément (cf. [`../README.md`](../README.md) → « Installer l'agent »).
 
 > L'image est **multi-arch** (`linux/amd64` + `linux/arm64`) : elle tourne aussi
 > bien sur un NAS x86 (Intel/AMD) que sur un NAS ARM (Realtek, Annapurna…). Docker

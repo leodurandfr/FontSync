@@ -13,8 +13,8 @@ naviguer et gérer la collection.
 - 🌐 **UI web** — parcourir, prévisualiser, importer et gérer la bibliothèque.
 - 🔒 **Token d'instance** — tout `/api/*` protégé par un secret partagé.
 
-> Pour la vision produit complète et le modèle de données, voir [`SPECS.md`](SPECS.md).
-> Plan de publication : [`PLAN-PUBLICATION.md`](PLAN-PUBLICATION.md).
+> Pour l'architecture complète, le modèle de données et l'API, voir [`ARCHITECTURE.md`](ARCHITECTURE.md).
+> Vision long terme : [`ROADMAP.md`](ROADMAP.md).
 
 ## Architecture
 
@@ -119,8 +119,8 @@ L'app met à jour l'agent et se met à jour elle-même automatiquement (Sparkle)
 Préférences, statut, « Synchroniser maintenant » et journaux sont accessibles
 depuis le menu de la barre des menus.
 
-> Un canal **Homebrew CLI** pour les serveurs headless / power users est prévu
-> (optionnel, cf. `PLAN-PUBLICATION.md` P5).
+> Un canal **Homebrew CLI** pour les serveurs headless / power users est
+> disponible (optionnel) : voir [`packaging/homebrew/`](packaging/homebrew/).
 
 ---
 

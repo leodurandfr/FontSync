@@ -1,15 +1,13 @@
-# FontSync — Checklist de validation end-to-end (P0.2)
+# FontSync — Checklist de validation end-to-end
 
-> **But (cf. `PLAN-PUBLICATION.md` → P0.2).** Les 99 tests agent tournent sur FS
-> isolé / `MockTransport`. Le cœur produit — `push → import serveur → signal SSE →
-> pull → install` **entre deux machines réelles** — n'a jamais été validé bout-en-bout.
-> Cette checklist le déroule sur **2 Macs + 1 serveur**, avec commandes exactes et
-> résultats attendus. **Objectif : trouver les bugs réels avant le packaging.**
+> **But.** Les tests agent tournent sur FS isolé / `MockTransport`. Le cœur produit
+> — `push → import serveur → signal SSE → pull → install` **entre deux machines
+> réelles** — se valide ici bout-en-bout, sur **2 Macs + 1 serveur**, avec commandes
+> exactes et résultats attendus. **Objectif : trouver les bugs réels avant le packaging.**
 >
-> ⚠️ **Ne cocher P0.2 dans `PLAN-PUBLICATION.md` qu'après avoir réellement déroulé
-> cette checklist et consigné les résultats** (section *Résultat observé* de chaque
-> scénario + *Journal des bugs* en fin de fichier). Tant que la colonne « observé »
-> est vide, P0.2 n'est pas validé.
+> ⚠️ **Ne considérer la validation faite qu'après avoir réellement déroulé cette
+> checklist et consigné les résultats** (section *Résultat observé* de chaque scénario
+> + *Journal des bugs* en fin de fichier).
 
 ---
 
@@ -546,6 +544,6 @@ Laisser M2 synchroniser (signal SSE déclenché par le push de M1, ou `fontsync-
 - Suivi : **B2 corrigé** · **B1 stop-gap v1** (la sélection par-device complète est reportée — voir le journal). · **Validation 2 Macs réelle : confirmée OK par l'auteur** (Core Text / `~/Library/Fonts` / launchd).
 - Décision : **☑ P0.2 validé** (preflight 9/9 + 2-Macs OK ; B2 corrigé, B1 ramené à un stop-gap honnête sans bouton cassé). Le redesign « manifeste désiré » par device reste un item dédié hors P0.2.
 
-> P0.2 **coché** dans `PLAN-PUBLICATION.md` : checklist déroulée, bugs preflight
-> traités (B2 corrigé, B1 stop-gap), et validation 2-Macs réelle confirmée par
-> l'auteur. La feature sélective par-device (manifeste désiré) est suivie à part.
+> **Validation E2E faite** : checklist déroulée, bugs preflight traités (B2 corrigé,
+> B1 stop-gap), et validation 2-Macs réelle confirmée par l'auteur. La feature
+> sélective par-device (manifeste désiré) est suivie à part.

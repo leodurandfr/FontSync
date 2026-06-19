@@ -1,15 +1,11 @@
-# FontSync — Spécifications techniques v3.0
+# FontSync — Architecture & spécifications techniques
 
-> Font manager self-hosted avec synchronisation multi-machines en temps réel
-> Document de référence pour le développement avec Claude Code — Mars 2026
-
-> ⚠️ **Refonte en cours (juin 2026).** Ce document décrit la **vision produit** d'origine.
-> L'**architecture technique cible** (base **SQLite**, agent **stateless** déclenché par launchd,
-> push réactif par **SSE** au lieu d'un WebSocket côté agent) est définie dans **`PLAN.md`** à la
-> racine — c'est la source de vérité en cas de divergence. Les sections **3 (stack)**, **6 (agent)**
-> et **8 (déploiement)** ont été mises à jour pour refléter cette cible ; d'autres passages (ex. le
-> WebSocket agent, la table `sync_queue`, le file watcher `watchdog`) restent décrits dans leur forme
-> d'origine et sont en cours de retrait — se référer à PLAN.md.
+> Font manager self-hosted avec synchronisation multi-machines en temps réel.
+> **Source de vérité technique** : architecture, modèle de données, API, agent.
+> Architecture livrée : base **SQLite**, agent **stateless** déclenché par launchd,
+> push réactif serveur→agent par **SSE** (le frontend garde un **WebSocket**). La
+> vision long terme (multi-utilisateurs, cloud, cross-platform) vit dans
+> [`ROADMAP.md`](ROADMAP.md).
 
 ---
 
@@ -29,9 +25,9 @@ Machine A                    Serveur FontSync                Machine B
   "Inter.ttf"                                                
       │                                                      
       ▼                                                      
-  Agent détecte    ──push──►  Reçoit + stocke    ──notify──► Agent reçoit
-  (file watcher)              Parse métadonnées               notification
-                              Notifie via WebSocket           
+  Agent détecte    ──push──►  Reçoit + stocke    ─signal SSE► Agent reçoit
+  (launchd sync)             Parse métadonnées               le signal
+                              Signal: SSE→agent, WS→UI        
                                      │                        ▼
                               ┌──────┴──────┐          Télécharge +
                               │  Frontend   │          installe "Inter.ttf"
@@ -53,7 +49,7 @@ Machine A                    Serveur FontSync                Machine B
 - Le **serveur est la source de vérité** pour la bibliothèque et les métadonnées
 - L'agent peut **désinstaller** des fonts localement sur ordre explicite de l'utilisateur (via le frontend), mais la font reste toujours sur le serveur
 - L'utilisateur a toujours le **contrôle explicite** sur ce qui est installé sur sa machine
-- La communication est **temps réel** : WebSocket entre serveur, agents et frontend
+- La communication est **temps réel** : WebSocket serveur↔frontend, SSE serveur→agent (signal « re-sync »)
 - Le code dans ce document est **purement illustratif** — Claude Code implémente selon les meilleures pratiques
 
 ---
@@ -227,20 +223,9 @@ Fonts connues comme étant présentes sur un device.
 | `installed_at` | TIMESTAMPTZ | |
 | PK | (device_id, font_id) | |
 
-#### `sync_queue`
-
-File d'attente pour les opérations de sync.
-
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `id` | UUID (PK) | |
-| `device_id` | UUID (FK → devices) | |
-| `font_id` | UUID (FK → fonts) | |
-| `operation` | VARCHAR(20) | `push_to_server`, `pull_to_device` |
-| `status` | VARCHAR(20) | `pending`, `in_progress`, `completed`, `failed` |
-| `error_message` | TEXT | |
-| `created_at` | TIMESTAMPTZ | |
-| `completed_at` | TIMESTAMPTZ | |
+> **Note** : l'ancienne table `sync_queue` a été supprimée lors de la refonte —
+> l'agent est **stateless** (chaque `sync` recalcule le delta depuis l'état réel
+> du disque), il n'y a donc plus de file d'attente côté serveur.
 
 ### 4.2 Tables ajoutées en phases ultérieures
 
@@ -422,9 +407,9 @@ Formats acceptés : **TTF, OTF** (installables par l'agent). **WOFF, WOFF2** : a
 
 ## 6. Agent client Python (MVP)
 
-> Architecture refondue (cf. PLAN.md, Phase B). L'agent **n'est plus un démon WebSocket** : c'est une
+> Architecture **stateless** (livrée). L'agent **n'est pas un démon WebSocket** : c'est une
 > **commande `sync` stateless** déclenchée par launchd, plus un petit process `listen` qui ne fait que
-> relayer le signal SSE du serveur. Cette section décrit la cible.
+> relayer le signal SSE du serveur.
 
 ### 6.1 Rôle
 
@@ -500,7 +485,7 @@ Après installation, l'agent peut afficher une notification système : "Font Int
 ### 6.6 Comportement de suppression
 
 **L'agent ne supprime jamais de fonts localement de manière automatique.**
-- L'utilisateur peut désinstaller une font d'un appareil via le frontend. La font reste toujours sur le serveur — seule l'installation locale est supprimée. (La désinstallation devrait s'appuyer sur un mapping **par hash** plutôt que par nom, cf. PLAN.md B7.)
+- L'utilisateur peut désinstaller une font d'un appareil via le frontend. La font reste toujours sur le serveur — seule l'installation locale est supprimée. (La désinstallation devrait s'appuyer sur un mapping **par hash** plutôt que par nom.)
 - Font supprimée sur le serveur (soft delete) → les devices ne sont pas affectés, le prochain `sync` n'installe simplement plus cette font.
 - Font supprimée localement par l'utilisateur (hors FontSync) → le prochain `sync` la voit disparaître du disque ; le serveur ne supprime pas la font de sa bibliothèque (il reste la source de vérité).
 
@@ -518,7 +503,7 @@ Fichier `~/.fontsync/config.yaml` :
 - `scan.ignore_patterns` : patterns à ignorer (ex: `.*`, `System*`)
 - `sync.auto_pull` : install auto des fonts du serveur
 
-> Bug historique à corriger (PLAN.md B5) : `device_id`/token n'étaient pas réécrits au `save()`. Le push étant désormais déclenché par `WatchPaths`, il n'y a plus de flag `auto_push` ni d'`interval_minutes` (remplacé par `StartInterval` launchd).
+> Le push est déclenché par `WatchPaths` : il n'y a plus de flag `auto_push` ni d'`interval_minutes` (remplacé par `StartInterval` launchd). Le `save()` de config préserve `device_id`/token.
 
 ### 6.9 Déclenchement depuis le frontend
 
@@ -526,7 +511,7 @@ Il n'y a plus d'endpoint local `localhost:7850` (la contrainte CORS/mixed-conten
 
 ### 6.10 Packaging macOS
 
-Beaucoup moins critique qu'avec un démon `.app` (on n'a plus qu'une CLI `sync` + un petit `listen`). Décision différée (PLAN.md B10) : binaire/pkg signé simple vs PyInstaller. La friction de notarisation est largement levée. L'installation se fait via deux **LaunchAgents** :
+Beaucoup moins critique qu'avec un démon `.app` (on n'a plus qu'une CLI `sync` + un petit `listen`). Packaging retenu : **venv Python relocatable embarqué** dans l'app Mac signée/notarisée (pas de PyInstaller). L'installation se fait via deux **LaunchAgents** :
 - `com.fontsync.sync.plist` : `WatchPaths` + `StartInterval` ~600 s + `RunAtLoad`
 - `com.fontsync.listen.plist` : `KeepAlive` + `RunAtLoad`
 
@@ -671,15 +656,18 @@ fontsync/
 │   └── utils/
 │
 ├── agent/
-│   ├── main.py                        # Point d'entrée
-│   ├── config.py                      # Lecture config.yaml
-│   ├── scanner.py                     # File watcher (watchdog) + scan périodique
-│   ├── discovery.py                   # APIs système (Core Text, fontconfig, DirectWrite)
-│   ├── sync_client.py                 # Communication WebSocket avec le serveur
-│   ├── font_installer.py             # Installation par OS (per-user)
-│   ├── local_server.py                # Endpoint localhost:7850 (optionnel)
-│   ├── tray.py                        # Tray icon (pystray)
-│   └── notifier.py                    # Notifications système
+│   ├── __main__.py                    # Point d'entrée CLI (sync/listen/setup/teardown/status)
+│   ├── config.py                      # Lecture/écriture config.yaml (url, token, device_id)
+│   ├── discovery.py                   # Découverte des fonts (Core Text macOS + dossiers)
+│   ├── scanner.py                     # Scan + hachage des dossiers de fonts
+│   ├── hashing.py                     # Hash SHA-256 des fichiers
+│   ├── hash_cache.py                  # Cache de hash local (path, size, mtime)
+│   ├── sync_command.py                # Commande `sync` stateless (calcul du delta)
+│   ├── sync_client.py                 # Client HTTP (httpx) vers le serveur
+│   ├── listen_command.py             # Process `listen` : SSE → relance `sync`
+│   ├── font_installer.py             # Installation/désinstallation par OS (per-user)
+│   ├── launchd_setup.py               # setup/teardown des LaunchAgents (macOS)
+│   └── paths.py                       # Emplacements (~/.fontsync, logs)
 │
 ├── frontend/
 │   ├── package.json
