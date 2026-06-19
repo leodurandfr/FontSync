@@ -22,6 +22,7 @@ import os
 import plistlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Gabarits embarqués dans le paquet (cf. package-data du pyproject).
@@ -126,6 +127,26 @@ def _domain() -> str:
     return f"gui/{os.getuid()}"
 
 
+def _is_loaded(domain: str, label: str) -> bool:
+    """True si le job est encore enregistré dans le domaine launchd."""
+    return _launchctl("print", f"{domain}/{label}").returncode == 0
+
+
+def _bootout_and_wait(domain: str, label: str, timeout: float = 8.0) -> None:
+    """Décharge un job et **attend** sa disparition effective.
+
+    `launchctl bootout` est asynchrone : il rend la main avant que le service
+    soit réellement détruit, surtout pour un job KeepAlive avec un process vivant
+    (`com.fontsync.listen`). Un `bootstrap` lancé trop tôt échoue alors en
+    `Bootstrap failed: 5: Input/output error`. On poll jusqu'à ce que le job
+    soit absent (ou jusqu'au timeout) pour rendre la réinstallation idempotente.
+    """
+    _launchctl("bootout", f"{domain}/{label}")  # ignore l'absence
+    deadline = time.monotonic() + timeout
+    while _is_loaded(domain, label) and time.monotonic() < deadline:
+        time.sleep(0.2)
+
+
 def setup(env: dict[str, str] | None = None) -> int:
     """Génère les plists et (re)charge les deux jobs launchd."""
     if not is_macos():
@@ -157,8 +178,13 @@ def setup(env: dict[str, str] | None = None) -> int:
     )
 
     for label, target in zip(LABELS, written):
-        _launchctl("bootout", f"{domain}/{label}")  # idempotent : ignore l'absence
+        _bootout_and_wait(domain, label)  # décharge + attend la disparition réelle
         result = _launchctl("bootstrap", domain, str(target))
+        if result.returncode != 0:
+            # Un résidu a pu survivre au 1er bootout (race async) : on réessaie
+            # une fois après une nouvelle attente effective.
+            _bootout_and_wait(domain, label)
+            result = _launchctl("bootstrap", domain, str(target))
         if result.returncode != 0:
             print(
                 f"[fontsync] Échec du chargement de {label} : "

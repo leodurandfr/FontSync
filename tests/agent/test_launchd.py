@@ -121,8 +121,17 @@ def fake_launchctl(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
         stdout = ""
         stderr = ""
 
-    def _fake(*args: str) -> _Result:
+    class _Absent:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    def _fake(*args: str):
         calls.append(args)
+        # `print` sonde la présence d'un job : on le simule ABSENT (déchargé)
+        # pour que la boucle d'attente de `_bootout_and_wait` sorte aussitôt.
+        if args and args[0] == "print":
+            return _Absent()
         return _Result()
 
     monkeypatch.setattr(launchd_setup, "_launchctl", _fake)
@@ -187,7 +196,12 @@ def test_setup_aborts_when_bootstrap_fails(
     def _fake(*args: str):
         ok = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         fail = type("R", (), {"returncode": 5, "stdout": "", "stderr": "boom"})()
-        return fail if args[0] == "bootstrap" else ok
+        absent = type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+        if args[0] == "bootstrap":
+            return fail
+        if args[0] == "print":  # job absent → la boucle d'attente sort vite
+            return absent
+        return ok
 
     monkeypatch.setattr(launchd_setup, "_launchctl", _fake)
 
