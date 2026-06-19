@@ -126,8 +126,13 @@ function formatRelativeTime(dateStr: string | null): string {
                   &middot; Agent v{{ device.agentVersion }}
                 </span>
               </p>
-              <p class="text-xs text-muted-foreground mt-0.5">
-                Vu {{ formatRelativeTime(device.lastSeenAt) }}
+              <p class="text-xs mt-0.5">
+                <span v-if="devicesStore.isOnline(device.id)" class="text-green-600">
+                  Connecté
+                </span>
+                <span v-else class="text-muted-foreground">
+                  Vu {{ formatRelativeTime(device.lastSeenAt) }}
+                </span>
               </p>
             </div>
           </div>
