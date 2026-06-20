@@ -7,18 +7,18 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { Panel } from "@/components/ui/panel";
 import SidebarNavButton from "./SidebarNavButton.vue";
 import ThemeToggle from "./ThemeToggle.vue";
+import WindowControls from "./WindowControls.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
-import { useWsStore } from "@/stores/ws";
+import { showWindowControls } from "@/composables/useWindowControls";
 
 const { t } = useI18n();
 
 const layout = useLayoutStore();
 const familiesStore = useFamiliesStore();
 const filtersStore = useFamilyFiltersStore();
-const wsStore = useWsStore();
 const route = useRoute();
 
 const CATEGORIES = [
@@ -31,7 +31,6 @@ const CATEGORIES = [
 ] as const;
 
 const onSettings = computed(() => route.path.startsWith("/settings"));
-const connected = computed(() => wsStore.status === "connected");
 
 function selectAll() {
   filtersStore.classification = undefined;
@@ -95,17 +94,16 @@ function startResize(e: PointerEvent) {
       }"
     >
       <!-- Header -->
+      <!--
+        Pas de hauteur en dur : le padding vertical aligne le header sur la
+        hauteur de la barre flottante (toolbar `h-12` = 48px). L'élément le plus
+        haut (bouton replier : icône 16px + p-1) + py-3 donne ~48px.
+      -->
       <div
-        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator px-5"
+        class="flex flex-shrink-0 items-center justify-between border-b border-separator px-5 py-3"
       >
-        <div class="flex min-w-0 items-center gap-2">
-          <span
-            class="size-1.5 flex-shrink-0 rounded-full"
-            :class="connected ? 'bg-emerald-500' : 'bg-amber-500'"
-            :title="
-              connected ? t('common.connected') : t('sidebar.reconnecting')
-            "
-          />
+        <div class="flex min-w-0 items-center gap-3">
+          <WindowControls v-if="showWindowControls" class="flex-shrink-0" />
           <span
             class="truncate text-[11px] font-semibold uppercase tracking-[0.12em]"
           >

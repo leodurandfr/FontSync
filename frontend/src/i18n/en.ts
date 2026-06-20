@@ -21,6 +21,11 @@ export default {
     openSidebar: "Open sidebar",
     reconnecting: "Reconnecting…",
   },
+  window: {
+    close: "Close",
+    minimize: "Minimize",
+    zoom: "Zoom",
+  },
   categories: {
     serif: "Serif",
     "sans-serif": "Sans-serif",

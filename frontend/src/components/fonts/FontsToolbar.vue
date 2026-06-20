@@ -11,6 +11,8 @@ import {
 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { useLayoutStore } from "@/stores/layout";
+import { showWindowControls } from "@/composables/useWindowControls";
+import WindowControls from "@/components/layout/WindowControls.vue";
 import { Panel } from "@/components/ui/panel";
 import { TypoInput } from "@/components/ui/typo-input";
 import {
@@ -48,16 +50,21 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
   <Panel
     class="flex flex-wrap items-stretch overflow-hidden p-0 sm:h-12 sm:flex-nowrap sm:items-center"
   >
-    <!-- 0 — Réouverture sidebar (visible quand repliée) -->
-    <button
+    <!-- 0 — Feux de fenêtre + réouverture sidebar (visibles quand repliée) -->
+    <div
       v-if="!layoutStore.sidebarOpen"
-      type="button"
-      class="order-1 flex h-12 flex-shrink-0 items-center border-r border-separator px-3 text-foreground-subtle transition-colors hover:text-muted-foreground sm:h-full"
-      :aria-label="t('sidebar.openSidebar')"
-      @click="layoutStore.setSidebarOpen(true)"
+      class="order-1 flex h-12 flex-shrink-0 items-center gap-3 border-r border-separator pl-5 pr-3 sm:h-full"
     >
-      <PanelLeftOpen class="size-4" :stroke-width="1.5" />
-    </button>
+      <WindowControls v-if="showWindowControls" />
+      <button
+        type="button"
+        class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
+        :aria-label="t('sidebar.openSidebar')"
+        @click="layoutStore.setSidebarOpen(true)"
+      >
+        <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+      </button>
+    </div>
 
     <!-- 1 — Preview + typo -->
     <div

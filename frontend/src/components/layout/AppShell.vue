@@ -4,8 +4,10 @@ import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { PanelLeftOpen } from "lucide-vue-next";
 import AppSidebar from "./AppSidebar.vue";
+import WindowControls from "./WindowControls.vue";
 import { Panel } from "@/components/ui/panel";
 import { useWebSocket } from "@/composables/useWebSocket";
+import { showWindowControls } from "@/composables/useWindowControls";
 import { useLayoutStore } from "@/stores/layout";
 
 const { t } = useI18n();
@@ -52,15 +54,25 @@ onUnmounted(disconnect);
 
     <AppSidebar />
 
-    <!-- Bouton de réouverture (la page Fonts l'intègre dans sa toolbar) -->
+    <!-- Feux de fenêtre + réouverture (la page Fonts l'intègre dans sa toolbar) -->
     <Panel
       v-if="!layout.sidebarOpen && route.name !== 'fonts'"
-      as="button"
-      class="absolute left-3 top-3 z-40 flex size-9 items-center justify-center text-foreground-subtle transition-colors hover:text-muted-foreground"
-      :aria-label="t('sidebar.openSidebar')"
-      @click="layout.setSidebarOpen(true)"
+      class="absolute left-3 top-3 z-40 flex h-9 items-center gap-3 pl-5 pr-3"
     >
-      <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+      <WindowControls v-if="showWindowControls" />
+      <span
+        v-if="showWindowControls"
+        class="h-4 w-px flex-shrink-0 bg-separator"
+        aria-hidden="true"
+      />
+      <button
+        type="button"
+        class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
+        :aria-label="t('sidebar.openSidebar')"
+        @click="layout.setSidebarOpen(true)"
+      >
+        <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+      </button>
     </Panel>
 
     <main class="relative min-w-0 flex-1 overflow-hidden">

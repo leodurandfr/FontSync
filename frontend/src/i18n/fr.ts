@@ -23,6 +23,11 @@ const fr: typeof en = {
     openSidebar: "Ouvrir la sidebar",
     reconnecting: "Reconnexion…",
   },
+  window: {
+    close: "Fermer",
+    minimize: "Réduire",
+    zoom: "Agrandir",
+  },
   categories: {
     serif: "Serif",
     "sans-serif": "Sans-serif",
