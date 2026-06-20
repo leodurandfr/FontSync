@@ -1,4 +1,4 @@
-import { ref, onScopeDispose } from "vue";
+import { ref, reactive, onScopeDispose } from "vue";
 import { apiFetch } from "@/lib/api";
 
 export function useFontPreview() {
@@ -6,9 +6,17 @@ export function useFontPreview() {
   const entries = new Map<Element, string>();
   const loadedFonts = new Map<string, FontFace>();
   const loadingFonts = new Set<string>();
+  // IDs des fontes « résolues » (chargées OU en échec). Réactif : les cartes
+  // s'en servent pour ne révéler leur aperçu qu'une fois la fonte prête, ce qui
+  // évite tout flash fallback→vraie-fonte (FOUT) et le reflow associé au scroll.
+  const ready = reactive(new Set<string>());
 
   function getFontFamily(fontId: string): string {
     return `preview-${fontId}`;
+  }
+
+  function isFontReady(fontId: string): boolean {
+    return ready.has(fontId);
   }
 
   function getPreviewUrl(fontId: string): string {
@@ -16,7 +24,11 @@ export function useFontPreview() {
   }
 
   async function loadFont(fontId: string) {
-    if (loadedFonts.has(fontId) || loadingFonts.has(fontId)) return;
+    if (loadedFonts.has(fontId)) {
+      ready.add(fontId);
+      return;
+    }
+    if (loadingFonts.has(fontId)) return;
     loadingFonts.add(fontId);
 
     const family = getFontFamily(fontId);
@@ -27,7 +39,7 @@ export function useFontPreview() {
       const res = await apiFetch(getPreviewUrl(fontId));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buffer = await res.arrayBuffer();
-      const face = new FontFace(family, buffer, { display: "swap" });
+      const face = new FontFace(family, buffer, { display: "block" });
       loadedFonts.set(fontId, face);
       document.fonts.add(face);
       await face.load();
@@ -38,6 +50,9 @@ export function useFontPreview() {
       loadedFonts.delete(fontId);
     } finally {
       loadingFonts.delete(fontId);
+      // Résolu (succès → vraie fonte, échec → fallback) : la carte peut révéler
+      // son aperçu sans risque de bascule visible.
+      ready.add(fontId);
     }
   }
 
@@ -47,6 +62,7 @@ export function useFontPreview() {
       document.fonts.delete(face);
       loadedFonts.delete(fontId);
     }
+    ready.delete(fontId);
   }
 
   function initObserver() {
@@ -65,7 +81,9 @@ export function useFontPreview() {
           }
         }
       },
-      { rootMargin: "200px 0px" },
+      // Marge large : on précharge les fontes bien avant que la carte entre dans
+      // le viewport, pour qu'elles soient déjà prêtes au moment de l'affichage.
+      { rootMargin: "1200px 0px" },
     );
   }
 
@@ -99,6 +117,7 @@ export function useFontPreview() {
 
   return {
     getFontFamily,
+    isFontReady,
     observe,
     unobserve,
   };

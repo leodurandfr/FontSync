@@ -13,6 +13,7 @@ const props = defineProps<{
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
+  isFontReady: (fontId: string) => boolean;
 }>();
 
 const rowRef = ref<HTMLElement | null>(null);
@@ -51,6 +52,7 @@ const previewStyle = computed(() => ({
   fontSize: `${props.typo.fontSize}px`,
   lineHeight: String(props.typo.lineHeight),
   letterSpacing: `${props.typo.letterSpacing}em`,
+  opacity: props.isFontReady(props.member.fontId) ? 1 : 0,
 }));
 </script>
 
@@ -75,7 +77,7 @@ const previewStyle = computed(() => ({
     </div>
     <RouterLink
       :to="{ name: 'font-detail', params: { id: member.fontId } }"
-      class="block select-text break-words leading-none"
+      class="block select-text break-words leading-none transition-opacity duration-200"
       :style="previewStyle"
     >
       {{ previewText || familyName }}

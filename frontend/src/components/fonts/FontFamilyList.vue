@@ -19,7 +19,7 @@ defineProps<{
 
 const familiesStore = useFamiliesStore();
 const filtersStore = useFamilyFiltersStore();
-const { getFontFamily, observe, unobserve } = useFontPreview();
+const { getFontFamily, isFontReady, observe, unobserve } = useFontPreview();
 
 const sentinelRef = ref<HTMLElement | null>(null);
 let scrollObserver: IntersectionObserver | null = null;
@@ -37,7 +37,9 @@ onMounted(() => {
         familiesStore.fetchMore(filtersStore.toFilters());
       }
     },
-    { rootMargin: "400px" },
+    // On charge la page suivante très en avance pour que les cartes soient
+    // montées avant d'entrer dans la zone de préchargement des fontes (1200px).
+    { rootMargin: "1200px" },
   );
 
   if (sentinelRef.value) {
@@ -92,6 +94,7 @@ watch(sentinelRef, (el) => {
         :observe="observe"
         :unobserve="unobserve"
         :get-font-family="getFontFamily"
+        :is-font-ready="isFontReady"
       />
     </ul>
 

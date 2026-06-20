@@ -19,6 +19,7 @@ const props = defineProps<{
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
+  isFontReady: (fontId: string) => boolean;
 }>();
 
 const { t } = useI18n();
@@ -35,6 +36,12 @@ let abortController: AbortController | null = null;
 const isMultiStyle = props.family.styleCount > 1;
 const previewFontId = props.family.previewFont?.id ?? null;
 
+// Tant que la fonte n'est pas résolue, on garde l'aperçu invisible (opacity 0)
+// puis on le révèle en fondu : zéro flash fallback→vraie-fonte au scroll.
+const previewReady = computed(
+  () => !previewFontId || props.isFontReady(previewFontId),
+);
+
 const previewStyle = computed(() => ({
   fontFamily: previewFontId
     ? `'${props.getFontFamily(previewFontId)}', sans-serif`
@@ -42,6 +49,7 @@ const previewStyle = computed(() => ({
   fontSize: `${props.typo.fontSize}px`,
   lineHeight: String(props.typo.lineHeight),
   letterSpacing: `${props.typo.letterSpacing}em`,
+  opacity: previewReady.value ? 1 : 0,
 }));
 
 const foundry = computed(
@@ -188,7 +196,10 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
-      <p class="select-text break-words" :style="previewStyle">
+      <p
+        class="select-text break-words transition-opacity duration-200"
+        :style="previewStyle"
+      >
         {{ bodyText }}
       </p>
     </div>
@@ -244,7 +255,10 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
-        <div class="select-text break-words leading-none" :style="previewStyle">
+        <div
+          class="select-text break-words leading-none transition-opacity duration-200"
+          :style="previewStyle"
+        >
           {{ previewText || family.name }}
         </div>
       </div>
@@ -285,6 +299,7 @@ onBeforeUnmount(() => {
           :observe="observe"
           :unobserve="unobserve"
           :get-font-family="getFontFamily"
+          :is-font-ready="isFontReady"
         />
       </div>
     </div>
