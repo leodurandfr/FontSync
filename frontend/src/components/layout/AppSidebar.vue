@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { PanelLeftClose, Settings } from "lucide-vue-next";
+import { PanelLeftClose, Settings, Upload } from "lucide-vue-next";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Panel } from "@/components/ui/panel";
 import SidebarNavButton from "./SidebarNavButton.vue";
 import ThemeToggle from "./ThemeToggle.vue";
+import UploadDialog from "@/components/fonts/UploadDialog.vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
@@ -129,6 +130,16 @@ function startResize(e: PointerEvent) {
       <div
         class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-3"
       >
+        <UploadDialog>
+          <button
+            type="button"
+            class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent"
+          >
+            <Upload class="size-3.5" :stroke-width="1.5" />
+            <span class="text-[11px]">Upload</span>
+          </button>
+        </UploadDialog>
+
         <RouterLink
           to="/settings"
           class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
@@ -141,6 +152,7 @@ function startResize(e: PointerEvent) {
           <Settings class="size-3.5" :stroke-width="1.5" />
           <span class="text-[11px]">Settings</span>
         </RouterLink>
+
         <ThemeToggle />
       </div>
 

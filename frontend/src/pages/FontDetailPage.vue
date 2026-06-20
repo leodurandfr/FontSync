@@ -11,6 +11,7 @@ import {
   Monitor,
   Type,
   ArrowLeftRight,
+  UnfoldVertical,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,6 +30,7 @@ const error = ref<string | null>(null);
 const fontLoaded = ref(false);
 const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
 const previewSize = ref(40);
+const previewLeading = ref(1.3);
 const previewTracking = ref(0);
 const glyphPage = ref(0);
 
@@ -278,6 +280,14 @@ onUnmounted(() => {
               suffix="px"
             />
             <TypoInput
+              :icon="UnfoldVertical"
+              v-model="previewLeading"
+              :min="0.8"
+              :max="2.4"
+              :step="0.05"
+              :digits="2"
+            />
+            <TypoInput
               :icon="ArrowLeftRight"
               v-model="previewTracking"
               :min="-0.1"
@@ -295,9 +305,10 @@ onUnmounted(() => {
             class="w-full border-b border-separator bg-transparent px-6 py-3 font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
           />
           <div
-            class="select-text break-words p-6 leading-tight"
+            class="select-text break-words p-6"
             :style="{
               fontSize: `${previewSize}px`,
+              lineHeight: previewLeading,
               letterSpacing: `${previewTracking}em`,
               fontFamily: fontLoaded
                 ? `'${fontFamily}', sans-serif`
