@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { RouterLink } from "vue-router";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FamilyMember } from "@/types/api";
+import type { Typo } from "./types";
 
 const props = defineProps<{
   member: FamilyMember;
   previewText: string;
-  previewSize: number;
+  typo: Typo;
   familyName: string;
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
@@ -17,15 +18,10 @@ const props = defineProps<{
 const rowRef = ref<HTMLElement | null>(null);
 
 onMounted(() => {
-  if (rowRef.value) {
-    props.observe(rowRef.value, props.member.fontId);
-  }
+  if (rowRef.value) props.observe(rowRef.value, props.member.fontId);
 });
-
 onBeforeUnmount(() => {
-  if (rowRef.value) {
-    props.unobserve(rowRef.value);
-  }
+  if (rowRef.value) props.unobserve(rowRef.value);
 });
 
 const WEIGHT_LABELS: Record<number, string> = {
@@ -40,43 +36,49 @@ const WEIGHT_LABELS: Record<number, string> = {
   900: "Black",
 };
 
-function styleName(member: FamilyMember): string {
-  if (member.subfamilyName) return member.subfamilyName;
-  const weight = member.weightClass
-    ? (WEIGHT_LABELS[member.weightClass] ?? String(member.weightClass))
+const styleName = computed(() => {
+  const m = props.member;
+  if (m.subfamilyName) return m.subfamilyName;
+  const weight = m.weightClass
+    ? (WEIGHT_LABELS[m.weightClass] ?? String(m.weightClass))
     : "Regular";
-  return member.isItalic ? `${weight} Italic` : weight;
-}
+  return m.isItalic ? `${weight} Italic` : weight;
+});
+
+const previewStyle = computed(() => ({
+  fontFamily: `'${props.getFontFamily(props.member.fontId)}', sans-serif`,
+  fontStyle: props.member.isItalic ? "italic" : "normal",
+  fontSize: `${props.typo.fontSize}px`,
+  lineHeight: String(props.typo.lineHeight),
+  letterSpacing: `${props.typo.letterSpacing}em`,
+}));
 </script>
 
 <template>
-  <div ref="rowRef" class="flex items-center border-t border-dashed">
+  <div
+    ref="rowRef"
+    class="group/style border-t border-separator bg-muted px-8 py-6"
+  >
+    <div class="mb-4 flex items-center gap-3 font-mono">
+      <span class="text-[11px] font-medium text-muted-foreground">{{
+        styleName
+      }}</span>
+      <span class="text-foreground-subtle">·</span>
+      <span class="text-[10px] text-foreground-subtle">{{ familyName }}</span>
+      <div class="flex-1" />
+      <div class="opacity-0 transition-opacity group-hover/style:opacity-100">
+        <DeviceInstallSheet
+          :font-ids="[member.fontId]"
+          trigger-variant="icon"
+        />
+      </div>
+    </div>
     <RouterLink
       :to="{ name: 'font-detail', params: { id: member.fontId } }"
-      class="group flex flex-1 min-w-0 flex-col gap-0.5 px-4 py-3 pl-10 transition-colors hover:bg-accent/50"
+      class="block select-text break-words leading-none"
+      :style="previewStyle"
     >
-      <!-- Style name -->
-      <span class="text-sm text-muted-foreground truncate">
-        {{ styleName(member) }}
-      </span>
-
-      <!-- Preview -->
-      <span
-        class="truncate leading-relaxed"
-        :style="{
-          fontSize: `${previewSize}px`,
-          fontFamily: `'${getFontFamily(member.fontId)}', sans-serif`,
-        }"
-      >
-        {{ previewText || familyName }}
-      </span>
+      {{ previewText || familyName }}
     </RouterLink>
-
-    <div class="pr-3 shrink-0">
-      <DeviceInstallSheet
-        :font-ids="[member.fontId]"
-        trigger-variant="icon"
-      />
-    </div>
   </div>
 </template>

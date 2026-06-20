@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
-import { ChevronRight, RotateCcw } from "lucide-vue-next";
+import { ChevronRight, ChevronDown, RotateCcw } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,11 +8,13 @@ import { apiFetch } from "@/lib/api";
 import FontStyleRow from "./FontStyleRow.vue";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FontFamily, FamilyMember } from "@/types/api";
+import type { FontLayout, Typo } from "./types";
 
 const props = defineProps<{
   family: FontFamily;
   previewText: string;
-  previewSize: number;
+  typo: Typo;
+  layout: FontLayout;
   observe: (el: Element, fontId: string) => void;
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
@@ -23,19 +25,49 @@ const members = ref<FamilyMember[]>([]);
 const loadingMembers = ref(false);
 const loaded = ref(false);
 const fetchError = ref(false);
-const headerRef = ref<HTMLElement | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
 
 let abortController: AbortController | null = null;
 
 const isMultiStyle = props.family.styleCount > 1;
-
 const previewFontId = props.family.previewFont?.id ?? null;
 
-const familyFontIds = computed(() => {
-  if (members.value.length > 0) {
-    return members.value.map((m) => m.fontId);
-  }
-  return previewFontId ? [previewFontId] : [];
+const previewStyle = computed(() => ({
+  fontFamily: previewFontId
+    ? `'${props.getFontFamily(previewFontId)}', sans-serif`
+    : "sans-serif",
+  fontSize: `${props.typo.fontSize}px`,
+  lineHeight: String(props.typo.lineHeight),
+  letterSpacing: `${props.typo.letterSpacing}em`,
+}));
+
+const foundry = computed(
+  () => props.family.designer || props.family.manufacturer || "",
+);
+const category = computed(() => {
+  const c = props.family.classification;
+  return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
+});
+const format = computed(() =>
+  (props.family.previewFont?.fileFormat || "").toUpperCase(),
+);
+const stylesLabel = computed(() =>
+  props.family.styleCount === 1
+    ? "1 style"
+    : `${props.family.styleCount} styles`,
+);
+
+const familyFontIds = computed(() =>
+  members.value.length > 0
+    ? members.value.map((m) => m.fontId)
+    : previewFontId
+      ? [previewFontId]
+      : [],
+);
+
+const bodyText = computed(() => {
+  const base = props.previewText || props.family.name;
+  return `${base} ${base}`;
 });
 
 async function fetchMembers() {
@@ -74,120 +106,171 @@ function toggle() {
 }
 
 watch(open, (isOpen) => {
-  if (isOpen && !loaded.value) {
-    fetchMembers();
-  }
+  if (isOpen && !loaded.value) fetchMembers();
 });
 
 onMounted(() => {
-  if (previewFontId && headerRef.value) {
-    props.observe(headerRef.value, previewFontId);
+  if (previewFontId && rootRef.value) {
+    props.observe(rootRef.value, previewFontId);
   }
 });
 
 onBeforeUnmount(() => {
   abortController?.abort();
-  if (headerRef.value) {
-    props.unobserve(headerRef.value);
-  }
+  if (rootRef.value) props.unobserve(rootRef.value);
 });
 </script>
 
 <template>
-  <div class="border-b last:border-b-0">
-    <!-- Header row -->
-    <div ref="headerRef" class="flex items-center">
-      <component
-        :is="isMultiStyle ? 'button' : RouterLink"
-        v-bind="
-          isMultiStyle
-            ? { type: 'button' }
-            : {
-                to: {
-                  name: 'font-detail',
-                  params: { id: family.previewFont?.id },
-                },
-              }
-        "
-        class="flex flex-1 min-w-0 flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-accent/50"
-        @click="isMultiStyle ? toggle() : undefined"
+  <li ref="rootRef" class="group">
+    <!-- ── List layout ──────────────────────────────────────── -->
+    <RouterLink
+      v-if="layout === 'list'"
+      :to="{ name: 'font-detail', params: { id: family.previewFont?.id } }"
+      class="flex h-12 items-center gap-4 px-8 transition-colors hover:bg-accent"
+    >
+      <span class="size-1.5 flex-shrink-0 rounded-full bg-foreground-subtle" />
+      <span
+        class="min-w-[180px] flex-shrink-0 truncate text-[13px]"
+        :style="{ fontFamily: previewStyle.fontFamily }"
       >
-        <!-- Line 1: Family name · N styles -->
-        <span class="text-sm text-muted-foreground truncate">
-          {{ family.name
-          }}<template v-if="isMultiStyle">
-            &middot; {{ family.styleCount }} styles</template
-          >
-        </span>
-
-        <!-- Line 2: Chevron + Preview -->
-        <div class="flex items-center gap-2">
-          <ChevronRight
-            v-if="isMultiStyle"
-            class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200"
-            :class="{ 'rotate-90': open }"
-          />
-          <div v-else class="w-4 shrink-0" />
-
-          <!-- Preview -->
-          <span
-            class="flex-1 truncate leading-relaxed"
-            :style="{
-              fontSize: `${previewSize}px`,
-              fontFamily: previewFontId
-                ? `'${getFontFamily(previewFontId)}', sans-serif`
-                : 'sans-serif',
-            }"
-          >
-            {{ previewText || family.name }}
-          </span>
-        </div>
-      </component>
-
-      <div class="pr-3 shrink-0">
+        {{ family.name }}
+      </span>
+      <span
+        class="min-w-[80px] flex-shrink-0 font-mono text-[10px] text-foreground-subtle"
+        >{{ category }}</span
+      >
+      <span
+        class="flex-shrink-0 font-mono text-[10px] text-foreground-subtle"
+        >{{ stylesLabel }}</span
+      >
+      <span
+        v-if="format"
+        class="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle"
+        >{{ format }}</span
+      >
+      <div class="flex-1" />
+      <div
+        class="opacity-0 transition-opacity group-hover:opacity-100"
+        @click.prevent.stop
+      >
         <DeviceInstallSheet
           v-if="familyFontIds.length > 0"
           :font-ids="familyFontIds"
           trigger-variant="icon"
         />
       </div>
+    </RouterLink>
+
+    <!-- ── Body layout ──────────────────────────────────────── -->
+    <div v-else-if="layout === 'body'" class="px-8 py-6">
+      <div class="mb-4 flex items-center gap-3 font-mono">
+        <span class="text-[10px] font-medium">{{ family.name }}</span>
+        <span v-if="foundry" class="text-[9px] text-foreground-subtle">{{
+          foundry
+        }}</span>
+        <span
+          v-if="family.styleCount > 1"
+          class="text-[9px] text-foreground-subtle"
+          >{{ stylesLabel }}</span
+        >
+        <div class="flex-1" />
+        <div class="opacity-0 transition-opacity group-hover:opacity-100">
+          <DeviceInstallSheet
+            v-if="familyFontIds.length > 0"
+            :font-ids="familyFontIds"
+            trigger-variant="icon"
+          />
+        </div>
+      </div>
+      <p class="select-text break-words" :style="previewStyle">
+        {{ bodyText }}
+      </p>
     </div>
 
-    <!-- Expanded members -->
-    <div v-if="isMultiStyle && open">
-      <!-- Loading skeleton -->
-      <div
-        v-if="loadingMembers && members.length === 0"
-        class="space-y-1 pb-2"
-      >
-        <Skeleton
-          v-for="i in Math.min(family.styleCount, 4)"
-          :key="i"
-          class="mx-4 h-14"
-        />
+    <!-- ── Specimen layout (default) ────────────────────────── -->
+    <div v-else>
+      <div class="px-8 py-7">
+        <div class="mb-4 flex items-center gap-3 font-mono">
+          <button
+            v-if="isMultiStyle"
+            type="button"
+            class="flex items-center gap-2"
+            @click="toggle"
+          >
+            <ChevronDown
+              v-if="open"
+              class="size-3 flex-shrink-0 text-foreground"
+              :stroke-width="2"
+            />
+            <ChevronRight
+              v-else
+              class="size-3 flex-shrink-0 text-muted-foreground"
+              :stroke-width="2"
+            />
+            <span class="text-[11px] font-medium">{{ family.name }}</span>
+            <span class="text-foreground-subtle">·</span>
+            <span class="text-[10px] text-muted-foreground">{{
+              stylesLabel
+            }}</span>
+          </button>
+          <RouterLink
+            v-else
+            :to="{
+              name: 'font-detail',
+              params: { id: family.previewFont?.id },
+            }"
+            class="text-[11px] font-medium"
+          >
+            {{ family.name }}
+          </RouterLink>
+
+          <span v-if="foundry" class="text-[10px] text-foreground-subtle">{{
+            foundry
+          }}</span>
+          <div class="flex-1" />
+          <div class="opacity-0 transition-opacity group-hover:opacity-100">
+            <DeviceInstallSheet
+              v-if="familyFontIds.length > 0"
+              :font-ids="familyFontIds"
+              trigger-variant="icon"
+            />
+          </div>
+        </div>
+        <div class="select-text break-words leading-none" :style="previewStyle">
+          {{ previewText || family.name }}
+        </div>
       </div>
 
-      <!-- Error state -->
-      <div
-        v-else-if="fetchError"
-        class="flex items-center gap-2 px-4 py-3 pl-10"
-      >
-        <span class="text-sm text-muted-foreground"
-          >Erreur de chargement</span
+      <!-- Expanded styles -->
+      <div v-if="isMultiStyle && open" class="border-t border-separator">
+        <div
+          v-if="loadingMembers && members.length === 0"
+          class="space-y-2 p-4"
         >
-        <Button variant="ghost" size="icon-sm" @click="retry">
-          <RotateCcw class="h-3.5 w-3.5" />
-        </Button>
-      </div>
+          <Skeleton
+            v-for="i in Math.min(family.styleCount, 4)"
+            :key="i"
+            class="h-12"
+          />
+        </div>
 
-      <!-- Members list -->
-      <div v-else class="pb-2">
+        <div v-else-if="fetchError" class="flex items-center gap-2 px-8 py-4">
+          <span class="text-[11px] text-muted-foreground"
+            >Erreur de chargement</span
+          >
+          <Button variant="ghost" size="icon-sm" @click="retry">
+            <RotateCcw class="size-3.5" />
+          </Button>
+        </div>
+
         <FontStyleRow
           v-for="member in members"
+          v-else
           :key="member.fontId"
           :member="member"
           :preview-text="previewText"
-          :preview-size="previewSize"
+          :typo="typo"
           :family-name="family.name"
           :observe="observe"
           :unobserve="unobserve"
@@ -195,5 +278,5 @@ onBeforeUnmount(() => {
         />
       </div>
     </div>
-  </div>
+  </li>
 </template>

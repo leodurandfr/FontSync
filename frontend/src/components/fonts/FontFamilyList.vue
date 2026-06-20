@@ -6,10 +6,12 @@ import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import { useFontPreview } from "@/composables/useFontPreview";
 import FontFamilyGroup from "./FontFamilyGroup.vue";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { FontLayout, Typo } from "./types";
 
-const props = defineProps<{
+defineProps<{
   previewText: string;
-  previewSize: number;
+  typo: Typo;
+  layout: FontLayout;
 }>();
 
 const familiesStore = useFamiliesStore();
@@ -53,50 +55,44 @@ watch(sentinelRef, (el) => {
   <!-- Loading skeleton -->
   <div
     v-if="familiesStore.loading && familiesStore.families.length === 0"
-    class="rounded-xl border bg-card"
+    class="divide-y divide-separator border-y border-separator"
   >
-    <div
-      v-for="i in 8"
-      :key="i"
-      class="flex items-center gap-3 border-b px-4 py-3 last:border-b-0"
-    >
-      <Skeleton class="h-4 w-4 rounded" />
-      <Skeleton class="h-5 w-48" />
-      <Skeleton class="h-4 w-16" />
+    <div v-for="i in 6" :key="i" class="px-8 py-7">
+      <Skeleton class="mb-4 h-3 w-40" />
+      <Skeleton class="h-10 w-2/3" />
     </div>
   </div>
 
   <!-- Empty state -->
   <div
     v-else-if="familiesStore.isEmpty"
-    class="rounded-xl border border-dashed p-12 text-center"
+    class="flex h-48 flex-col items-center justify-center gap-2"
   >
-    <p class="text-muted-foreground">Aucune famille de polices.</p>
-    <p class="text-sm text-muted-foreground mt-1">
-      Uploadez des polices ou lancez un regroupement pour commencer.
-    </p>
+    <p class="text-[13px] text-muted-foreground">Aucune police trouvée</p>
+    <p class="text-[11px] text-foreground-subtle">Ajustez les filtres</p>
   </div>
 
   <!-- Family list -->
   <template v-else>
-    <div class="rounded-xl border bg-card">
+    <ul class="divide-y divide-separator border-y border-separator">
       <FontFamilyGroup
         v-for="family in familiesStore.families"
         :key="family.id"
         :family="family"
         :preview-text="previewText"
-        :preview-size="previewSize"
+        :typo="typo"
+        :layout="layout"
         :observe="observe"
         :unobserve="unobserve"
         :get-font-family="getFontFamily"
       />
-    </div>
+    </ul>
 
     <!-- Infinite scroll sentinel -->
     <div ref="sentinelRef" class="flex justify-center py-8">
       <Loader2
         v-if="familiesStore.loadingMore"
-        class="h-5 w-5 animate-spin text-muted-foreground"
+        class="size-5 animate-spin text-muted-foreground"
       />
     </div>
   </template>

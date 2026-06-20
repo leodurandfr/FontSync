@@ -1,65 +1,78 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from "vue";
-import { Search } from "lucide-vue-next";
-import { Input } from "@/components/ui/input";
+import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
-import FilterPanel from "@/components/fonts/FilterPanel.vue";
-import PreviewToolbar from "@/components/fonts/PreviewToolbar.vue";
+import { useLayoutStore } from "@/stores/layout";
+import FontsToolbar, {
+  type FontLayout,
+} from "@/components/fonts/FontsToolbar.vue";
 import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
 
 const filtersStore = useFamilyFiltersStore();
-const previewText = ref("");
-const previewSize = ref(20);
+const layoutStore = useLayoutStore();
 
+const previewText = ref("The quick brown fox jumps over the lazy dog");
+const fontSize = ref(40);
+const lineHeight = ref(1.1);
+const letterSpacing = ref(0);
+const layout = ref<FontLayout>("specimen");
+
+const typo = computed(() => ({
+  fontSize: fontSize.value,
+  lineHeight: lineHeight.value,
+  letterSpacing: letterSpacing.value,
+}));
+
+// Recherche : on débounce la frappe vers le store (qui relance le fetch).
 const searchInput = ref(filtersStore.search);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
 watch(searchInput, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     filtersStore.search = val;
   }, 300);
 });
-
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
+
+// Quand replié, on décale la toolbar pour laisser place au bouton d'ouverture.
+const toolbarLeft = computed(() =>
+  layoutStore.sidebarOpen ? "0.75rem" : "3.5rem",
+);
 </script>
 
 <template>
-  <div class="flex h-full overflow-hidden">
-    <FilterPanel />
+  <div class="relative h-full">
+    <!-- Toolbar flottante -->
+    <div class="absolute right-3 top-3 z-20" :style="{ left: toolbarLeft }">
+      <FontsToolbar
+        v-model:preview-text="previewText"
+        v-model:font-size="fontSize"
+        v-model:line-height="lineHeight"
+        v-model:letter-spacing="letterSpacing"
+        v-model:layout="layout"
+        v-model:search="searchInput"
+      />
+    </div>
 
-    <main class="flex-1 overflow-y-auto p-6">
-      <div class="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 class="text-3xl font-bold tracking-tight">Polices</h1>
-          <p class="text-muted-foreground mt-1">
-            Parcourez et gérez votre bibliothèque de polices.
-          </p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2 mt-1">
-          <div class="relative">
-            <Search
-              class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              v-model="searchInput"
-              type="search"
-              placeholder="Rechercher une police..."
-              class="pl-9 h-9 w-64"
-            />
-          </div>
+    <!-- Fade sous la toolbar -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-7 bg-gradient-to-b from-background to-transparent"
+    />
+
+    <!-- Liste -->
+    <div class="absolute inset-0 overflow-y-auto [scrollbar-width:none]">
+      <div class="pb-16 pt-[72px]">
+        <div class="flex items-center justify-end px-8 pb-3">
           <UploadDialog />
         </div>
+        <FontFamilyList
+          :preview-text="previewText"
+          :typo="typo"
+          :layout="layout"
+        />
       </div>
-
-      <PreviewToolbar
-        v-model:preview-text="previewText"
-        v-model:preview-size="previewSize"
-      />
-      <FontFamilyList :preview-text="previewText" :preview-size="previewSize" />
-    </main>
+    </div>
   </div>
 </template>

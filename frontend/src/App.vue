@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import AppLayout from "@/components/layout/AppLayout.vue";
+import AppShell from "@/components/layout/AppShell.vue";
 import TokenGate from "@/components/auth/TokenGate.vue";
 import { useAuthStore } from "@/stores/auth";
 
@@ -12,5 +12,5 @@ const { needsToken } = storeToRefs(useAuthStore());
 
 <template>
   <TokenGate v-if="needsToken" />
-  <AppLayout v-else />
+  <AppShell v-else />
 </template>
