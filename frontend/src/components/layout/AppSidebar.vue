@@ -13,6 +13,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import { showWindowControls } from "@/composables/useWindowControls";
+import { useSidebarMode } from "@/composables/useSidebarMode";
 
 const { t } = useI18n();
 
@@ -20,6 +21,7 @@ const layout = useLayoutStore();
 const familiesStore = useFamiliesStore();
 const filtersStore = useFamilyFiltersStore();
 const route = useRoute();
+const { isOverlay } = useSidebarMode();
 
 const CATEGORIES = [
   "serif",
@@ -68,28 +70,46 @@ function startResize(e: PointerEvent) {
 
 <template>
   <!--
-    Modèle Finder, un seul comportement : la sidebar pousse le contenu (jamais
-    d'overlay). Le conteneur anime sa largeur (0 ↔ largeur + gouttière) et
-    clippe (`overflow-hidden`) ; le panneau est ancré au bord droit du conteneur
-    (`absolute right-0`), donc il émerge par la gauche au fil de l'ouverture — il
-    glisse en poussant le contenu, sans fondu. Replié : largeur 0, le panneau
-    (toujours monté pour s'animer) est clippé hors champ et inerte.
+    Deux comportements selon la largeur de fenêtre (cf. useSidebarMode) :
+
+    • Push (≥ 740px, modèle Finder) : le conteneur `relative` réserve sa largeur
+      (0 ↔ largeur + gouttière) et clippe (`overflow-hidden`) ; le panneau, ancré
+      au bord droit (`absolute right-0`), émerge par la gauche en poussant le
+      contenu. Replié : largeur 0, panneau clippé hors champ et inerte.
+
+    • Overlay (< 740px) : le conteneur passe `fixed` au-dessus du contenu (pas de
+      réservation de largeur, donc aucun push) ; le panneau redevient `relative`
+      pour donner sa largeur au conteneur, qui coulisse via translate-x derrière
+      un backdrop (cf. AppShell). Replié : `-translate-x-full`, hors écran.
   -->
   <div
-    class="relative z-30 flex-shrink-0 overflow-hidden ease-in-out"
+    class="ease-in-out"
     :class="[
-      resizing ? '' : 'transition-[width] duration-200',
+      isOverlay
+        ? 'fixed inset-y-0 left-0 z-50'
+        : 'relative z-30 flex-shrink-0 overflow-hidden',
+      resizing
+        ? ''
+        : isOverlay
+          ? 'transition-transform duration-200'
+          : 'transition-[width] duration-200',
       layout.sidebarOpen ? '' : 'pointer-events-none',
+      isOverlay && !layout.sidebarOpen ? '-translate-x-full' : '',
     ]"
-    :style="{
-      width: layout.sidebarOpen
-        ? `${layout.sidebarWidth + layout.gutter}px`
-        : '0',
-    }"
+    :style="
+      isOverlay
+        ? undefined
+        : {
+            width: layout.sidebarOpen
+              ? `${layout.sidebarWidth + layout.gutter}px`
+              : '0',
+          }
+    "
   >
     <Panel
       as="aside"
-      class="absolute right-0 top-0 m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden"
+      class="m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden"
+      :class="isOverlay ? 'relative' : 'absolute right-0 top-0'"
       :style="{ width: `${layout.sidebarWidth}px` }"
     >
       <!-- Header -->

@@ -8,11 +8,13 @@ import WindowControls from "./WindowControls.vue";
 import { Panel } from "@/components/ui/panel";
 import { useWebSocket } from "@/composables/useWebSocket";
 import { showWindowControls } from "@/composables/useWindowControls";
+import { useSidebarMode } from "@/composables/useSidebarMode";
 import { useLayoutStore } from "@/stores/layout";
 
 const { t } = useI18n();
 const layout = useLayoutStore();
 const route = useRoute();
+const { isOverlay } = useSidebarMode();
 
 // L'écran de saisie du token (App.vue) démonte cette coquille sur un 401 /
 // WS 1008 : on ferme alors proprement la connexion WebSocket pour ne pas la
@@ -23,11 +25,27 @@ onUnmounted(disconnect);
 
 <template>
   <!--
-    Modèle Finder : la sidebar pousse le contenu (jamais d'overlay, pas de
-    basculement par largeur). Si la fenêtre native est trop étroite à
-    l'ouverture, elle s'agrandit (cf. layout store → ensureWindowWidth).
+    Au-dessus de 740px : modèle Finder, la sidebar pousse le contenu et élargit
+    la fenêtre native si besoin (layout store → ensureWindowWidth). En dessous :
+    elle passe en drawer overlay au-dessus du contenu, avec le backdrop ci-après
+    (cf. useSidebarMode + AppSidebar).
   -->
   <div class="flex h-screen overflow-hidden bg-background">
+    <!-- Backdrop du drawer overlay (fenêtre étroite < 740px) -->
+    <Transition
+      enter-active-class="transition-opacity duration-200"
+      enter-from-class="opacity-0"
+      leave-active-class="transition-opacity duration-200"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="layout.sidebarOpen && isOverlay"
+        class="fixed inset-0 z-40 bg-black/50"
+        aria-hidden="true"
+        @click="layout.setSidebarOpen(false)"
+      />
+    </Transition>
+
     <AppSidebar />
 
     <!-- Feux de fenêtre + réouverture (la page Fonts l'intègre dans sa toolbar) -->

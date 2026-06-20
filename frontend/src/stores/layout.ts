@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 import { ensureWindowWidth } from "@/composables/useWindowControls";
+import { isSidebarOverlay } from "@/composables/useSidebarMode";
 
 const WIDTH_KEY = "fontsync_sidebar_width";
 const OPEN_KEY = "fontsync_sidebar_open";
@@ -29,9 +30,11 @@ export const useLayoutStore = defineStore("layout", () => {
   );
 
   function setSidebarOpen(value: boolean, persist = true) {
-    // À l'ouverture, garantir que la fenêtre native est assez large pour loger
-    // la sidebar sans écraser le contenu sous MIN_CONTENT (no-op en navigateur).
-    if (value && !sidebarOpen.value) {
+    // À l'ouverture en mode « push » (fenêtre large), garantir que la fenêtre
+    // native est assez large pour loger la sidebar sans écraser le contenu sous
+    // MIN_CONTENT (no-op en navigateur). En mode overlay (fenêtre étroite), la
+    // sidebar passe au-dessus du contenu : on n'élargit pas la fenêtre.
+    if (value && !sidebarOpen.value && !isSidebarOverlay()) {
       ensureWindowWidth(sidebarWidth.value + GUTTER + MIN_CONTENT);
     }
     sidebarOpen.value = value;
