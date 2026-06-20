@@ -70,7 +70,17 @@ onUnmounted(disconnect);
       </button>
     </Panel>
 
-    <main class="relative min-w-0 flex-1 overflow-hidden">
+    <!--
+      En mode « push » sidebar ouverte, on tire le contenu de 12px vers la
+      gauche (la demi-gouttière à droite du panneau) pour que sa bordure vienne
+      affleurer le bord du panneau : les filets séparateurs des fontes semblent
+      ainsi filer sous la sidebar. Désactivé fermé / en overlay, sinon le
+      `overflow-hidden` parent rognerait 12px de contenu à gauche.
+    -->
+    <main
+      class="relative min-w-0 flex-1 overflow-hidden"
+      :class="!isOverlay && layout.sidebarOpen ? '-ml-3' : ''"
+    >
       <!--
         Crossfade entre pages : opacity seule (composité GPU, aucun reflow) et
         mode out-in pour un vrai fade-out → fade-in séquentiel. La clé sur la

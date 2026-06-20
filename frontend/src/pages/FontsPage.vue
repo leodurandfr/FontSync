@@ -48,12 +48,12 @@ onBeforeUnmount(() => {
 
     <!-- Fade sous la toolbar -->
     <div
-      class="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-7 bg-gradient-to-b from-background to-transparent"
+      class="pointer-events-none absolute left-0 right-2 top-[60px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
     />
 
     <!-- Liste -->
-    <div class="scrollbar-thin absolute inset-0 overflow-y-auto">
-      <div class="pb-16 pt-[72px]">
+    <div class="scrollbar-thin absolute inset-x-0 bottom-0 top-[60px] overflow-y-auto">
+      <div class="pb-16 pt-3">
         <FontFamilyList :typo="typo" :layout="layout" />
       </div>
     </div>

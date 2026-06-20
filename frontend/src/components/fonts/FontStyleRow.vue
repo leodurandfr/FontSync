@@ -59,9 +59,9 @@ const previewStyle = computed(() => ({
 <template>
   <div
     ref="rowRef"
-    class="group/style border-t border-separator bg-muted px-8 py-6"
+    class="group/style border-t border-separator bg-font-preview px-8 py-4"
   >
-    <div class="mb-4 flex items-center gap-3 font-mono">
+    <div class="mb-1 flex items-center gap-3 font-mono">
       <RouterLink
         :to="{ name: 'font-detail', params: { id: member.fontId } }"
         class="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
