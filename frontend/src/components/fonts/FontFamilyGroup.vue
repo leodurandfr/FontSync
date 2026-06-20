@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import FontStyleRow from "./FontStyleRow.vue";
+import EditablePreview from "./EditablePreview.vue";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import type { FontFamily, FamilyMember } from "@/types/api";
 import type { FontLayout, Typo } from "./types";
 
 const props = defineProps<{
   family: FontFamily;
-  previewText: string;
   typo: Typo;
   layout: FontLayout;
   observe: (el: Element, fontId: string) => void;
@@ -75,11 +75,6 @@ const familyFontIds = computed(() =>
       ? [previewFontId]
       : [],
 );
-
-const bodyText = computed(() => {
-  const base = props.previewText || props.family.name;
-  return `${base} ${base}`;
-});
 
 async function fetchMembers() {
   if (loaded.value || loadingMembers.value) return;
@@ -196,12 +191,11 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
-      <p
-        class="select-text break-words transition-opacity duration-200"
+      <EditablePreview
+        class="break-words transition-opacity duration-200"
         :style="previewStyle"
-      >
-        {{ bodyText }}
-      </p>
+        :placeholder="family.name"
+      />
     </div>
 
     <!-- ── Specimen layout (default) ────────────────────────── -->
@@ -255,12 +249,11 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
-        <div
-          class="select-text break-words leading-none transition-opacity duration-200"
+        <EditablePreview
+          class="break-words leading-none transition-opacity duration-200"
           :style="previewStyle"
-        >
-          {{ previewText || family.name }}
-        </div>
+          :placeholder="family.name"
+        />
       </div>
 
       <!-- Expanded styles -->
@@ -293,7 +286,6 @@ onBeforeUnmount(() => {
           v-else
           :key="member.fontId"
           :member="member"
-          :preview-text="previewText"
           :typo="typo"
           :family-name="family.name"
           :observe="observe"

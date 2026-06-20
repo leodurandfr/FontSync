@@ -12,7 +12,6 @@ import type { FontLayout, Typo } from "./types";
 const { t } = useI18n();
 
 defineProps<{
-  previewText: string;
   typo: Typo;
   layout: FontLayout;
 }>();
@@ -88,7 +87,6 @@ watch(sentinelRef, (el) => {
         v-for="family in familiesStore.families"
         :key="family.id"
         :family="family"
-        :preview-text="previewText"
         :typo="typo"
         :layout="layout"
         :observe="observe"

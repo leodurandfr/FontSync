@@ -8,7 +8,6 @@ import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 
 const filtersStore = useFamilyFiltersStore();
 
-const previewText = ref("The quick brown fox jumps over the lazy dog");
 const fontSize = ref(40);
 const lineHeight = ref(1.1);
 const letterSpacing = ref(0);
@@ -39,7 +38,6 @@ onBeforeUnmount(() => {
     <!-- Toolbar flottante -->
     <div class="absolute left-3 right-3 top-3 z-20">
       <FontsToolbar
-        v-model:preview-text="previewText"
         v-model:font-size="fontSize"
         v-model:line-height="lineHeight"
         v-model:letter-spacing="letterSpacing"
@@ -48,19 +46,15 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Fade sous la toolbar (plus bas sur mobile : toolbar sur 2 rangées) -->
+    <!-- Fade sous la toolbar -->
     <div
-      class="pointer-events-none absolute inset-x-0 top-[108px] z-10 h-7 bg-gradient-to-b from-background to-transparent sm:top-[60px]"
+      class="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-7 bg-gradient-to-b from-background to-transparent"
     />
 
     <!-- Liste -->
     <div class="scrollbar-thin absolute inset-0 overflow-y-auto">
-      <div class="pb-16 pt-[120px] sm:pt-[72px]">
-        <FontFamilyList
-          :preview-text="previewText"
-          :typo="typo"
-          :layout="layout"
-        />
+      <div class="pb-16 pt-[72px]">
+        <FontFamilyList :typo="typo" :layout="layout" />
       </div>
     </div>
   </div>

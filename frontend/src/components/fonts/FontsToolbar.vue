@@ -26,7 +26,6 @@ export type { FontLayout };
 const { t } = useI18n();
 const layoutStore = useLayoutStore();
 
-const previewText = defineModel<string>("previewText", { required: true });
 const fontSize = defineModel<number>("fontSize", { required: true });
 const lineHeight = defineModel<number>("lineHeight", { required: true });
 const letterSpacing = defineModel<number>("letterSpacing", { required: true });
@@ -42,10 +41,10 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
 <template>
   <!--
-    Desktop : une seule rangée [toggle | preview+typo | layout | search].
-    Mobile (max-sm) : flex-wrap sur 2 rangées — rangée 1 [toggle | search |
-    layout], rangée 2 (pleine largeur) le champ preview. Les réglages typo fins
-    sont masqués sur mobile. Le ré-ordonnancement se fait via `order-*`.
+    Desktop : une seule rangée [toggle | typo | layout | search]. Le texte
+    d'aperçu n'est plus saisi ici : il s'édite en place dans chaque preview
+    (voir `EditablePreview.vue`). Mobile (max-sm) : les réglages typo fins sont
+    masqués, il reste [toggle | layout | search] sur une seule rangée.
   -->
   <Panel
     class="flex flex-wrap items-stretch overflow-hidden p-0 sm:h-12 sm:flex-nowrap sm:items-center"
@@ -82,49 +81,34 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       </div>
     </div>
 
-    <!-- 1 — Preview + typo -->
+    <!-- 1 — Réglages typo (desktop uniquement) -->
     <div
-      class="order-last flex h-12 w-full min-w-0 items-center gap-3 border-t border-separator px-4 sm:order-2 sm:h-full sm:w-auto sm:flex-1 sm:border-t-0 sm:border-r"
+      class="order-2 hidden h-full flex-shrink-0 items-center gap-3 border-r border-separator px-4 sm:flex"
     >
-      <span
-        class="hidden flex-shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-foreground-subtle sm:inline"
-      >
-        {{ t("toolbar.preview") }}
-      </span>
-      <input
-        v-model="previewText"
-        type="text"
-        :placeholder="t('toolbar.typeSomething')"
-        class="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
+      <TypoInput
+        :icon="Type"
+        v-model="fontSize"
+        :min="10"
+        :max="160"
+        :step="1"
+        suffix="px"
       />
-      <div
-        class="hidden flex-shrink-0 items-center gap-3 border-l border-separator pl-3 sm:flex"
-      >
-        <TypoInput
-          :icon="Type"
-          v-model="fontSize"
-          :min="10"
-          :max="160"
-          :step="1"
-          suffix="px"
-        />
-        <TypoInput
-          :icon="ArrowUpDown"
-          v-model="lineHeight"
-          :min="0.8"
-          :max="3"
-          :step="0.1"
-          :digits="1"
-        />
-        <TypoInput
-          :icon="ArrowLeftRight"
-          v-model="letterSpacing"
-          :min="-0.1"
-          :max="0.3"
-          :step="0.01"
-          :digits="2"
-        />
-      </div>
+      <TypoInput
+        :icon="ArrowUpDown"
+        v-model="lineHeight"
+        :min="0.8"
+        :max="3"
+        :step="0.1"
+        :digits="1"
+      />
+      <TypoInput
+        :icon="ArrowLeftRight"
+        v-model="letterSpacing"
+        :min="-0.1"
+        :max="0.3"
+        :step="0.01"
+        :digits="2"
+      />
     </div>
 
     <!-- 2 — Layout switch -->
@@ -136,7 +120,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 3 — Search -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-4 sm:h-full sm:min-w-[148px] sm:flex-none"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-4 sm:h-full sm:min-w-[148px]"
     >
       <Search
         class="size-3 flex-shrink-0 text-foreground-subtle"

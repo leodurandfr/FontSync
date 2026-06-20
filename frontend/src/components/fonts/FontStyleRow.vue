@@ -2,12 +2,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { RouterLink } from "vue-router";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
+import EditablePreview from "./EditablePreview.vue";
 import type { FamilyMember } from "@/types/api";
 import type { Typo } from "./types";
 
 const props = defineProps<{
   member: FamilyMember;
-  previewText: string;
   typo: Typo;
   familyName: string;
   observe: (el: Element, fontId: string) => void;
@@ -62,9 +62,11 @@ const previewStyle = computed(() => ({
     class="group/style border-t border-separator bg-muted px-8 py-6"
   >
     <div class="mb-4 flex items-center gap-3 font-mono">
-      <span class="text-[11px] font-medium text-muted-foreground">{{
-        styleName
-      }}</span>
+      <RouterLink
+        :to="{ name: 'font-detail', params: { id: member.fontId } }"
+        class="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >{{ styleName }}</RouterLink
+      >
       <span class="text-foreground-subtle">·</span>
       <span class="text-[10px] text-foreground-subtle">{{ familyName }}</span>
       <div class="flex-1" />
@@ -75,12 +77,10 @@ const previewStyle = computed(() => ({
         />
       </div>
     </div>
-    <RouterLink
-      :to="{ name: 'font-detail', params: { id: member.fontId } }"
-      class="block select-text break-words leading-none transition-opacity duration-200"
+    <EditablePreview
+      class="block break-words leading-none transition-opacity duration-200"
       :style="previewStyle"
-    >
-      {{ previewText || familyName }}
-    </RouterLink>
+      :placeholder="familyName"
+    />
   </div>
 </template>
