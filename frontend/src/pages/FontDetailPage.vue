@@ -9,12 +9,14 @@ import {
   Upload,
   Calendar,
   Monitor,
+  Type,
+  ArrowLeftRight,
 } from "lucide-vue-next";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Panel } from "@/components/ui/panel";
+import { SectionLabel } from "@/components/ui/section-label";
+import { TypoInput } from "@/components/ui/typo-input";
 import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
 import type { Font } from "@/types/api";
@@ -26,6 +28,8 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const fontLoaded = ref(false);
 const previewText = ref("Portez ce vieux whisky au juge blond qui fume");
+const previewSize = ref(40);
+const previewTracking = ref(0);
 const glyphPage = ref(0);
 
 let fontFace: FontFace | null = null;
@@ -181,296 +185,336 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- Loading -->
-  <div v-if="loading" class="mx-auto max-w-4xl space-y-8">
-    <Skeleton class="h-8 w-64" />
-    <Skeleton class="h-5 w-40" />
-    <Skeleton class="h-24 w-full" />
-    <div class="space-y-3">
-      <Skeleton v-for="i in 5" :key="i" class="h-6 w-full" />
-    </div>
-  </div>
-
-  <!-- Error -->
-  <div v-else-if="error" class="mx-auto max-w-4xl">
-    <div class="rounded-xl border border-dashed p-12 text-center">
-      <p class="text-muted-foreground">Impossible de charger la police.</p>
-      <p class="text-sm text-muted-foreground mt-1">{{ error }}</p>
-      <div class="mt-4 flex justify-center gap-3">
-        <Button variant="outline" as-child>
-          <RouterLink :to="{ name: 'fonts' }">
-            <ArrowLeft class="mr-2 h-4 w-4" />
-            Retour
-          </RouterLink>
-        </Button>
-        <Button @click="fetchFont">Réessayer</Button>
+  <div class="h-full overflow-y-auto [scrollbar-width:none]">
+    <!-- Loading -->
+    <div v-if="loading" class="mx-auto max-w-4xl space-y-8 px-8 py-10">
+      <Skeleton class="h-8 w-64" />
+      <Skeleton class="h-5 w-40" />
+      <Skeleton class="h-40 w-full rounded-panel" />
+      <div class="grid gap-4 sm:grid-cols-2">
+        <Skeleton v-for="i in 6" :key="i" class="h-10" />
       </div>
     </div>
-  </div>
 
-  <!-- Content -->
-  <div v-else-if="font" class="mx-auto max-w-4xl space-y-8">
-    <!-- Header -->
-    <div>
-      <RouterLink
-        :to="{ name: 'fonts' }"
-        class="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft class="mr-1 h-4 w-4" />
-        Polices
-      </RouterLink>
+    <!-- Error -->
+    <div v-else-if="error" class="mx-auto max-w-4xl px-8 py-10">
+      <Panel class="p-12 text-center">
+        <p class="text-sm text-foreground">Impossible de charger la police.</p>
+        <p class="mt-1 font-mono text-[10px] text-foreground-subtle">
+          {{ error }}
+        </p>
+        <div class="mt-4 flex justify-center gap-3">
+          <Button variant="outline" as-child>
+            <RouterLink :to="{ name: 'fonts' }">
+              <ArrowLeft class="mr-2 h-4 w-4" />
+              Retour
+            </RouterLink>
+          </Button>
+          <Button @click="fetchFont">Réessayer</Button>
+        </div>
+      </Panel>
+    </div>
 
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <h1 class="text-3xl font-bold tracking-tight">
-            {{ font.familyName ?? font.originalFilename }}
-          </h1>
-          <div class="flex items-center gap-2 mt-1">
-            <span class="text-muted-foreground">
-              {{ font.subfamilyName ?? font.fileFormat.toUpperCase() }}
-            </span>
-            <Badge v-if="font.classification" variant="secondary">
-              {{
-                CLASSIFICATION_LABELS[font.classification] ??
-                font.classification
-              }}
-            </Badge>
-            <Badge v-if="font.isVariable" variant="outline">Variable</Badge>
+    <!-- Content -->
+    <div v-else-if="font" class="mx-auto max-w-4xl space-y-10 px-8 py-10">
+      <!-- Header -->
+      <header>
+        <RouterLink
+          :to="{ name: 'fonts' }"
+          class="mb-5 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground-subtle transition-colors hover:text-foreground"
+        >
+          <ArrowLeft class="size-3" :stroke-width="2" />
+          Polices
+        </RouterLink>
+
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h1 class="truncate text-3xl font-semibold tracking-tight">
+              {{ font.familyName ?? font.originalFilename }}
+            </h1>
+            <div class="mt-2 flex flex-wrap items-center gap-2 font-mono">
+              <span class="text-[11px] text-muted-foreground">
+                {{ font.subfamilyName ?? font.fileFormat.toUpperCase() }}
+              </span>
+              <span
+                v-if="font.classification"
+                class="rounded bg-muted px-1.5 py-0.5 text-[9px] text-foreground-subtle"
+              >
+                {{
+                  CLASSIFICATION_LABELS[font.classification] ??
+                  font.classification
+                }}
+              </span>
+              <span
+                v-if="font.isVariable"
+                class="rounded bg-muted px-1.5 py-0.5 text-[9px] text-foreground-subtle"
+              >
+                Variable
+              </span>
+            </div>
+          </div>
+          <div class="flex flex-shrink-0 items-center gap-2">
+            <DeviceInstallSheet :font-ids="[id]" />
+
+            <Button @click="handleDownload">
+              <Download class="mr-2 h-4 w-4" />
+              Télécharger
+            </Button>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <DeviceInstallSheet :font-ids="[id]" />
+      </header>
 
-          <Button @click="handleDownload">
-            <Download class="mr-2 h-4 w-4" />
-            Télécharger
-          </Button>
+      <!-- Preview -->
+      <section>
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <SectionLabel>Aperçu</SectionLabel>
+          <div class="flex items-center gap-3">
+            <TypoInput
+              :icon="Type"
+              v-model="previewSize"
+              :min="12"
+              :max="160"
+              :step="1"
+              suffix="px"
+            />
+            <TypoInput
+              :icon="ArrowLeftRight"
+              v-model="previewTracking"
+              :min="-0.1"
+              :max="0.3"
+              :step="0.01"
+              :digits="2"
+            />
+          </div>
         </div>
-      </div>
-    </div>
-
-    <Separator />
-
-    <!-- Preview -->
-    <section>
-      <h2 class="text-lg font-semibold mb-3">Aperçu</h2>
-      <Input
-        v-model="previewText"
-        placeholder="Saisissez un texte..."
-        class="mb-4"
-      />
-      <div
-        class="rounded-xl border bg-card p-6 text-2xl leading-relaxed break-words"
-        :style="{
-          fontFamily: fontLoaded ? `'${fontFamily}', sans-serif` : 'sans-serif',
-        }"
-      >
-        {{ previewText }}
-      </div>
-    </section>
-
-    <!-- Waterfall -->
-    <section>
-      <h2 class="text-lg font-semibold mb-3">Cascade</h2>
-      <div class="rounded-xl border bg-card p-6 space-y-4">
-        <div
-          v-for="size in WATERFALL_SIZES"
-          :key="size"
-          class="flex items-baseline gap-4"
-        >
-          <span class="w-10 shrink-0 text-right text-xs text-muted-foreground">
-            {{ size }}px
-          </span>
-          <span
-            class="break-words min-w-0"
+        <Panel class="overflow-hidden p-0">
+          <input
+            v-model="previewText"
+            type="text"
+            placeholder="Saisissez un texte…"
+            class="w-full border-b border-separator bg-transparent px-6 py-3 font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
+          />
+          <div
+            class="select-text break-words p-6 leading-tight"
             :style="{
-              fontSize: `${size}px`,
-              lineHeight: 1.3,
+              fontSize: `${previewSize}px`,
+              letterSpacing: `${previewTracking}em`,
               fontFamily: fontLoaded
                 ? `'${fontFamily}', sans-serif`
                 : 'sans-serif',
             }"
           >
             {{ previewText }}
+          </div>
+        </Panel>
+      </section>
+
+      <!-- Waterfall -->
+      <section>
+        <SectionLabel class="mb-3">Cascade</SectionLabel>
+        <Panel class="space-y-4 p-6">
+          <div
+            v-for="size in WATERFALL_SIZES"
+            :key="size"
+            class="flex items-baseline gap-4"
+          >
+            <span
+              class="w-10 shrink-0 text-right font-mono text-[10px] text-foreground-subtle"
+            >
+              {{ size }}px
+            </span>
+            <span
+              class="min-w-0 select-text break-words"
+              :style="{
+                fontSize: `${size}px`,
+                lineHeight: 1.3,
+                fontFamily: fontLoaded
+                  ? `'${fontFamily}', sans-serif`
+                  : 'sans-serif',
+              }"
+            >
+              {{ previewText }}
+            </span>
+          </div>
+        </Panel>
+      </section>
+
+      <!-- Metadata -->
+      <section>
+        <SectionLabel class="mb-3">Métadonnées</SectionLabel>
+        <Panel class="p-6">
+          <dl class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+            <div v-if="font.designer">
+              <SectionLabel as="dt">Designer</SectionLabel>
+              <dd class="mt-1 text-[13px]">{{ font.designer }}</dd>
+            </div>
+            <div v-if="font.manufacturer">
+              <SectionLabel as="dt">Fonderie</SectionLabel>
+              <dd class="mt-1 text-[13px]">{{ font.manufacturer }}</dd>
+            </div>
+            <div v-if="font.version">
+              <SectionLabel as="dt">Version</SectionLabel>
+              <dd class="mt-1 text-[13px]">{{ font.version }}</dd>
+            </div>
+            <div v-if="font.license">
+              <SectionLabel as="dt">Licence</SectionLabel>
+              <dd class="mt-1 text-[13px]">
+                <a
+                  v-if="isSafeUrl(font.licenseUrl)"
+                  :href="font.licenseUrl!"
+                  target="_blank"
+                  rel="noopener"
+                  class="underline underline-offset-2 hover:text-foreground"
+                >
+                  {{ font.license }}
+                </a>
+                <span v-else>{{ font.license }}</span>
+              </dd>
+            </div>
+            <div>
+              <SectionLabel as="dt">Format</SectionLabel>
+              <dd class="mt-1 text-[13px]">
+                {{ font.fileFormat.toUpperCase() }}
+              </dd>
+            </div>
+            <div>
+              <SectionLabel as="dt">Taille</SectionLabel>
+              <dd class="mt-1 text-[13px]">
+                {{ formatFileSize(font.fileSize) }}
+              </dd>
+            </div>
+            <div>
+              <SectionLabel as="dt">Hash</SectionLabel>
+              <dd class="mt-1 font-mono text-[12px] text-muted-foreground">
+                {{ font.fileHash.slice(0, 12) }}&hellip;
+              </dd>
+            </div>
+            <div v-if="font.weightClass">
+              <SectionLabel as="dt">Graisse</SectionLabel>
+              <dd class="mt-1 text-[13px]">
+                {{ font.weightClass }}
+                <span
+                  v-if="WEIGHT_LABELS[font.weightClass]"
+                  class="text-foreground-subtle"
+                >
+                  · {{ WEIGHT_LABELS[font.weightClass] }}
+                </span>
+              </dd>
+            </div>
+            <div v-if="font.widthClass">
+              <SectionLabel as="dt">Largeur</SectionLabel>
+              <dd class="mt-1 text-[13px]">{{ font.widthClass }}</dd>
+            </div>
+            <div v-if="font.isItalic || font.isOblique">
+              <SectionLabel as="dt">Style</SectionLabel>
+              <dd class="mt-1 text-[13px]">
+                {{ font.isItalic ? "Italique" : "" }}
+                {{ font.isOblique ? "Oblique" : "" }}
+              </dd>
+            </div>
+            <div v-if="font.glyphCount">
+              <SectionLabel as="dt">Glyphes</SectionLabel>
+              <dd class="mt-1 text-[13px]">{{ font.glyphCount }}</dd>
+            </div>
+            <div v-if="font.description" class="sm:col-span-2">
+              <SectionLabel as="dt">Description</SectionLabel>
+              <dd class="mt-1 text-[13px] leading-relaxed">
+                {{ font.description }}
+              </dd>
+            </div>
+          </dl>
+        </Panel>
+      </section>
+
+      <!-- Import info -->
+      <section>
+        <SectionLabel class="mb-3">Import</SectionLabel>
+        <Panel class="p-6">
+          <dl class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+            <div>
+              <SectionLabel as="dt">Date d'import</SectionLabel>
+              <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
+                <Calendar class="size-3.5 text-foreground-subtle" />
+                {{ formatDate(font.createdAt) }}
+              </dd>
+            </div>
+            <div>
+              <SectionLabel as="dt">Source</SectionLabel>
+              <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
+                <Upload class="size-3.5 text-foreground-subtle" />
+                {{ SOURCE_LABELS[font.source] ?? font.source }}
+              </dd>
+            </div>
+            <div v-if="font.sourceDeviceName">
+              <SectionLabel as="dt">Importée depuis</SectionLabel>
+              <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
+                <Monitor class="size-3.5 text-foreground-subtle" />
+                {{ font.sourceDeviceName }}
+              </dd>
+            </div>
+          </dl>
+        </Panel>
+      </section>
+
+      <!-- Scripts / Languages -->
+      <section v-if="font.supportedScripts?.length">
+        <SectionLabel class="mb-3">Langues</SectionLabel>
+        <div class="flex flex-wrap gap-1.5">
+          <span
+            v-for="script in font.supportedScripts"
+            :key="script"
+            class="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] capitalize text-foreground-subtle"
+          >
+            {{ script }}
           </span>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <Separator />
-
-    <!-- Metadata -->
-    <section>
-      <h2 class="text-lg font-semibold mb-3">Métadonnées</h2>
-      <div class="rounded-xl border bg-card p-6">
-        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-          <div v-if="font.designer">
-            <dt class="text-sm text-muted-foreground">Designer</dt>
-            <dd class="text-sm font-medium">{{ font.designer }}</dd>
+      <!-- Glyphs -->
+      <section>
+        <div class="mb-3 flex items-center justify-between">
+          <SectionLabel>Glyphes</SectionLabel>
+          <div v-if="totalGlyphPages > 1" class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              :disabled="glyphPage === 0"
+              @click="glyphPage--"
+            >
+              <ChevronLeft class="h-4 w-4" />
+            </Button>
+            <span class="font-mono text-[10px] text-foreground-subtle">
+              {{ glyphPage + 1 }} / {{ totalGlyphPages }}
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              :disabled="glyphPage >= totalGlyphPages - 1"
+              @click="glyphPage++"
+            >
+              <ChevronRight class="h-4 w-4" />
+            </Button>
           </div>
-          <div v-if="font.manufacturer">
-            <dt class="text-sm text-muted-foreground">Fonderie</dt>
-            <dd class="text-sm font-medium">{{ font.manufacturer }}</dd>
-          </div>
-          <div v-if="font.version">
-            <dt class="text-sm text-muted-foreground">Version</dt>
-            <dd class="text-sm font-medium">{{ font.version }}</dd>
-          </div>
-          <div v-if="font.license">
-            <dt class="text-sm text-muted-foreground">Licence</dt>
-            <dd class="text-sm font-medium">
-              <a
-                v-if="isSafeUrl(font.licenseUrl)"
-                :href="font.licenseUrl!"
-                target="_blank"
-                rel="noopener"
-                class="underline hover:text-foreground"
-              >
-                {{ font.license }}
-              </a>
-              <span v-else>{{ font.license }}</span>
-            </dd>
-          </div>
-          <div>
-            <dt class="text-sm text-muted-foreground">Format</dt>
-            <dd class="text-sm font-medium">
-              {{ font.fileFormat.toUpperCase() }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-sm text-muted-foreground">Taille</dt>
-            <dd class="text-sm font-medium">
-              {{ formatFileSize(font.fileSize) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-sm text-muted-foreground">Hash</dt>
-            <dd class="text-sm font-medium font-mono">
-              {{ font.fileHash.slice(0, 12) }}&hellip;
-            </dd>
-          </div>
-          <div v-if="font.weightClass">
-            <dt class="text-sm text-muted-foreground">Graisse</dt>
-            <dd class="text-sm font-medium">
-              {{ font.weightClass }}
-              <span
-                v-if="WEIGHT_LABELS[font.weightClass]"
-                class="text-muted-foreground"
-              >
-                ({{ WEIGHT_LABELS[font.weightClass] }})
-              </span>
-            </dd>
-          </div>
-          <div v-if="font.widthClass">
-            <dt class="text-sm text-muted-foreground">Largeur</dt>
-            <dd class="text-sm font-medium">{{ font.widthClass }}</dd>
-          </div>
-          <div v-if="font.isItalic || font.isOblique">
-            <dt class="text-sm text-muted-foreground">Style</dt>
-            <dd class="text-sm font-medium">
-              {{ font.isItalic ? "Italique" : "" }}
-              {{ font.isOblique ? "Oblique" : "" }}
-            </dd>
-          </div>
-          <div v-if="font.glyphCount">
-            <dt class="text-sm text-muted-foreground">Glyphes</dt>
-            <dd class="text-sm font-medium">{{ font.glyphCount }}</dd>
-          </div>
-          <div v-if="font.description">
-            <dt class="text-sm text-muted-foreground">Description</dt>
-            <dd class="text-sm font-medium sm:col-span-2">
-              {{ font.description }}
-            </dd>
-          </div>
-        </dl>
-      </div>
-    </section>
-
-    <!-- Import info -->
-    <section>
-      <h2 class="text-lg font-semibold mb-3">Import</h2>
-      <div class="rounded-xl border bg-card p-6">
-        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-          <div>
-            <dt class="text-sm text-muted-foreground">Date d'import</dt>
-            <dd class="text-sm font-medium flex items-center gap-1.5">
-              <Calendar class="h-3.5 w-3.5 text-muted-foreground" />
-              {{ formatDate(font.createdAt) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-sm text-muted-foreground">Source</dt>
-            <dd class="text-sm font-medium flex items-center gap-1.5">
-              <Upload class="h-3.5 w-3.5 text-muted-foreground" />
-              {{ SOURCE_LABELS[font.source] ?? font.source }}
-            </dd>
-          </div>
-          <div v-if="font.sourceDeviceName">
-            <dt class="text-sm text-muted-foreground">Importée depuis</dt>
-            <dd class="text-sm font-medium flex items-center gap-1.5">
-              <Monitor class="h-3.5 w-3.5 text-muted-foreground" />
-              {{ font.sourceDeviceName }}
-            </dd>
-          </div>
-        </dl>
-      </div>
-    </section>
-
-    <!-- Scripts / Languages -->
-    <section v-if="font.supportedScripts?.length">
-      <h2 class="text-lg font-semibold mb-3">Langues</h2>
-      <div class="flex flex-wrap gap-2">
-        <Badge
-          v-for="script in font.supportedScripts"
-          :key="script"
-          variant="secondary"
-          class="capitalize"
-        >
-          {{ script }}
-        </Badge>
-      </div>
-    </section>
-
-    <!-- Glyphs -->
-    <section>
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Glyphes</h2>
-        <div v-if="totalGlyphPages > 1" class="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            :disabled="glyphPage === 0"
-            @click="glyphPage--"
-          >
-            <ChevronLeft class="h-4 w-4" />
-          </Button>
-          <span class="text-sm text-muted-foreground">
-            {{ glyphPage + 1 }} / {{ totalGlyphPages }}
-          </span>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            :disabled="glyphPage >= totalGlyphPages - 1"
-            @click="glyphPage++"
-          >
-            <ChevronRight class="h-4 w-4" />
-          </Button>
         </div>
-      </div>
-      <div
-        class="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-12 gap-1"
-        :style="{
-          fontFamily: fontLoaded ? `'${fontFamily}', monospace` : 'monospace',
-        }"
-      >
-        <div
-          v-for="(char, i) in currentGlyphs"
-          :key="`${glyphPage}-${i}`"
-          class="flex items-center justify-center h-10 text-lg rounded border border-transparent hover:border-border hover:bg-accent cursor-default select-none"
-        >
-          {{ char }}
-        </div>
-      </div>
-    </section>
+        <Panel class="p-4">
+          <div
+            class="grid grid-cols-8 gap-1 sm:grid-cols-10 md:grid-cols-12"
+            :style="{
+              fontFamily: fontLoaded
+                ? `'${fontFamily}', monospace`
+                : 'monospace',
+            }"
+          >
+            <div
+              v-for="(char, i) in currentGlyphs"
+              :key="`${glyphPage}-${i}`"
+              class="flex h-10 cursor-default select-none items-center justify-center rounded border border-transparent text-lg transition-colors hover:border-separator hover:bg-muted"
+            >
+              {{ char }}
+            </div>
+          </div>
+        </Panel>
+      </section>
+    </div>
   </div>
 </template>
