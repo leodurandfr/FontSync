@@ -6,7 +6,9 @@ import {
   ArrowLeftRight,
   List,
   Search,
+  PanelLeftOpen,
 } from "lucide-vue-next";
+import { useLayoutStore } from "@/stores/layout";
 import { Panel } from "@/components/ui/panel";
 import { TypoInput } from "@/components/ui/typo-input";
 import {
@@ -16,6 +18,8 @@ import {
 import type { FontLayout } from "./types";
 
 export type { FontLayout };
+
+const layoutStore = useLayoutStore();
 
 const previewText = defineModel<string>("previewText", { required: true });
 const fontSize = defineModel<number>("fontSize", { required: true });
@@ -33,6 +37,17 @@ const layoutOptions: SegmentedOption<FontLayout>[] = [
 
 <template>
   <Panel class="flex h-12 items-center overflow-hidden p-0">
+    <!-- 0 — Réouverture sidebar (visible quand repliée) -->
+    <button
+      v-if="!layoutStore.sidebarOpen"
+      type="button"
+      class="flex h-full flex-shrink-0 items-center border-r border-separator px-3 text-foreground-subtle transition-colors hover:text-muted-foreground"
+      aria-label="Ouvrir la sidebar"
+      @click="layoutStore.setSidebarOpen(true)"
+    >
+      <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+    </button>
+
     <!-- 1 — Preview + typo -->
     <div
       class="flex h-full min-w-0 flex-1 items-center gap-3 border-r border-separator px-4"

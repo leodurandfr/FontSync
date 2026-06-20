@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
-import { useLayoutStore } from "@/stores/layout";
 import FontsToolbar, {
   type FontLayout,
 } from "@/components/fonts/FontsToolbar.vue";
@@ -9,7 +8,6 @@ import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
 
 const filtersStore = useFamilyFiltersStore();
-const layoutStore = useLayoutStore();
 
 const previewText = ref("The quick brown fox jumps over the lazy dog");
 const fontSize = ref(40);
@@ -35,17 +33,12 @@ watch(searchInput, (val) => {
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
-
-// Quand replié, on décale la toolbar pour laisser place au bouton d'ouverture.
-const toolbarLeft = computed(() =>
-  layoutStore.sidebarOpen ? "0.75rem" : "3.5rem",
-);
 </script>
 
 <template>
   <div class="relative h-full">
     <!-- Toolbar flottante -->
-    <div class="absolute right-3 top-3 z-20" :style="{ left: toolbarLeft }">
+    <div class="absolute left-3 right-3 top-3 z-20">
       <FontsToolbar
         v-model:preview-text="previewText"
         v-model:font-size="fontSize"

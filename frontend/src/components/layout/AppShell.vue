@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted } from "vue";
+import { useRoute } from "vue-router";
 import { PanelLeftOpen } from "lucide-vue-next";
 import AppSidebar from "./AppSidebar.vue";
 import { Panel } from "@/components/ui/panel";
@@ -7,6 +8,7 @@ import { useWebSocket } from "@/composables/useWebSocket";
 import { useLayoutStore } from "@/stores/layout";
 
 const layout = useLayoutStore();
+const route = useRoute();
 
 // L'écran de saisie du token (App.vue) démonte cette coquille sur un 401 /
 // WS 1008 : on ferme alors proprement la connexion WebSocket pour ne pas la
@@ -19,9 +21,9 @@ onUnmounted(disconnect);
   <div class="flex h-screen overflow-hidden bg-background">
     <AppSidebar />
 
-    <!-- Bouton de réouverture (visible toutes routes quand replié) -->
+    <!-- Bouton de réouverture (la page Fonts l'intègre dans sa toolbar) -->
     <Panel
-      v-if="!layout.sidebarOpen"
+      v-if="!layout.sidebarOpen && route.name !== 'fonts'"
       as="button"
       class="absolute left-3 top-3 z-40 flex size-9 items-center justify-center text-foreground-subtle transition-colors hover:text-muted-foreground"
       aria-label="Ouvrir la sidebar"
