@@ -18,9 +18,12 @@ export const useLayoutStore = defineStore("layout", () => {
     clampWidth(Number(localStorage.getItem(WIDTH_KEY)) || 220),
   );
 
-  function setSidebarOpen(value: boolean) {
+  // `persist` à false pour les fermetures « transitoires » (drawer mobile :
+  // auto-close au montage / changement de route / tap sur le backdrop) afin de
+  // ne pas écraser la préférence desktop mémorisée.
+  function setSidebarOpen(value: boolean, persist = true) {
     sidebarOpen.value = value;
-    localStorage.setItem(OPEN_KEY, String(value));
+    if (persist) localStorage.setItem(OPEN_KEY, String(value));
   }
 
   function toggleSidebar() {

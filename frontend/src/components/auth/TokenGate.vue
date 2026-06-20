@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { KeyRound, Loader2, Type } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/stores/auth";
+
+const { t } = useI18n();
 
 const auth = useAuthStore();
 const tokenInput = ref(auth.token ?? "");
@@ -14,7 +17,7 @@ const errorMsg = ref<string | null>(null);
 async function submit() {
   const candidate = tokenInput.value.trim();
   if (!candidate) {
-    errorMsg.value = "Veuillez saisir un token.";
+    errorMsg.value = t("tokenGate.errors.enterToken");
     return;
   }
   validating.value = true;
@@ -27,16 +30,16 @@ async function submit() {
       headers: { Authorization: `Bearer ${candidate}` },
     });
     if (res.status === 401) {
-      errorMsg.value = "Token invalide.";
+      errorMsg.value = t("tokenGate.errors.invalid");
       return;
     }
     if (!res.ok) {
-      errorMsg.value = `Erreur serveur (${res.status}).`;
+      errorMsg.value = t("tokenGate.errors.server", { status: res.status });
       return;
     }
     auth.setToken(candidate);
   } catch {
-    errorMsg.value = "Serveur injoignable. Vérifiez l'URL et le réseau.";
+    errorMsg.value = t("tokenGate.errors.unreachable");
   } finally {
     validating.value = false;
   }
@@ -55,14 +58,14 @@ async function submit() {
         <div>
           <h1 class="text-xl font-bold tracking-tight">FontSync</h1>
           <p class="mt-1 text-sm text-muted-foreground">
-            Saisissez le token d'accès de votre instance pour continuer.
+            {{ t("tokenGate.subtitle") }}
           </p>
         </div>
       </div>
 
       <form class="space-y-3" @submit.prevent="submit">
         <div class="space-y-1.5">
-          <Label for="token">Token serveur</Label>
+          <Label for="token">{{ t("tokenGate.tokenLabel") }}</Label>
           <Input
             id="token"
             v-model="tokenInput"
@@ -78,7 +81,7 @@ async function submit() {
 
         <Button type="submit" class="w-full" :disabled="validating">
           <Loader2 v-if="validating" class="mr-2 h-4 w-4 animate-spin" />
-          {{ validating ? "Vérification…" : "Se connecter" }}
+          {{ validating ? t("tokenGate.verifying") : t("tokenGate.connect") }}
         </Button>
       </form>
 
@@ -86,7 +89,11 @@ async function submit() {
         class="flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
       >
         <KeyRound class="h-3 w-3 shrink-0" />
-        Défini par <code class="font-mono">FONTSYNC_TOKEN</code> côté serveur.
+        <i18n-t keypath="tokenGate.definedBy" tag="span" scope="global">
+          <template #code
+            ><code class="font-mono">FONTSYNC_TOKEN</code></template
+          >
+        </i18n-t>
       </p>
     </div>
   </div>

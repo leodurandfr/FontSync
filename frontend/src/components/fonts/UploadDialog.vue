@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,8 @@ import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import type { FontUploadResponse } from "@/types/api";
 
 const ACCEPT = ".ttf,.otf,.ttc,.woff,.woff2";
+
+const { t } = useI18n();
 
 const fontsStore = useFontsStore();
 const familiesStore = useFamiliesStore();
@@ -52,7 +55,7 @@ async function upload(files: File[]) {
       await familiesStore.fetchFamilies(filtersStore.toFilters());
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Erreur inconnue";
+    error.value = e instanceof Error ? e.message : t("common.unknownError");
   } finally {
     uploading.value = false;
   }
@@ -73,16 +76,19 @@ function onDrop(event: DragEvent) {
 <template>
   <Dialog :open="open" @update:open="onOpenChange">
     <DialogTrigger as-child>
-      <Button size="sm" class="shrink-0">
-        <Upload class="h-4 w-4 mr-1.5" />
-        Uploader
-      </Button>
+      <!-- Trigger par défaut surchargeable : la sidebar fournit son propre bouton. -->
+      <slot>
+        <Button size="sm" class="shrink-0">
+          <Upload class="h-4 w-4 mr-1.5" />
+          {{ t("upload.trigger") }}
+        </Button>
+      </slot>
     </DialogTrigger>
     <DialogContent class="sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>Uploader des polices</DialogTitle>
+        <DialogTitle>{{ t("upload.title") }}</DialogTitle>
         <DialogDescription>
-          Formats acceptés : TTF, OTF, TTC, WOFF, WOFF2.
+          {{ t("upload.acceptedFormats") }}
         </DialogDescription>
       </DialogHeader>
 
@@ -107,9 +113,7 @@ function onDrop(event: DragEvent) {
         />
         <Upload v-else class="h-6 w-6 text-muted-foreground" />
         <span class="text-sm font-medium">
-          {{
-            uploading ? "Upload en cours…" : "Glissez vos fichiers ou cliquez"
-          }}
+          {{ uploading ? t("upload.uploading") : t("upload.dropHint") }}
         </span>
       </button>
 
@@ -135,10 +139,18 @@ function onDrop(event: DragEvent) {
           class="flex items-center gap-2 text-green-600 dark:text-green-500"
         >
           <CheckCircle2 class="h-4 w-4 shrink-0" />
-          {{ result.imported.length }} police(s) importée(s).
+          {{
+            t("upload.imported", result.imported.length, {
+              named: { n: result.imported.length },
+            })
+          }}
         </p>
         <p v-if="result.duplicates.length > 0" class="text-muted-foreground">
-          {{ result.duplicates.length }} déjà présente(s) (ignorée(s)).
+          {{
+            t("upload.duplicates", result.duplicates.length, {
+              named: { n: result.duplicates.length },
+            })
+          }}
         </p>
         <div v-if="result.errors.length > 0" class="space-y-1">
           <p

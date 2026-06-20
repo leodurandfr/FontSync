@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { RouterLink } from "vue-router";
+import { useI18n } from "vue-i18n";
 import {
   ArrowLeft,
   Download,
@@ -20,9 +21,23 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { TypoInput } from "@/components/ui/typo-input";
 import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
+import { useLocale } from "@/composables/useLocale";
 import type { Font } from "@/types/api";
 
 const props = defineProps<{ id: string }>();
+
+const { t, te } = useI18n();
+const { dateLocale } = useLocale();
+
+function classificationLabel(c: string): string {
+  const key = `fontDetail.classification.${c}`;
+  return te(key) ? t(key) : c;
+}
+
+function sourceLabel(s: string): string {
+  const key = `fontDetail.sources.${s}`;
+  return te(key) ? t(key) : s;
+}
 
 const font = ref<Font | null>(null);
 const loading = ref(true);
@@ -74,15 +89,6 @@ const WEIGHT_LABELS: Record<number, string> = {
   900: "Black",
 };
 
-const CLASSIFICATION_LABELS: Record<string, string> = {
-  serif: "Serif",
-  "sans-serif": "Sans-serif",
-  monospace: "Monospace",
-  display: "Display",
-  handwriting: "Manuscrite",
-  symbol: "Symbole",
-};
-
 async function fetchFont() {
   fetchAbort?.abort();
   fetchAbort = new AbortController();
@@ -96,7 +102,7 @@ async function fetchFont() {
     font.value = await res.json();
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return;
-    error.value = e instanceof Error ? e.message : "Erreur inconnue";
+    error.value = e instanceof Error ? e.message : t("common.unknownError");
   } finally {
     loading.value = false;
   }
@@ -156,14 +162,8 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  upload: "Upload web",
-  local_scan: "Agent (scan local)",
-  google_fonts: "Google Fonts",
-};
-
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("fr-FR", {
+  return new Date(dateStr).toLocaleDateString(dateLocale.value, {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -189,7 +189,10 @@ onUnmounted(() => {
 <template>
   <div class="h-full overflow-y-auto [scrollbar-width:none]">
     <!-- Loading -->
-    <div v-if="loading" class="mx-auto max-w-4xl space-y-8 px-8 py-10">
+    <div
+      v-if="loading"
+      class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-8 sm:py-10"
+    >
       <Skeleton class="h-8 w-64" />
       <Skeleton class="h-5 w-40" />
       <Skeleton class="h-40 w-full rounded-panel" />
@@ -199,9 +202,9 @@ onUnmounted(() => {
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="mx-auto max-w-4xl px-8 py-10">
+    <div v-else-if="error" class="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-10">
       <Panel class="p-12 text-center">
-        <p class="text-sm text-foreground">Impossible de charger la police.</p>
+        <p class="text-sm text-foreground">{{ t("fontDetail.cannotLoad") }}</p>
         <p class="mt-1 font-mono text-[10px] text-foreground-subtle">
           {{ error }}
         </p>
@@ -209,16 +212,19 @@ onUnmounted(() => {
           <Button variant="outline" as-child>
             <RouterLink :to="{ name: 'fonts' }">
               <ArrowLeft class="mr-2 h-4 w-4" />
-              Retour
+              {{ t("common.back") }}
             </RouterLink>
           </Button>
-          <Button @click="fetchFont">Réessayer</Button>
+          <Button @click="fetchFont">{{ t("common.retry") }}</Button>
         </div>
       </Panel>
     </div>
 
     <!-- Content -->
-    <div v-else-if="font" class="mx-auto max-w-4xl space-y-10 px-8 py-10">
+    <div
+      v-else-if="font"
+      class="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-8 sm:py-10"
+    >
       <!-- Header -->
       <header>
         <RouterLink
@@ -226,10 +232,12 @@ onUnmounted(() => {
           class="mb-5 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground-subtle transition-colors hover:text-foreground"
         >
           <ArrowLeft class="size-3" :stroke-width="2" />
-          Polices
+          {{ t("fontDetail.fonts") }}
         </RouterLink>
 
-        <div class="flex items-start justify-between gap-4">
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        >
           <div class="min-w-0">
             <h1 class="truncate text-3xl font-semibold tracking-tight">
               {{ font.familyName ?? font.originalFilename }}
@@ -242,16 +250,13 @@ onUnmounted(() => {
                 v-if="font.classification"
                 class="rounded bg-muted px-1.5 py-0.5 text-[9px] text-foreground-subtle"
               >
-                {{
-                  CLASSIFICATION_LABELS[font.classification] ??
-                  font.classification
-                }}
+                {{ classificationLabel(font.classification) }}
               </span>
               <span
                 v-if="font.isVariable"
                 class="rounded bg-muted px-1.5 py-0.5 text-[9px] text-foreground-subtle"
               >
-                Variable
+                {{ t("common.variable") }}
               </span>
             </div>
           </div>
@@ -260,7 +265,7 @@ onUnmounted(() => {
 
             <Button @click="handleDownload">
               <Download class="mr-2 h-4 w-4" />
-              Télécharger
+              {{ t("common.download") }}
             </Button>
           </div>
         </div>
@@ -268,8 +273,8 @@ onUnmounted(() => {
 
       <!-- Preview -->
       <section>
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <SectionLabel>Aperçu</SectionLabel>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <SectionLabel>{{ t("fontDetail.preview") }}</SectionLabel>
           <div class="flex items-center gap-3">
             <TypoInput
               :icon="Type"
@@ -301,7 +306,7 @@ onUnmounted(() => {
           <input
             v-model="previewText"
             type="text"
-            placeholder="Saisissez un texte…"
+            :placeholder="t('fontDetail.inputPlaceholder')"
             class="w-full border-b border-separator bg-transparent px-6 py-3 font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
           />
           <div
@@ -322,7 +327,9 @@ onUnmounted(() => {
 
       <!-- Waterfall -->
       <section>
-        <SectionLabel class="mb-3">Cascade</SectionLabel>
+        <SectionLabel class="mb-3">{{
+          t("fontDetail.waterfall")
+        }}</SectionLabel>
         <Panel class="space-y-4 p-6">
           <div
             v-for="size in WATERFALL_SIZES"
@@ -352,23 +359,25 @@ onUnmounted(() => {
 
       <!-- Metadata -->
       <section>
-        <SectionLabel class="mb-3">Métadonnées</SectionLabel>
+        <SectionLabel class="mb-3">{{ t("fontDetail.metadata") }}</SectionLabel>
         <Panel class="p-6">
           <dl class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
             <div v-if="font.designer">
-              <SectionLabel as="dt">Designer</SectionLabel>
+              <SectionLabel as="dt">{{
+                t("fontDetail.designer")
+              }}</SectionLabel>
               <dd class="mt-1 text-[13px]">{{ font.designer }}</dd>
             </div>
             <div v-if="font.manufacturer">
-              <SectionLabel as="dt">Fonderie</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.foundry") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">{{ font.manufacturer }}</dd>
             </div>
             <div v-if="font.version">
-              <SectionLabel as="dt">Version</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.version") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">{{ font.version }}</dd>
             </div>
             <div v-if="font.license">
-              <SectionLabel as="dt">Licence</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.license") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">
                 <a
                   v-if="isSafeUrl(font.licenseUrl)"
@@ -383,25 +392,25 @@ onUnmounted(() => {
               </dd>
             </div>
             <div>
-              <SectionLabel as="dt">Format</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.format") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">
                 {{ font.fileFormat.toUpperCase() }}
               </dd>
             </div>
             <div>
-              <SectionLabel as="dt">Taille</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.size") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">
                 {{ formatFileSize(font.fileSize) }}
               </dd>
             </div>
             <div>
-              <SectionLabel as="dt">Hash</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.hash") }}</SectionLabel>
               <dd class="mt-1 font-mono text-[12px] text-muted-foreground">
                 {{ font.fileHash.slice(0, 12) }}&hellip;
               </dd>
             </div>
             <div v-if="font.weightClass">
-              <SectionLabel as="dt">Graisse</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.weight") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">
                 {{ font.weightClass }}
                 <span
@@ -413,22 +422,24 @@ onUnmounted(() => {
               </dd>
             </div>
             <div v-if="font.widthClass">
-              <SectionLabel as="dt">Largeur</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.width") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">{{ font.widthClass }}</dd>
             </div>
             <div v-if="font.isItalic || font.isOblique">
-              <SectionLabel as="dt">Style</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.style") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">
-                {{ font.isItalic ? "Italique" : "" }}
-                {{ font.isOblique ? "Oblique" : "" }}
+                {{ font.isItalic ? t("fontDetail.italic") : "" }}
+                {{ font.isOblique ? t("fontDetail.oblique") : "" }}
               </dd>
             </div>
             <div v-if="font.glyphCount">
-              <SectionLabel as="dt">Glyphes</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.glyphs") }}</SectionLabel>
               <dd class="mt-1 text-[13px]">{{ font.glyphCount }}</dd>
             </div>
             <div v-if="font.description" class="sm:col-span-2">
-              <SectionLabel as="dt">Description</SectionLabel>
+              <SectionLabel as="dt">{{
+                t("fontDetail.description")
+              }}</SectionLabel>
               <dd class="mt-1 text-[13px] leading-relaxed">
                 {{ font.description }}
               </dd>
@@ -439,25 +450,29 @@ onUnmounted(() => {
 
       <!-- Import info -->
       <section>
-        <SectionLabel class="mb-3">Import</SectionLabel>
+        <SectionLabel class="mb-3">{{ t("fontDetail.import") }}</SectionLabel>
         <Panel class="p-6">
           <dl class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
             <div>
-              <SectionLabel as="dt">Date d'import</SectionLabel>
+              <SectionLabel as="dt">{{
+                t("fontDetail.importDate")
+              }}</SectionLabel>
               <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
                 <Calendar class="size-3.5 text-foreground-subtle" />
                 {{ formatDate(font.createdAt) }}
               </dd>
             </div>
             <div>
-              <SectionLabel as="dt">Source</SectionLabel>
+              <SectionLabel as="dt">{{ t("fontDetail.source") }}</SectionLabel>
               <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
                 <Upload class="size-3.5 text-foreground-subtle" />
-                {{ SOURCE_LABELS[font.source] ?? font.source }}
+                {{ sourceLabel(font.source) }}
               </dd>
             </div>
             <div v-if="font.sourceDeviceName">
-              <SectionLabel as="dt">Importée depuis</SectionLabel>
+              <SectionLabel as="dt">{{
+                t("fontDetail.importedFrom")
+              }}</SectionLabel>
               <dd class="mt-1 flex items-center gap-1.5 text-[13px]">
                 <Monitor class="size-3.5 text-foreground-subtle" />
                 {{ font.sourceDeviceName }}
@@ -469,7 +484,9 @@ onUnmounted(() => {
 
       <!-- Scripts / Languages -->
       <section v-if="font.supportedScripts?.length">
-        <SectionLabel class="mb-3">Langues</SectionLabel>
+        <SectionLabel class="mb-3">{{
+          t("fontDetail.languages")
+        }}</SectionLabel>
         <div class="flex flex-wrap gap-1.5">
           <span
             v-for="script in font.supportedScripts"
@@ -484,7 +501,7 @@ onUnmounted(() => {
       <!-- Glyphs -->
       <section>
         <div class="mb-3 flex items-center justify-between">
-          <SectionLabel>Glyphes</SectionLabel>
+          <SectionLabel>{{ t("fontDetail.glyphs") }}</SectionLabel>
           <div v-if="totalGlyphPages > 1" class="flex items-center gap-2">
             <Button
               variant="outline"

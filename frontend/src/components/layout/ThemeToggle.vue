@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Sun, Moon, Monitor, Check } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -9,16 +10,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme, type Theme } from "@/composables/useTheme";
 
+const { t } = useI18n();
+
 const { theme, setTheme } = useTheme();
 
-const OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-];
+const OPTIONS = computed<{ value: Theme; label: string; icon: typeof Sun }[]>(
+  () => [
+    { value: "light", label: t("theme.light"), icon: Sun },
+    { value: "dark", label: t("theme.dark"), icon: Moon },
+    { value: "system", label: t("theme.system"), icon: Monitor },
+  ],
+);
 
 const currentIcon = computed(
-  () => OPTIONS.find((o) => o.value === theme.value)?.icon ?? Sun,
+  () => OPTIONS.value.find((o) => o.value === theme.value)?.icon ?? Sun,
 );
 </script>
 
@@ -26,7 +31,7 @@ const currentIcon = computed(
   <DropdownMenu>
     <DropdownMenuTrigger
       class="flex size-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent data-[state=open]:bg-accent"
-      aria-label="Thème"
+      :aria-label="t('theme.aria')"
     >
       <component :is="currentIcon" class="size-3.5" :stroke-width="1.5" />
     </DropdownMenuTrigger>

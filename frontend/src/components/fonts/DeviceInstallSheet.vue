@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { Monitor, Loader2 } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import { apiFetch } from "@/lib/api";
+import { useLocale } from "@/composables/useLocale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +33,9 @@ const props = defineProps<{
   triggerLabel?: string;
 }>();
 
+const { t } = useI18n();
+const { dateLocale } = useLocale();
+
 const deviceStatuses = ref<DeviceStatus[]>([]);
 const devicesLoading = ref(false);
 const actionInProgress = ref<Set<string>>(new Set());
@@ -38,7 +43,7 @@ const actionInProgress = ref<Set<string>>(new Set());
 const isMultiFont = computed(() => props.fontIds.length > 1);
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("fr-FR", {
+  return new Date(dateStr).toLocaleDateString(dateLocale.value, {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -103,17 +108,17 @@ async function handleInstall(deviceId: string) {
         @click="fetchDeviceStatuses"
       >
         <Monitor class="mr-2 h-4 w-4" />
-        {{ triggerLabel ?? "Appareils" }}
+        {{ triggerLabel ?? t("deviceInstall.devices") }}
       </Button>
     </SheetTrigger>
     <SheetContent>
       <SheetHeader>
-        <SheetTitle>Installation par appareil</SheetTitle>
+        <SheetTitle>{{ t("deviceInstall.title") }}</SheetTitle>
         <SheetDescription>
           {{
             isMultiFont
-              ? `Synchronisez ces ${fontIds.length} polices sur vos machines connectées.`
-              : "Synchronisez cette police sur vos machines connectées."
+              ? t("deviceInstall.descMulti", { n: fontIds.length })
+              : t("deviceInstall.descSingle")
           }}
         </SheetDescription>
       </SheetHeader>
@@ -121,9 +126,7 @@ async function handleInstall(deviceId: string) {
       <div class="mt-6 space-y-4">
         <!-- Note : sémantique miroir (stop-gap B1) -->
         <p class="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-          Les polices se synchronisent en miroir selon le réglage « pull
-          automatique » de chaque appareil. La désinstallation et l'activation
-          par appareil arrivent dans une prochaine version.
+          {{ t("deviceInstall.mirrorNote") }}
         </p>
 
         <!-- Loading -->
@@ -136,7 +139,7 @@ async function handleInstall(deviceId: string) {
           v-else-if="deviceStatuses.length === 0"
           class="text-sm text-muted-foreground text-center py-8"
         >
-          Aucun appareil enregistré.
+          {{ t("deviceInstall.none") }}
         </p>
 
         <!-- Device list -->
@@ -160,7 +163,7 @@ async function handleInstall(deviceId: string) {
               <span
                 v-if="!status.isOnline"
                 class="text-xs text-muted-foreground ml-auto"
-                >Hors ligne</span
+                >{{ t("common.offline") }}</span
               >
             </div>
 
@@ -170,17 +173,21 @@ async function handleInstall(deviceId: string) {
                 <p class="text-sm">
                   {{
                     status.installed
-                      ? "Présente sur l'appareil"
+                      ? t("deviceInstall.present")
                       : isMultiFont
-                        ? "Non installées"
-                        : "Non installée"
+                        ? t("deviceInstall.notInstalledMulti")
+                        : t("deviceInstall.notInstalledSingle")
                   }}
                 </p>
                 <p
                   v-if="status.installed && status.installedAt"
                   class="text-xs text-muted-foreground"
                 >
-                  Installée le {{ formatDate(status.installedAt) }}
+                  {{
+                    t("deviceInstall.installedOn", {
+                      date: formatDate(status.installedAt),
+                    })
+                  }}
                 </p>
               </div>
               <div class="flex items-center gap-2">
@@ -188,9 +195,9 @@ async function handleInstall(deviceId: string) {
                   v-if="actionInProgress.has(status.deviceId)"
                   class="h-4 w-4 animate-spin text-muted-foreground"
                 />
-                <Badge v-if="status.installed" variant="secondary"
-                  >Installée</Badge
-                >
+                <Badge v-if="status.installed" variant="secondary">{{
+                  t("common.installed")
+                }}</Badge>
                 <Button
                   v-else
                   size="sm"
@@ -200,7 +207,7 @@ async function handleInstall(deviceId: string) {
                   "
                   @click="handleInstall(status.deviceId)"
                 >
-                  Installer
+                  {{ t("common.install") }}
                 </Button>
               </div>
             </div>

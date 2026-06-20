@@ -5,7 +5,6 @@ import FontsToolbar, {
   type FontLayout,
 } from "@/components/fonts/FontsToolbar.vue";
 import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
-import UploadDialog from "@/components/fonts/UploadDialog.vue";
 
 const filtersStore = useFamilyFiltersStore();
 
@@ -49,17 +48,14 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Fade sous la toolbar -->
+    <!-- Fade sous la toolbar (plus bas sur mobile : toolbar sur 2 rangées) -->
     <div
-      class="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-7 bg-gradient-to-b from-background to-transparent"
+      class="pointer-events-none absolute inset-x-0 top-[108px] z-10 h-7 bg-gradient-to-b from-background to-transparent sm:top-[60px]"
     />
 
     <!-- Liste -->
     <div class="absolute inset-0 overflow-y-auto [scrollbar-width:none]">
-      <div class="pb-16 pt-[72px]">
-        <div class="flex items-center justify-end px-8 pb-3">
-          <UploadDialog />
-        </div>
+      <div class="pb-16 pt-[120px] sm:pt-[72px]">
         <FontFamilyList
           :preview-text="previewText"
           :typo="typo"

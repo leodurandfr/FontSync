@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from "vue";
 import {
   Copy,
   Download,
@@ -10,80 +10,102 @@ import {
   Sun,
   Moon,
   Monitor,
-} from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import DevicesSection from '@/components/settings/DevicesSection.vue'
-import { useWsStore } from '@/stores/ws'
-import { useAuthStore } from '@/stores/auth'
-import { useTheme, type Theme } from '@/composables/useTheme'
-import { storeToRefs } from 'pinia'
+  Languages,
+} from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import DevicesSection from "@/components/settings/DevicesSection.vue";
+import { useWsStore } from "@/stores/ws";
+import { useAuthStore } from "@/stores/auth";
+import { useTheme, type Theme } from "@/composables/useTheme";
+import { useLocale } from "@/composables/useLocale";
+import type { Locale } from "@/i18n";
+import { storeToRefs } from "pinia";
 
-const wsStore = useWsStore()
-const { status } = storeToRefs(wsStore)
+const { t } = useI18n();
 
-const authStore = useAuthStore()
+const wsStore = useWsStore();
+const { status } = storeToRefs(wsStore);
 
-const { theme, setTheme } = useTheme()
+const authStore = useAuthStore();
 
-const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Clair', icon: Sun },
-  { value: 'dark', label: 'Sombre', icon: Moon },
-  { value: 'system', label: 'Système', icon: Monitor },
-]
+const { theme, setTheme } = useTheme();
+const { locale, setLocale } = useLocale();
+
+const themeOptions = computed<
+  { value: Theme; label: string; icon: typeof Sun }[]
+>(() => [
+  { value: "light", label: t("theme.light"), icon: Sun },
+  { value: "dark", label: t("theme.dark"), icon: Moon },
+  { value: "system", label: t("theme.system"), icon: Monitor },
+]);
+
+const localeOptions: { value: Locale; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "Français" },
+];
 
 function onThemeChange(value: unknown) {
   // ToggleGroup `single` peut émettre une valeur vide si on déclique l'option
   // active : on ignore ce cas pour garder un thème toujours sélectionné.
-  if (value === 'light' || value === 'dark' || value === 'system') {
-    setTheme(value)
+  if (value === "light" || value === "dark" || value === "system") {
+    setTheme(value);
+  }
+}
+
+function onLocaleChange(value: unknown) {
+  if (value === "en" || value === "fr") {
+    setLocale(value);
   }
 }
 
 // Redemander le token : on efface celui mémorisé, ce qui réaffiche l'écran de
 // saisie (App.vue gate sur `needsToken`).
 function changeToken() {
-  authStore.clearToken()
+  authStore.clearToken();
 }
 
-const serverUrl = computed(() => window.location.origin)
-const copied = ref(false)
+const serverUrl = computed(() => window.location.origin);
+const copied = ref(false);
 
 async function copyUrl() {
-  await navigator.clipboard.writeText(serverUrl.value)
-  copied.value = true
-  setTimeout(() => (copied.value = false), 2000)
+  await navigator.clipboard.writeText(serverUrl.value);
+  copied.value = true;
+  setTimeout(() => (copied.value = false), 2000);
 }
 
 const wsStatusLabel = computed(() => {
   switch (status.value) {
-    case 'connected':
-      return 'Connecté'
-    case 'connecting':
-      return 'Connexion...'
+    case "connected":
+      return t("settings.wsConnected");
+    case "connecting":
+      return t("settings.wsConnecting");
     default:
-      return 'Déconnecté'
+      return t("settings.wsDisconnected");
   }
-})
+});
 
-const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => {
-  switch (status.value) {
-    case 'connected':
-      return 'default'
-    case 'connecting':
-      return 'secondary'
-    default:
-      return 'destructive'
-  }
-})
+const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
+  () => {
+    switch (status.value) {
+      case "connected":
+        return "default";
+      case "connecting":
+        return "secondary";
+      default:
+        return "destructive";
+    }
+  },
+);
 </script>
 
 <template>
   <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-    <h1 class="text-3xl font-bold tracking-tight">Paramètres</h1>
+    <h1 class="text-3xl font-bold tracking-tight">{{ t("settings.title") }}</h1>
     <p class="text-muted-foreground mt-1">
-      Configuration de votre instance FontSync.
+      {{ t("settings.subtitle") }}
     </p>
 
     <div class="mt-8 space-y-6">
@@ -91,14 +113,14 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
       <div class="rounded-xl border bg-card p-6 space-y-4">
         <div class="flex items-center gap-2">
           <Palette class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">Apparence</h2>
+          <h2 class="text-lg font-semibold">{{ t("settings.appearance") }}</h2>
         </div>
 
         <div class="flex items-center justify-between gap-4">
           <div>
-            <p class="text-sm font-medium">Thème</p>
+            <p class="text-sm font-medium">{{ t("settings.theme") }}</p>
             <p class="text-sm text-muted-foreground">
-              Choisissez l'apparence claire, sombre ou celle du système.
+              {{ t("settings.themeDesc") }}
             </p>
           </div>
           <ToggleGroup
@@ -118,6 +140,31 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="text-sm font-medium">{{ t("settings.language") }}</p>
+            <p class="text-sm text-muted-foreground">
+              {{ t("settings.languageDesc") }}
+            </p>
+          </div>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            :model-value="locale"
+            @update:model-value="onLocaleChange"
+          >
+            <ToggleGroupItem
+              v-for="option in localeOptions"
+              :key="option.value"
+              :value="option.value"
+              :aria-label="option.label"
+            >
+              <Languages class="h-4 w-4 sm:mr-1.5" />
+              <span class="hidden sm:inline">{{ option.label }}</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       <!-- Appareils -->
@@ -127,12 +174,14 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
       <div class="rounded-xl border bg-card p-6 space-y-4">
         <div class="flex items-center gap-2">
           <Server class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">Serveur</h2>
+          <h2 class="text-lg font-semibold">{{ t("settings.server") }}</h2>
         </div>
 
         <div class="space-y-3">
           <div>
-            <p class="text-sm text-muted-foreground mb-1">URL du serveur</p>
+            <p class="text-sm text-muted-foreground mb-1">
+              {{ t("settings.serverUrl") }}
+            </p>
             <div class="flex items-center gap-2">
               <code
                 class="flex-1 rounded-lg border bg-muted/50 px-3 py-2 text-sm font-mono"
@@ -147,7 +196,9 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
           </div>
 
           <div>
-            <p class="text-sm text-muted-foreground mb-1">WebSocket</p>
+            <p class="text-sm text-muted-foreground mb-1">
+              {{ t("settings.websocket") }}
+            </p>
             <Badge :variant="wsStatusVariant">{{ wsStatusLabel }}</Badge>
           </div>
         </div>
@@ -157,19 +208,25 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
       <div class="rounded-xl border bg-card p-6 space-y-4">
         <div class="flex items-center gap-2">
           <KeyRound class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">Token d'accès</h2>
+          <h2 class="text-lg font-semibold">
+            {{ t("settings.accessToken") }}
+          </h2>
         </div>
 
-        <p class="text-sm text-muted-foreground">
-          Le token d'instance (<code class="font-mono">FONTSYNC_TOKEN</code>)
-          protège l'accès à cette bibliothèque. Il est mémorisé dans ce
-          navigateur. Changez-le pour saisir un autre token ou vous déconnecter
-          de cette instance.
-        </p>
+        <i18n-t
+          keypath="settings.tokenDesc"
+          tag="p"
+          class="text-sm text-muted-foreground"
+          scope="global"
+        >
+          <template #code
+            ><code class="font-mono">FONTSYNC_TOKEN</code></template
+          >
+        </i18n-t>
 
         <Button variant="outline" @click="changeToken">
           <KeyRound class="mr-2 h-4 w-4" />
-          Changer le token
+          {{ t("settings.changeToken") }}
         </Button>
       </div>
 
@@ -177,21 +234,19 @@ const wsStatusVariant = computed<'default' | 'secondary' | 'destructive'>(() => 
       <div class="rounded-xl border bg-card p-6 space-y-4">
         <div class="flex items-center gap-2">
           <Download class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">Agent de synchronisation</h2>
+          <h2 class="text-lg font-semibold">{{ t("settings.agent") }}</h2>
         </div>
 
         <p class="text-sm text-muted-foreground">
-          L'agent FontSync tourne en arrière-plan sur votre Mac. Il détecte
-          automatiquement les nouvelles polices installées et les synchronise
-          avec le serveur.
+          {{ t("settings.agentDesc") }}
         </p>
 
         <Button variant="outline" disabled>
           <Download class="mr-2 h-4 w-4" />
-          Télécharger FontSync.app pour macOS
+          {{ t("settings.downloadAgent") }}
         </Button>
         <p class="text-xs text-muted-foreground">
-          Le téléchargement de l'agent sera disponible prochainement.
+          {{ t("settings.agentSoon") }}
         </p>
       </div>
     </div>

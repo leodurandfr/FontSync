@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { ChevronRight, ChevronDown, RotateCcw } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
@@ -19,6 +20,8 @@ const props = defineProps<{
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
 }>();
+
+const { t } = useI18n();
 
 const open = ref(false);
 const members = ref<FamilyMember[]>([]);
@@ -52,9 +55,9 @@ const format = computed(() =>
   (props.family.previewFont?.fileFormat || "").toUpperCase(),
 );
 const stylesLabel = computed(() =>
-  props.family.styleCount === 1
-    ? "1 style"
-    : `${props.family.styleCount} styles`,
+  t("fonts.styleCount", props.family.styleCount, {
+    named: { n: props.family.styleCount },
+  }),
 );
 
 const familyFontIds = computed(() =>
@@ -127,31 +130,31 @@ onBeforeUnmount(() => {
     <RouterLink
       v-if="layout === 'list'"
       :to="{ name: 'font-detail', params: { id: family.previewFont?.id } }"
-      class="flex h-12 items-center gap-4 px-8 transition-colors hover:bg-accent"
+      class="flex h-12 items-center gap-4 px-4 transition-colors hover:bg-accent sm:px-8"
     >
       <span class="size-1.5 flex-shrink-0 rounded-full bg-foreground-subtle" />
       <span
-        class="min-w-[180px] flex-shrink-0 truncate text-[13px]"
+        class="min-w-0 flex-1 truncate text-[13px] sm:min-w-[180px] sm:flex-none"
         :style="{ fontFamily: previewStyle.fontFamily }"
       >
         {{ family.name }}
       </span>
       <span
-        class="min-w-[80px] flex-shrink-0 font-mono text-[10px] text-foreground-subtle"
+        class="hidden min-w-[80px] flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
         >{{ category }}</span
       >
       <span
-        class="flex-shrink-0 font-mono text-[10px] text-foreground-subtle"
+        class="hidden flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
         >{{ stylesLabel }}</span
       >
       <span
         v-if="format"
-        class="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle"
+        class="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle sm:inline"
         >{{ format }}</span
       >
-      <div class="flex-1" />
+      <div class="hidden flex-1 sm:block" />
       <div
-        class="opacity-0 transition-opacity group-hover:opacity-100"
+        class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
         @click.prevent.stop
       >
         <DeviceInstallSheet
@@ -163,7 +166,7 @@ onBeforeUnmount(() => {
     </RouterLink>
 
     <!-- ── Body layout ──────────────────────────────────────── -->
-    <div v-else-if="layout === 'body'" class="px-8 py-6">
+    <div v-else-if="layout === 'body'" class="px-4 py-6 sm:px-8">
       <div class="mb-4 flex items-center gap-3 font-mono">
         <span class="text-[10px] font-medium">{{ family.name }}</span>
         <span v-if="foundry" class="text-[9px] text-foreground-subtle">{{
@@ -175,7 +178,9 @@ onBeforeUnmount(() => {
           >{{ stylesLabel }}</span
         >
         <div class="flex-1" />
-        <div class="opacity-0 transition-opacity group-hover:opacity-100">
+        <div
+          class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+        >
           <DeviceInstallSheet
             v-if="familyFontIds.length > 0"
             :font-ids="familyFontIds"
@@ -190,7 +195,7 @@ onBeforeUnmount(() => {
 
     <!-- ── Specimen layout (default) ────────────────────────── -->
     <div v-else>
-      <div class="px-8 py-7">
+      <div class="px-4 py-7 sm:px-8">
         <div class="mb-4 flex items-center gap-3 font-mono">
           <button
             v-if="isMultiStyle"
@@ -229,7 +234,9 @@ onBeforeUnmount(() => {
             foundry
           }}</span>
           <div class="flex-1" />
-          <div class="opacity-0 transition-opacity group-hover:opacity-100">
+          <div
+            class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+          >
             <DeviceInstallSheet
               v-if="familyFontIds.length > 0"
               :font-ids="familyFontIds"
@@ -255,10 +262,13 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div v-else-if="fetchError" class="flex items-center gap-2 px-8 py-4">
-          <span class="text-[11px] text-muted-foreground"
-            >Erreur de chargement</span
-          >
+        <div
+          v-else-if="fetchError"
+          class="flex items-center gap-2 px-4 py-4 sm:px-8"
+        >
+          <span class="text-[11px] text-muted-foreground">{{
+            t("fonts.loadError")
+          }}</span>
           <Button variant="ghost" size="icon-sm" @click="retry">
             <RotateCcw class="size-3.5" />
           </Button>

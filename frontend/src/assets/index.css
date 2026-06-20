@@ -149,3 +149,24 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Transition de page (RouterView, mode out-in).
+ * Opacity seule : repeinte composité, pas de layout/paint coûteux. Durée courte
+ * (110 ms) pour un swap perçu comme instantané mais adouci.
+ */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 110ms ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
+}

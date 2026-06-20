@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { Loader2 } from "lucide-vue-next";
+import { useI18n } from "vue-i18n";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import { useFontPreview } from "@/composables/useFontPreview";
 import FontFamilyGroup from "./FontFamilyGroup.vue";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FontLayout, Typo } from "./types";
+
+const { t } = useI18n();
 
 defineProps<{
   previewText: string;
@@ -68,8 +71,12 @@ watch(sentinelRef, (el) => {
     v-else-if="familiesStore.isEmpty"
     class="flex h-48 flex-col items-center justify-center gap-2"
   >
-    <p class="text-[13px] text-muted-foreground">Aucune police trouvée</p>
-    <p class="text-[11px] text-foreground-subtle">Ajustez les filtres</p>
+    <p class="text-[13px] text-muted-foreground">
+      {{ t("fonts.noFontsFound") }}
+    </p>
+    <p class="text-[11px] text-foreground-subtle">
+      {{ t("fonts.adjustFilters") }}
+    </p>
   </div>
 
   <!-- Family list -->
