@@ -58,6 +58,7 @@ onUnmounted(disconnect);
     <Panel
       v-if="!layout.sidebarOpen && route.name !== 'fonts'"
       class="absolute left-3 top-3 z-40 flex h-9 items-center gap-3 pl-5 pr-3"
+      data-window-drag
     >
       <WindowControls v-if="showWindowControls" />
       <span

@@ -49,21 +49,37 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
   -->
   <Panel
     class="flex flex-wrap items-stretch overflow-hidden p-0 sm:h-12 sm:flex-nowrap sm:items-center"
+    data-window-drag
   >
     <!-- 0 — Feux de fenêtre + réouverture sidebar (visibles quand repliée) -->
+    <!--
+      Pas de v-if : on garde l'élément monté et on anime sa largeur « auto » via
+      le truc grid 0fr↔1fr (seule façon d'animer une largeur auto en CSS) plus un
+      fondu. L'inner clippe (`overflow-hidden`) sa bordure et son padding pendant
+      le collapse, si bien que l'apparition reste synchro avec l'animation de la
+      sidebar (200 ms, même easing) et pousse progressivement le reste de la barre.
+    -->
     <div
-      v-if="!layoutStore.sidebarOpen"
-      class="order-1 flex h-12 flex-shrink-0 items-center gap-3 border-r border-separator pl-5 pr-3 sm:h-full"
+      class="order-1 grid h-12 flex-shrink-0 overflow-hidden transition-[grid-template-columns,opacity] duration-200 ease-in-out sm:h-full"
+      :class="
+        layoutStore.sidebarOpen
+          ? 'grid-cols-[0fr] opacity-0'
+          : 'grid-cols-[1fr] opacity-100'
+      "
     >
-      <WindowControls v-if="showWindowControls" />
-      <button
-        type="button"
-        class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
-        :aria-label="t('sidebar.openSidebar')"
-        @click="layoutStore.setSidebarOpen(true)"
+      <div
+        class="flex items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
       >
-        <PanelLeftOpen class="size-4" :stroke-width="1.5" />
-      </button>
+        <WindowControls v-if="showWindowControls" />
+        <button
+          type="button"
+          class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
+          :aria-label="t('sidebar.openSidebar')"
+          @click="layoutStore.setSidebarOpen(true)"
+        >
+          <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+        </button>
+      </div>
     </div>
 
     <!-- 1 — Preview + typo -->

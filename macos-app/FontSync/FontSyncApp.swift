@@ -38,6 +38,10 @@ struct FontSyncApp: App {
             WebWindowContent(serverURL: model.serverURL)
         }
         .windowResizability(.contentMinSize)
+        // Fenêtre « nue » : contenu plein cadre, barre de titre native masquée.
+        // Les feux de circulation (close/min/zoom) et le drag sont fournis par
+        // l'UI web elle-même (cf. WebView.swift + frontend useWindowControls).
+        .windowStyle(.hiddenTitleBar)
 
         // Assistant de premier lancement (P4.1) — ouvert automatiquement au 1er
         // démarrage et relançable depuis le menu.

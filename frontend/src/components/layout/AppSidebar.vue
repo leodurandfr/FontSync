@@ -101,6 +101,7 @@ function startResize(e: PointerEvent) {
       -->
       <div
         class="flex flex-shrink-0 items-center justify-between border-b border-separator px-5 py-3"
+        data-window-drag
       >
         <div class="flex min-w-0 items-center gap-3">
           <WindowControls v-if="showWindowControls" class="flex-shrink-0" />
