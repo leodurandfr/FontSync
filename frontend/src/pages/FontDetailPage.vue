@@ -187,7 +187,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto [scrollbar-width:none]">
+  <div class="scrollbar-thin h-full overflow-y-auto">
     <!-- Loading -->
     <div
       v-if="loading"

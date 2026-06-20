@@ -151,6 +151,37 @@
 }
 
 /*
+ * Scrollbar fine et discrète, appliquée aux zones scrollables de l'app. La
+ * WKWebView de l'app menu-bar masquait sinon toute scrollbar (overlay invisible
+ * + `scrollbar-width: none`), d'où une liste sans repère de défilement. Le thumb
+ * reste arrondi et translucide, calé sur le token `foreground-subtle` (donc
+ * suit le thème clair/sombre) ; piste transparente, pas de boutons fléchés.
+ */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--foreground-subtle) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--foreground-subtle);
+    border-radius: 9999px;
+    /* Marge transparente autour du thumb pour l'affiner visuellement. */
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}
+
+/*
  * Transition de page (RouterView, mode out-in).
  * Opacity seule : repeinte composité, pas de layout/paint coûteux. Durée courte
  * (110 ms) pour un swap perçu comme instantané mais adouci.

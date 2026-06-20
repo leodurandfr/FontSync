@@ -54,7 +54,7 @@ onBeforeUnmount(() => {
     />
 
     <!-- Liste -->
-    <div class="absolute inset-0 overflow-y-auto [scrollbar-width:none]">
+    <div class="scrollbar-thin absolute inset-0 overflow-y-auto">
       <div class="pb-16 pt-[120px] sm:pt-[72px]">
         <FontFamilyList
           :preview-text="previewText"

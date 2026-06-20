@@ -1,11 +1,21 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
+import { ensureWindowWidth } from "@/composables/useWindowControls";
 
 const WIDTH_KEY = "fontsync_sidebar_width";
 const OPEN_KEY = "fontsync_sidebar_open";
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
+
+// Gouttière autour du panneau (m-3 : 12px de chaque côté) ajoutée à la largeur
+// occupée par la sidebar quand elle pousse le contenu.
+const GUTTER = 24;
+
+// Largeur minimale qu'on veut préserver pour la zone de contenu. À l'ouverture,
+// si la fenêtre est trop étroite pour loger sidebar + ce minimum, on demande au
+// natif de l'agrandir (modèle Finder). En navigateur, simple push.
+const MIN_CONTENT = 640;
 
 function clampWidth(w: number): number {
   return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w));
@@ -18,10 +28,12 @@ export const useLayoutStore = defineStore("layout", () => {
     clampWidth(Number(localStorage.getItem(WIDTH_KEY)) || 220),
   );
 
-  // `persist` à false pour les fermetures « transitoires » (drawer mobile :
-  // auto-close au montage / changement de route / tap sur le backdrop) afin de
-  // ne pas écraser la préférence desktop mémorisée.
   function setSidebarOpen(value: boolean, persist = true) {
+    // À l'ouverture, garantir que la fenêtre native est assez large pour loger
+    // la sidebar sans écraser le contenu sous MIN_CONTENT (no-op en navigateur).
+    if (value && !sidebarOpen.value) {
+      ensureWindowWidth(sidebarWidth.value + GUTTER + MIN_CONTENT);
+    }
     sidebarOpen.value = value;
     if (persist) localStorage.setItem(OPEN_KEY, String(value));
   }
@@ -40,6 +52,7 @@ export const useLayoutStore = defineStore("layout", () => {
     sidebarWidth,
     minWidth: MIN_WIDTH,
     maxWidth: MAX_WIDTH,
+    gutter: GUTTER,
     setSidebarOpen,
     toggleSidebar,
     setSidebarWidth,

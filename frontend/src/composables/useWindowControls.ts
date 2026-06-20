@@ -11,8 +11,15 @@
 
 type WindowAction = "close" | "minimize" | "zoom";
 
+// Messages relayés au natif. `ensureWidth` demande à la fenêtre macOS d'être
+// au moins large de `width` points (CSS px ≡ points à l'échelle logique) : le
+// natif l'agrandit si besoin, jamais ne la rétrécit (modèle Finder).
+type WindowMessage =
+  | { action: WindowAction }
+  | { action: "ensureWidth"; width: number };
+
 interface FontSyncBridge {
-  postMessage: (message: { action: WindowAction }) => void;
+  postMessage: (message: WindowMessage) => void;
 }
 
 function nativeBridge(): FontSyncBridge | undefined {
@@ -42,11 +49,21 @@ function sendWindowAction(action: WindowAction): void {
   nativeBridge()?.postMessage({ action });
 }
 
+/**
+ * Demande à la fenêtre native de garantir une largeur minimale (en px CSS).
+ * No-op en navigateur — aucun pont n'existe et un onglet ne peut pas se
+ * redimensionner lui-même : la sidebar y pousse simplement le contenu.
+ */
+export function ensureWindowWidth(width: number): void {
+  nativeBridge()?.postMessage({ action: "ensureWidth", width });
+}
+
 export function useWindowControls() {
   return {
     showWindowControls,
     close: () => sendWindowAction("close"),
     minimize: () => sendWindowAction("minimize"),
     zoom: () => sendWindowAction("zoom"),
+    ensureWindowWidth,
   };
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { PanelLeftOpen } from "lucide-vue-next";
@@ -14,20 +14,6 @@ const { t } = useI18n();
 const layout = useLayoutStore();
 const route = useRoute();
 
-// Sur mobile, la sidebar est un drawer en surimpression : on la replie au
-// montage et à chaque navigation pour ne pas couvrir le contenu. Fermeture
-// transitoire (persist=false) pour préserver la préférence desktop.
-const mobileMql = window.matchMedia("(max-width: 639px)");
-onMounted(() => {
-  if (mobileMql.matches) layout.setSidebarOpen(false, false);
-});
-watch(
-  () => route.fullPath,
-  () => {
-    if (mobileMql.matches) layout.setSidebarOpen(false, false);
-  },
-);
-
 // L'écran de saisie du token (App.vue) démonte cette coquille sur un 401 /
 // WS 1008 : on ferme alors proprement la connexion WebSocket pour ne pas la
 // voir tenter de se reconnecter avec un token refusé.
@@ -36,22 +22,12 @@ onUnmounted(disconnect);
 </script>
 
 <template>
+  <!--
+    Modèle Finder : la sidebar pousse le contenu (jamais d'overlay, pas de
+    basculement par largeur). Si la fenêtre native est trop étroite à
+    l'ouverture, elle s'agrandit (cf. layout store → ensureWindowWidth).
+  -->
   <div class="flex h-screen overflow-hidden bg-background">
-    <!-- Backdrop du drawer mobile -->
-    <Transition
-      enter-active-class="transition-opacity duration-200"
-      enter-from-class="opacity-0"
-      leave-active-class="transition-opacity duration-200"
-      leave-to-class="opacity-0"
-    >
-      <div
-        v-if="layout.sidebarOpen"
-        class="fixed inset-0 z-40 bg-black/50 sm:hidden"
-        aria-hidden="true"
-        @click="layout.setSidebarOpen(false, false)"
-      />
-    </Transition>
-
     <AppSidebar />
 
     <!-- Feux de fenêtre + réouverture (la page Fonts l'intègre dans sa toolbar) -->

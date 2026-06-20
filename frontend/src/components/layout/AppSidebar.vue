@@ -68,29 +68,28 @@ function startResize(e: PointerEvent) {
 
 <template>
   <!--
-    Desktop : la sidebar pousse le contenu. Le conteneur anime sa largeur
-    (0 ↔ largeur+marges) et clippe (`overflow-hidden`) ; le panneau, ancré au
-    bord droit du conteneur (`sm:absolute sm:right-0`), émerge donc par la
-    gauche au fil de l'ouverture — il glisse en poussant le contenu, sans fondu.
-    Mobile (max-sm) : drawer fixe en surimpression au-dessus du backdrop, de
-    largeur fixe, qui coulisse via translate-x. `!w-` (important) écrase la
-    largeur inline pour que `-translate-x-full` masque toujours tout le panneau.
+    Modèle Finder, un seul comportement : la sidebar pousse le contenu (jamais
+    d'overlay). Le conteneur anime sa largeur (0 ↔ largeur + gouttière) et
+    clippe (`overflow-hidden`) ; le panneau est ancré au bord droit du conteneur
+    (`absolute right-0`), donc il émerge par la gauche au fil de l'ouverture — il
+    glisse en poussant le contenu, sans fondu. Replié : largeur 0, le panneau
+    (toujours monté pour s'animer) est clippé hors champ et inerte.
   -->
   <div
-    class="relative z-50 flex-shrink-0 ease-in-out sm:overflow-hidden max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:w-[min(288px,82vw)]!"
+    class="relative z-30 flex-shrink-0 overflow-hidden ease-in-out"
     :class="[
-      resizing ? '' : 'transition-[width,transform] duration-200',
-      layout.sidebarOpen
-        ? 'max-sm:translate-x-0'
-        : 'pointer-events-none max-sm:-translate-x-full',
+      resizing ? '' : 'transition-[width] duration-200',
+      layout.sidebarOpen ? '' : 'pointer-events-none',
     ]"
     :style="{
-      width: layout.sidebarOpen ? `${layout.sidebarWidth + 24}px` : '0',
+      width: layout.sidebarOpen
+        ? `${layout.sidebarWidth + layout.gutter}px`
+        : '0',
     }"
   >
     <Panel
       as="aside"
-      class="relative m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden sm:absolute sm:right-0 sm:top-0 max-sm:w-[min(288px,82vw)]!"
+      class="absolute right-0 top-0 m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden"
       :style="{ width: `${layout.sidebarWidth}px` }"
     >
       <!-- Header -->
@@ -122,7 +121,7 @@ function startResize(e: PointerEvent) {
       </div>
 
       <!-- Nav -->
-      <nav class="flex-1 overflow-y-auto px-3 py-3 [scrollbar-width:none]">
+      <nav class="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
         <SectionLabel class="px-2 pb-1.5">{{
           t("sidebar.library")
         }}</SectionLabel>
@@ -175,9 +174,9 @@ function startResize(e: PointerEvent) {
         <ThemeToggle />
       </div>
 
-      <!-- Resize handle (desktop uniquement) -->
+      <!-- Resize handle -->
       <div
-        class="group absolute bottom-0 right-0 top-0 flex w-3 cursor-col-resize items-center justify-center max-sm:hidden"
+        class="group absolute bottom-0 right-0 top-0 flex w-3 cursor-col-resize items-center justify-center"
         @pointerdown="startResize"
       >
         <div

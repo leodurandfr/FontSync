@@ -4,6 +4,7 @@
 // This file is part of FontSync, a self-hosted font manager.
 
 import AppKit
+import QuartzCore
 import SwiftUI
 import WebKit
 
@@ -153,6 +154,13 @@ struct WebView: NSViewRepresentable {
                 if let event = NSApp.currentEvent {
                     window.performDrag(with: event)
                 }
+            case "ensureWidth":
+                // L'UI (sidebar « modèle Finder ») demande que la fenêtre soit
+                // assez large pour loger la sidebar sans écraser le contenu. On
+                // l'agrandit si besoin, jamais on ne la rétrécit.
+                if let want = body["width"] as? Double {
+                    Self.ensureWidth(window, atLeast: CGFloat(want))
+                }
             case "theme":
                 // Force l'apparence de la fenêtre à suivre le thème de l'UI : son
                 // cadre natif (bordure) est alors clair en thème clair, même si
@@ -167,6 +175,34 @@ struct WebView: NSViewRepresentable {
                 NSApplication.shared.appearance = appearance
             default:
                 break
+            }
+        }
+
+        /// Agrandit la fenêtre pour atteindre au moins `want` points de large,
+        /// en gardant le bord gauche fixe (le contenu glisse vers la droite avec
+        /// la sidebar). Animée pour rester synchrone avec la transition CSS
+        /// (~200 ms, easeInEaseOut). Jamais de rétrécissement (modèle Finder) ;
+        /// largeur et position bornées à la zone d'écran visible.
+        private static func ensureWidth(_ window: NSWindow, atLeast want: CGFloat) {
+            // Le contenu remplit le cadre (fullSizeContentView, pas de titlebar) :
+            // la largeur de cadre ≈ la largeur en px CSS envoyée par l'UI.
+            guard want > window.frame.width else { return }
+
+            var frame = window.frame
+            frame.size.width = want
+
+            if let visible = window.screen?.visibleFrame {
+                frame.size.width = min(frame.size.width, visible.width)
+                // Déborde à droite : on décale vers la gauche pour rester à l'écran.
+                if frame.maxX > visible.maxX {
+                    frame.origin.x = visible.maxX - frame.size.width
+                }
+            }
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                window.animator().setFrame(frame, display: true)
             }
         }
     }
@@ -228,7 +264,7 @@ struct WebWindowContent: View {
                 }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 640, minHeight: 600)
         .background(WindowChromeConfigurator().frame(width: 0, height: 0))
     }
 }
