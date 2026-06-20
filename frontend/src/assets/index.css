@@ -38,6 +38,7 @@
   --color-ring: var(--ring);
 
   /* Tokens proto-spécifiques */
+  --color-brand: var(--brand);
   --color-foreground-subtle: var(--foreground-subtle);
   --color-separator: var(--separator);
   --color-font-preview: var(--font-preview);
@@ -84,6 +85,7 @@
   --input: #e8e8e8;
   --ring: #cccccc;
 
+  --brand: #f5500a; /* couleur identitaire — orange vif/tech (accent au survol) */
   --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
   --separator: #f2f2f2; /* séparateurs internes des panneaux */
   --font-preview: #f6f6f6; /* fond des styles dépliés d'une famille */
@@ -128,6 +130,7 @@
   --input: #2a2a2a;
   --ring: #333333;
 
+  --brand: #ff6a33; /* couleur identitaire — orange vif/tech (accent au survol) */
   --foreground-subtle: #333333; /* fgSubtle */
   --separator: #1e1e1e;
   --font-preview: #0f0f0f; /* fond des styles dépliés d'une famille */

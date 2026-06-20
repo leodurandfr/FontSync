@@ -48,7 +48,6 @@ const fr: typeof en = {
     typeSomething: "Saisissez un texte…",
     search: "Rechercher…",
     specimen: "Specimen",
-    body: "Texte courant",
     list: "Liste",
   },
   fonts: {

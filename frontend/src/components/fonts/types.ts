@@ -1,4 +1,4 @@
-export type FontLayout = "specimen" | "body" | "list";
+export type FontLayout = "specimen" | "list";
 
 export interface Typo {
   fontSize: number;

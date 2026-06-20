@@ -21,11 +21,10 @@ import SidebarNavButton from "@/components/layout/SidebarNavButton.vue";
 import ThemeToggle from "@/components/layout/ThemeToggle.vue";
 
 // ── Démos interactives ────────────────────────────────────────
-type Layout = "specimen" | "body" | "list";
+type Layout = "specimen" | "list";
 const layout = ref<Layout>("specimen");
 const layoutOptions: SegmentedOption<Layout>[] = [
-  { value: "specimen", icon: Type, label: "Specimen" },
-  { value: "body", icon: AlignLeft, label: "Body" },
+  { value: "specimen", icon: AlignLeft, label: "Specimen" },
   { value: "list", icon: List, label: "List" },
 ];
 

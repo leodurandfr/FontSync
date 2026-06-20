@@ -46,7 +46,6 @@ export default {
     typeSomething: "Type something…",
     search: "Search…",
     specimen: "Specimen",
-    body: "Body text",
     list: "List",
   },
   fonts: {

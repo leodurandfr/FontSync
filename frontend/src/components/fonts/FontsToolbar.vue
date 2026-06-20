@@ -33,8 +33,7 @@ const layout = defineModel<FontLayout>("layout", { required: true });
 const search = defineModel<string>("search", { required: true });
 
 const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
-  { value: "specimen", icon: Type, label: t("toolbar.specimen") },
-  { value: "body", icon: AlignLeft, label: t("toolbar.body") },
+  { value: "specimen", icon: AlignLeft, label: t("toolbar.specimen") },
   { value: "list", icon: List, label: t("toolbar.list") },
 ]);
 </script>

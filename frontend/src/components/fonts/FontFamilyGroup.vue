@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
-import { ChevronRight, ChevronDown, RotateCcw } from "lucide-vue-next";
+import { ChevronUp, ChevronDown, RotateCcw } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
@@ -168,36 +168,6 @@ onBeforeUnmount(() => {
       </div>
     </RouterLink>
 
-    <!-- ── Body layout ──────────────────────────────────────── -->
-    <div v-else-if="layout === 'body'" class="px-4 py-6 sm:px-8">
-      <div class="mb-4 flex items-center gap-3 font-mono">
-        <span class="text-[10px] font-medium">{{ family.name }}</span>
-        <span v-if="foundry" class="text-[9px] text-foreground-subtle">{{
-          foundry
-        }}</span>
-        <span
-          v-if="family.styleCount > 1"
-          class="text-[9px] text-foreground-subtle"
-          >{{ stylesLabel }}</span
-        >
-        <div class="flex-1" />
-        <div
-          class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
-        >
-          <DeviceInstallSheet
-            v-if="familyFontIds.length > 0"
-            :font-ids="familyFontIds"
-            trigger-variant="icon"
-          />
-        </div>
-      </div>
-      <EditablePreview
-        class="break-words transition-opacity duration-200"
-        :style="previewStyle"
-        :placeholder="family.name"
-      />
-    </div>
-
     <!-- ── Specimen layout (default) ────────────────────────── -->
     <div v-else>
       <div class="px-4 py-7 sm:px-8">
@@ -205,20 +175,23 @@ onBeforeUnmount(() => {
           <button
             v-if="isMultiStyle"
             type="button"
-            class="flex items-center gap-2"
+            class="group/toggle flex items-center gap-2"
             @click="toggle"
           >
-            <ChevronDown
+            <ChevronUp
               v-if="open"
-              class="size-3 flex-shrink-0 text-foreground"
+              class="size-3 flex-shrink-0 text-foreground transition-colors group-hover/toggle:text-brand"
               :stroke-width="2"
             />
-            <ChevronRight
+            <ChevronDown
               v-else
-              class="size-3 flex-shrink-0 text-muted-foreground"
+              class="size-3 flex-shrink-0 text-muted-foreground transition-colors group-hover/toggle:text-brand"
               :stroke-width="2"
             />
-            <span class="text-[11px] font-medium">{{ family.name }}</span>
+            <span
+              class="text-[11px] font-medium transition-colors group-hover/toggle:text-brand"
+              >{{ family.name }}</span
+            >
             <span class="text-foreground-subtle">·</span>
             <span class="text-[10px] text-muted-foreground">{{
               stylesLabel
