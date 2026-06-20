@@ -48,7 +48,7 @@ onBeforeUnmount(() => {
 
     <!-- Fade sous la toolbar -->
     <div
-      class="pointer-events-none absolute left-0 right-2 top-[60px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
+      class="pointer-events-none absolute left-0 right-3 top-[60px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
     />
 
     <!-- Liste -->
