@@ -80,7 +80,7 @@ function startResize(e: PointerEvent) {
       resizing ? '' : 'transition-all duration-200',
       layout.sidebarOpen
         ? 'max-sm:translate-x-0'
-        : 'max-sm:pointer-events-none max-sm:-translate-x-full',
+        : 'pointer-events-none max-sm:-translate-x-full',
     ]"
     :style="{
       width: layout.sidebarOpen ? `${layout.sidebarWidth + 12}px` : '0',
