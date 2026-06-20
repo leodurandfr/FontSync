@@ -68,30 +68,30 @@ function startResize(e: PointerEvent) {
 
 <template>
   <!--
-    Desktop : la sidebar pousse le contenu (largeur réservée, redimensionnable).
+    Desktop : la sidebar pousse le contenu. Le conteneur anime sa largeur
+    (0 ↔ largeur+marges) et clippe (`overflow-hidden`) ; le panneau, ancré au
+    bord droit du conteneur (`sm:absolute sm:right-0`), émerge donc par la
+    gauche au fil de l'ouverture — il glisse en poussant le contenu, sans fondu.
     Mobile (max-sm) : drawer fixe en surimpression au-dessus du backdrop, de
     largeur fixe, qui coulisse via translate-x. `!w-` (important) écrase la
     largeur inline pour que `-translate-x-full` masque toujours tout le panneau.
   -->
   <div
-    class="z-50 flex-shrink-0 ease-in-out max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:w-[min(288px,82vw)]!"
+    class="relative z-50 flex-shrink-0 ease-in-out sm:overflow-hidden max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:w-[min(288px,82vw)]!"
     :class="[
-      resizing ? '' : 'transition-all duration-200',
+      resizing ? '' : 'transition-[width,transform] duration-200',
       layout.sidebarOpen
         ? 'max-sm:translate-x-0'
         : 'pointer-events-none max-sm:-translate-x-full',
     ]"
     :style="{
-      width: layout.sidebarOpen ? `${layout.sidebarWidth + 12}px` : '0',
+      width: layout.sidebarOpen ? `${layout.sidebarWidth + 24}px` : '0',
     }"
   >
     <Panel
       as="aside"
-      class="relative m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden transition-opacity duration-200 max-sm:w-[min(288px,82vw)]!"
-      :style="{
-        width: `${layout.sidebarWidth}px`,
-        opacity: layout.sidebarOpen ? 1 : 0,
-      }"
+      class="relative m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden sm:absolute sm:right-0 sm:top-0 max-sm:w-[min(288px,82vw)]!"
+      :style="{ width: `${layout.sidebarWidth}px` }"
     >
       <!-- Header -->
       <!--
