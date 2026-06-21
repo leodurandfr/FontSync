@@ -6,17 +6,26 @@ import EditablePreview from "./EditablePreview.vue";
 import type { FamilyMember } from "@/types/api";
 import type { Typo } from "./types";
 
-const props = defineProps<{
-  member: FamilyMember;
-  typo: Typo;
-  familyName: string;
-  observe: (el: Element, fontId: string) => void;
-  unobserve: (el: Element) => void;
-  getFontFamily: (fontId: string) => string;
-  isFontReady: (fontId: string) => boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    member: FamilyMember;
+    typo: Typo;
+    familyName: string;
+    observe: (el: Element, fontId: string) => void;
+    unobserve: (el: Element) => void;
+    getFontFamily: (fontId: string) => string;
+    isFontReady: (fontId: string) => boolean;
+    // Glissement du mot : false = posé en haut (−word-shift), true = en place.
+    slideIn?: boolean;
+    // true = positionnement instantané (sans transition), pour amorcer l'état
+    // fermé avant de déclencher le glissement.
+    instant?: boolean;
+  }>(),
+  { slideIn: true, instant: false },
+);
 
 const rowRef = ref<HTMLElement | null>(null);
+const wordRef = ref<InstanceType<typeof EditablePreview> | null>(null);
 
 onMounted(() => {
   if (rowRef.value) props.observe(rowRef.value, props.member.fontId);
@@ -24,6 +33,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (rowRef.value) props.unobserve(rowRef.value);
 });
+
+// Expose l'élément du mot pour que le parent aligne le crossfade dessus.
+defineExpose({ getWordEl: () => wordRef.value?.getEl() ?? null });
 
 const WEIGHT_LABELS: Record<number, string> = {
   100: "Thin",
@@ -61,26 +73,35 @@ const previewStyle = computed(() => ({
     ref="rowRef"
     class="group/style border-t border-separator bg-font-preview px-8 py-4"
   >
-    <div class="mb-1 flex items-center gap-3 font-mono">
-      <RouterLink
-        :to="{ name: 'font-detail', params: { id: member.fontId } }"
-        class="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >{{ styleName }}</RouterLink
-      >
-      <span class="text-foreground-subtle">·</span>
-      <span class="text-[10px] text-foreground-subtle">{{ familyName }}</span>
-      <div class="flex-1" />
-      <div class="opacity-0 transition-opacity group-hover/style:opacity-100">
-        <DeviceInstallSheet
-          :font-ids="[member.fontId]"
-          trigger-variant="icon"
-        />
+    <!-- Le fond gris (ci-dessus) reste fixe ; label + mot glissent ensemble. -->
+    <div
+      :class="[
+        instant ? '' : 'transition-[translate] duration-200 ease-out',
+        slideIn
+          ? 'translate-y-0'
+          : 'translate-y-[calc(var(--word-shift)_*_-1)]',
+      ]"
+    >
+      <div class="mb-1 flex items-center gap-3 font-mono">
+        <RouterLink
+          :to="{ name: 'font-detail', params: { id: member.fontId } }"
+          class="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >{{ styleName }}</RouterLink
+        >
+        <div class="flex-1" />
+        <div class="opacity-0 transition-opacity group-hover/style:opacity-100">
+          <DeviceInstallSheet
+            :font-ids="[member.fontId]"
+            trigger-variant="icon"
+          />
+        </div>
       </div>
+      <EditablePreview
+        ref="wordRef"
+        class="block break-words leading-none transition-opacity duration-200"
+        :style="previewStyle"
+        :placeholder="familyName"
+      />
     </div>
-    <EditablePreview
-      class="block break-words leading-none transition-opacity duration-200"
-      :style="previewStyle"
-      :placeholder="familyName"
-    />
   </div>
 </template>

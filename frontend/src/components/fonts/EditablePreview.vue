@@ -51,6 +51,9 @@ function onKeydown(e: KeyboardEvent) {
     el.value?.blur();
   }
 }
+
+// Permet au parent de mesurer la position du mot (alignement du crossfade).
+defineExpose({ getEl: () => el.value });
 </script>
 
 <template>
