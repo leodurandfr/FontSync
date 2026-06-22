@@ -1,30 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from "vue";
+import { storeToRefs } from "pinia";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
-import FontsToolbar, {
-  type FontLayout,
-} from "@/components/fonts/FontsToolbar.vue";
+import { useFontsViewStore } from "@/stores/fontsView";
+import FontsToolbar from "@/components/fonts/FontsToolbar.vue";
 import FontFamilyList from "@/components/fonts/FontFamilyList.vue";
 
 const filtersStore = useFamilyFiltersStore();
 
-const fontSize = ref(40);
-const lineHeight = ref(1.1);
-const letterSpacing = ref(0);
-const layout = ref<FontLayout>("specimen");
-
-// La liste démarre toujours à 16px (le specimen est plus gros). On mémorise la
-// taille du specimen pour la restaurer au retour, sans écraser le réglage choisi.
-const LIST_DEFAULT_SIZE = 16;
-let specimenFontSize = fontSize.value;
-watch(layout, (next) => {
-  if (next === "list") {
-    specimenFontSize = fontSize.value;
-    fontSize.value = LIST_DEFAULT_SIZE;
-  } else {
-    fontSize.value = specimenFontSize;
-  }
-});
+// Réglages d'affichage persistés dans un store : ils survivent à l'aller-retour
+// vers le détail d'une fonte (sinon le layout retomberait sur « specimen »).
+const { layout, fontSize, lineHeight, letterSpacing } = storeToRefs(
+  useFontsViewStore(),
+);
 
 const typo = computed(() => ({
   fontSize: fontSize.value,
