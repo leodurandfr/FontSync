@@ -16,7 +16,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-panel: 18px;
+  --radius-panel: 16px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -59,7 +59,7 @@
   --radius: 0.625rem;
 
   /* ── Light ──────────────────────────────────────────────── */
-  --background: #ffffff; /* appBg */
+  --background: #f8f9fa; /* appBg — gris discret qui fait flotter les panneaux blancs (design-ctt) */
   --foreground: #111111; /* fg */
 
   --card: #ffffff; /* panelBg */
@@ -89,8 +89,8 @@
   --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
   --separator: #f2f2f2; /* séparateurs internes des panneaux */
   --font-preview: #f6f6f6; /* fond des styles dépliés d'une famille */
-  --panel-border: rgba(0, 0, 0, 0.05); /* bordure externe des panneaux flottants */
-  --panel-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+  --panel-border: rgba(0, 0, 0, 0.08); /* bordure externe des panneaux flottants (design-ctt) */
+  --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
 
   --sidebar: #ffffff;
   --sidebar-foreground: #111111;
@@ -134,8 +134,8 @@
   --foreground-subtle: #333333; /* fgSubtle */
   --separator: #1e1e1e;
   --font-preview: #0f0f0f; /* fond des styles dépliés d'une famille */
-  --panel-border: rgba(255, 255, 255, 0.07);
-  --panel-shadow: 0 2px 28px rgba(0, 0, 0, 0.6);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 
   --sidebar: #141414;
   --sidebar-foreground: #e8e8e8;
