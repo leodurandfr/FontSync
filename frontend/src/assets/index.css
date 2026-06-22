@@ -81,15 +81,15 @@
 
   --destructive: #e5484d;
 
-  --border: #e8e8e8; /* btnBorder — bordure boutons/pills */
-  --input: #e8e8e8;
+  --border: #f0f0f0; /* btnBorder — bordure boutons/pills (contraste minimal, calé sur le dark) */
+  --input: #f0f0f0;
   --ring: #cccccc;
 
   --brand: #f5500a; /* couleur identitaire — orange vif/tech (accent au survol) */
   --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
-  --separator: #f2f2f2; /* séparateurs internes des panneaux */
+  --separator: #e4e4e4; /* séparateurs internes des panneaux (assombri vs #f2f2f2 pour rester visible sur fond clair) */
   --font-preview: #f0f0f3; /* fond des styles dépliés d'une famille — un cran sous le fond de page #f8f9fa */
-  --panel-border: rgba(0, 0, 0, 0.08); /* bordure externe des panneaux flottants (design-ctt) */
+  --panel-border: rgba(0, 0, 0, 0.12); /* bordure externe des panneaux flottants (design-ctt) */
   --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
 
   --sidebar: #ffffff;
@@ -98,7 +98,7 @@
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f4f4f4;
   --sidebar-accent-foreground: #111111;
-  --sidebar-border: #f2f2f2;
+  --sidebar-border: #e4e4e4;
   --sidebar-ring: #cccccc;
 }
 
@@ -126,8 +126,8 @@
 
   --destructive: #ff6369;
 
-  --border: #2a2a2a; /* btnBorder */
-  --input: #2a2a2a;
+  --border: #181818; /* btnBorder (intensité minimale, proche de la carte) */
+  --input: #181818;
   --ring: #333333;
 
   --brand: #ff6a33; /* couleur identitaire — orange vif/tech (accent au survol) */
