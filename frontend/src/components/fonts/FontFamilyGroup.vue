@@ -7,12 +7,19 @@ import {
   onMounted,
   onBeforeUnmount,
 } from "vue";
-import { ChevronUp, ChevronDown, RotateCcw } from "lucide-vue-next";
+import {
+  ChevronUp,
+  ChevronDown,
+  RotateCcw,
+  ArrowUpRight,
+  Download,
+} from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
+import { downloadFromApi } from "@/lib/download";
 import FontStyleRow from "./FontStyleRow.vue";
 import EditablePreview from "./EditablePreview.vue";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
@@ -115,6 +122,18 @@ const familyFontIds = computed(() =>
       ? [previewFontId]
       : [],
 );
+
+async function handleDownloadFamily() {
+  // Toutes les graisses de la famille, zippées côté serveur.
+  try {
+    await downloadFromApi(
+      `/api/font-families/${props.family.id}/archive`,
+      `${props.family.name}.zip`,
+    );
+  } catch {
+    // Échec réseau / 401 (la saisie du token reprend la main).
+  }
+}
 
 // La 1re graisse occupe l'emplacement de tête (remplace l'aperçu famille) ;
 // les graisses suivantes (2..N) se déplient dessous.
@@ -286,14 +305,19 @@ onBeforeUnmount(() => {
 <template>
   <li ref="rootRef" class="group overflow-hidden">
     <!-- ── List layout ──────────────────────────────────────── -->
-    <RouterLink
+    <component
+      :is="family.previewFont?.id ? RouterLink : 'div'"
       v-if="layout === 'list'"
-      :to="{ name: 'font-detail', params: { id: family.previewFont?.id } }"
+      :to="
+        family.previewFont?.id
+          ? { name: 'font-detail', params: { id: family.previewFont.id } }
+          : undefined
+      "
       class="flex h-12 items-center gap-4 px-4 transition-colors hover:bg-accent sm:px-8"
     >
       <span class="size-1.5 flex-shrink-0 rounded-full bg-foreground-subtle" />
       <span
-        class="min-w-0 flex-1 truncate text-[13px] sm:min-w-[180px] sm:flex-none"
+        class="min-w-0 flex-1 truncate text-[13px] transition-colors group-hover:text-brand sm:min-w-[180px] sm:flex-none"
         :style="{ fontFamily: previewStyle.fontFamily }"
       >
         {{ family.name }}
@@ -313,16 +337,25 @@ onBeforeUnmount(() => {
       >
       <div class="hidden flex-1 sm:block" />
       <div
-        class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+        class="flex items-center gap-1 text-foreground-subtle"
         @click.prevent.stop
       >
+        <Button
+          v-if="familyFontIds.length > 0"
+          variant="ghost"
+          size="icon-sm"
+          :aria-label="t('common.download')"
+          @click="handleDownloadFamily"
+        >
+          <Download class="h-3.5 w-3.5" />
+        </Button>
         <DeviceInstallSheet
           v-if="familyFontIds.length > 0"
           :font-ids="familyFontIds"
           trigger-variant="icon"
         />
       </div>
-    </RouterLink>
+    </component>
 
     <!-- ── Specimen layout (default) ────────────────────────── -->
     <div
@@ -361,29 +394,47 @@ onBeforeUnmount(() => {
               stylesLabel
             }}</span>
           </button>
-          <RouterLink
-            v-else
-            :to="{
-              name: 'font-detail',
-              params: { id: family.previewFont?.id },
-            }"
-            class="text-[11px] font-medium"
-          >
+          <span v-else class="text-[11px] font-medium">
             {{ family.name }}
-          </RouterLink>
+          </span>
 
           <span v-if="foundry" class="text-[10px] text-foreground-subtle">{{
             foundry
           }}</span>
           <div class="flex-1" />
           <div
-            class="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+            class="flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
           >
+            <Button
+              v-if="familyFontIds.length > 0"
+              variant="ghost"
+              size="icon-sm"
+              :aria-label="t('common.download')"
+              @click="handleDownloadFamily"
+            >
+              <Download class="h-3.5 w-3.5" />
+            </Button>
             <DeviceInstallSheet
               v-if="familyFontIds.length > 0"
               :font-ids="familyFontIds"
               trigger-variant="icon"
             />
+            <Button
+              v-if="family.previewFont?.id"
+              as-child
+              variant="ghost"
+              size="icon-sm"
+            >
+              <RouterLink
+                :to="{
+                  name: 'font-detail',
+                  params: { id: family.previewFont.id },
+                }"
+                :aria-label="t('fontDetail.openDetails')"
+              >
+                <ArrowUpRight class="h-3.5 w-3.5" />
+              </RouterLink>
+            </Button>
           </div>
         </div>
       </div>

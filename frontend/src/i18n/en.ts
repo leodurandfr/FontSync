@@ -56,6 +56,7 @@ export default {
     styleCount: "{n} style | {n} styles",
   },
   fontDetail: {
+    openDetails: "View details",
     cannotLoad: "Could not load the font.",
     fonts: "Fonts",
     preview: "Preview",

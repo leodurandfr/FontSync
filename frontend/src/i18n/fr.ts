@@ -58,6 +58,7 @@ const fr: typeof en = {
     styleCount: "{n} style | {n} styles",
   },
   fontDetail: {
+    openDetails: "Voir les détails",
     cannotLoad: "Impossible de charger la police.",
     fonts: "Polices",
     preview: "Aperçu",

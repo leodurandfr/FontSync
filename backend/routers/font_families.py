@@ -1,11 +1,15 @@
 """Router pour les familles de polices."""
 
+import io
 import logging
 import math
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -35,6 +39,7 @@ from backend.services.family_grouper import (
     regroup_all,
     slugify,
 )
+from backend.services.storage import StorageBackend, get_storage_backend
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -321,6 +326,81 @@ async def get_family(
         updated_at=family.updated_at,
         members=members,
     )
+
+
+# ---------- Archive (téléchargement de toute la famille) ----------
+
+
+def get_storage() -> StorageBackend:
+    return get_storage_backend()
+
+
+@router.get("/{family_id}/archive")
+async def download_family_archive(
+    family_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+) -> Response:
+    """Télécharge toutes les graisses non supprimées de la famille en .zip."""
+    family = await _get_family_or_404(family_id, db)
+
+    result = await db.execute(
+        select(FontFamilyMember)
+        .where(FontFamilyMember.family_id == family.id)
+        .order_by(FontFamilyMember.sort_order)
+        .options(selectinload(FontFamilyMember.font))
+    )
+    members = result.scalars().all()
+
+    buffer = io.BytesIO()
+    used_names: set[str] = set()
+    count = 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for member in members:
+            font = member.font
+            if font is None or font.deleted_at is not None:
+                continue
+            try:
+                data = await storage.retrieve(font.file_hash, font.file_format)
+            except FileNotFoundError:
+                # Une graisse manquante au stockage ne doit pas faire échouer
+                # tout le zip : on l'ignore et on continue.
+                continue
+            archive.writestr(_unique_archive_name(font, used_names), data)
+            count += 1
+
+    if count == 0:
+        raise HTTPException(
+            status_code=404, detail="Aucun fichier disponible pour cette famille."
+        )
+
+    filename = f"{family.slug or slugify(family.name)}.zip"
+    encoded = quote(filename, safe="")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded}",
+        },
+    )
+
+
+def _unique_archive_name(font: Font, used: set[str]) -> str:
+    """Nom de fichier unique dans le zip (les graisses peuvent partager un nom)."""
+    base = font.original_filename or f"{font.id}.{font.file_format}"
+    if base not in used:
+        used.add(base)
+        return base
+    stem, dot, ext = base.rpartition(".")
+    if not dot:
+        stem, ext = base, ""
+    i = 2
+    while True:
+        candidate = f"{stem}-{i}.{ext}" if ext else f"{stem}-{i}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        i += 1
 
 
 # ---------- Création ----------

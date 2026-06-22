@@ -21,6 +21,7 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { TypoInput } from "@/components/ui/typo-input";
 import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
+import { downloadFromApi } from "@/lib/download";
 import { useLocale } from "@/composables/useLocale";
 import type { Font } from "@/types/api";
 
@@ -127,20 +128,11 @@ async function loadFontFace() {
 
 async function handleDownload() {
   if (!font.value) return;
-  // Téléchargement via blob authentifié : un `<a href>` direct ne peut pas
-  // porter le token sur une route `/api/*` protégée.
   try {
-    const res = await apiFetch(`/api/fonts/${props.id}/file`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = font.value.originalFilename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await downloadFromApi(
+      `/api/fonts/${props.id}/file`,
+      font.value.originalFilename,
+    );
   } catch {
     // Échec réseau / 401 (la saisie du token reprend la main).
   }

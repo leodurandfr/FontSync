@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { RouterLink } from "vue-router";
+import { useI18n } from "vue-i18n";
+import { ArrowUpRight, Download } from "lucide-vue-next";
+import { Button } from "@/components/ui/button";
+import { downloadFromApi } from "@/lib/download";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import EditablePreview from "./EditablePreview.vue";
 import type { FamilyMember } from "@/types/api";
@@ -25,7 +29,20 @@ const props = withDefaults(
   { slideIn: true, instant: false },
 );
 
+const { t } = useI18n();
+
 const wordRef = ref<InstanceType<typeof EditablePreview> | null>(null);
+
+async function handleDownload() {
+  try {
+    await downloadFromApi(
+      `/api/fonts/${props.member.fontId}/file`,
+      props.member.originalFilename,
+    );
+  } catch {
+    // Échec réseau / 401 (la saisie du token reprend la main).
+  }
+}
 
 // Expose l'élément du mot pour que le parent aligne le crossfade dessus.
 defineExpose({ getWordEl: () => wordRef.value?.getEl() ?? null });
@@ -81,17 +98,33 @@ const previewStyle = computed(() => ({
       ]"
     >
       <div class="mb-1 flex items-center gap-3 font-mono">
-        <RouterLink
-          :to="{ name: 'font-detail', params: { id: member.fontId } }"
-          class="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >{{ styleName }}</RouterLink
-        >
+        <span class="text-[11px] font-medium text-muted-foreground">{{
+          styleName
+        }}</span>
         <div class="flex-1" />
-        <div class="opacity-0 transition-opacity group-hover/style:opacity-100">
+        <div
+          class="flex items-center gap-1 opacity-0 transition-opacity group-hover/style:opacity-100"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :aria-label="t('common.download')"
+            @click="handleDownload"
+          >
+            <Download class="h-3.5 w-3.5" />
+          </Button>
           <DeviceInstallSheet
             :font-ids="[member.fontId]"
             trigger-variant="icon"
           />
+          <Button as-child variant="ghost" size="icon-sm">
+            <RouterLink
+              :to="{ name: 'font-detail', params: { id: member.fontId } }"
+              :aria-label="t('fontDetail.openDetails')"
+            >
+              <ArrowUpRight class="h-3.5 w-3.5" />
+            </RouterLink>
+          </Button>
         </div>
       </div>
       <EditablePreview
