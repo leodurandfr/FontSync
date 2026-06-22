@@ -30,7 +30,7 @@ function filenameFromDisposition(header: string | null): string | null {
   if (!header) return null;
   // `filename*=UTF-8''<encoded>` est prioritaire (RFC 5987).
   const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
-  if (star) {
+  if (star?.[1]) {
     try {
       return decodeURIComponent(star[1]);
     } catch {
@@ -38,5 +38,5 @@ function filenameFromDisposition(header: string | null): string | null {
     }
   }
   const plain = /filename="?([^";]+)"?/i.exec(header);
-  return plain ? plain[1] : null;
+  return plain?.[1] ?? null;
 }
