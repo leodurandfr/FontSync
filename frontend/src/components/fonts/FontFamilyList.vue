@@ -18,7 +18,8 @@ defineProps<{
 
 const familiesStore = useFamiliesStore();
 const filtersStore = useFamilyFiltersStore();
-const { getFontFamily, isFontReady, observe, unobserve } = useFontPreview();
+const { getFontFamily, isFontReady, observe, unobserve, preload } =
+  useFontPreview();
 
 const sentinelRef = ref<HTMLElement | null>(null);
 let scrollObserver: IntersectionObserver | null = null;
@@ -93,6 +94,7 @@ watch(sentinelRef, (el) => {
         :unobserve="unobserve"
         :get-font-family="getFontFamily"
         :is-font-ready="isFontReady"
+        :preload="preload"
       />
     </ul>
 

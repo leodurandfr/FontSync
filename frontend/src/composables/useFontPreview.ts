@@ -120,5 +120,8 @@ export function useFontPreview() {
     isFontReady,
     observe,
     unobserve,
+    // Chargement direct (sans passer par l'IntersectionObserver), pour
+    // précharger des fontes dont l'élément n'est pas encore visible/observable.
+    preload: loadFont,
   };
 }

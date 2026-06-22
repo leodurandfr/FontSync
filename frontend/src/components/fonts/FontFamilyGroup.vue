@@ -27,6 +27,7 @@ const props = defineProps<{
   unobserve: (el: Element) => void;
   getFontFamily: (fontId: string) => string;
   isFontReady: (fontId: string) => boolean;
+  preload: (fontId: string) => void;
 }>();
 
 const { t } = useI18n();
@@ -128,6 +129,9 @@ async function fetchMembers() {
       (a, b) => a.sortOrder - b.sortOrder,
     );
     loaded.value = true;
+    // Précharge directement les fontes des graisses : repliées, leurs lignes
+    // sont clippées (overflow-hidden) → invisibles pour l'IntersectionObserver.
+    members.value.forEach((m) => props.preload(m.fontId));
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return;
     fetchError.value = true;
