@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { RouterLink } from "vue-router";
 import {
+  ArrowLeft,
   Copy,
   Download,
-  Server,
   Check,
   KeyRound,
-  Palette,
   Sun,
   Moon,
   Monitor,
@@ -15,6 +15,8 @@ import {
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Panel } from "@/components/ui/panel";
+import { SectionLabel } from "@/components/ui/section-label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import DevicesSection from "@/components/settings/DevicesSection.vue";
 import { useWsStore } from "@/stores/ws";
@@ -102,89 +104,98 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-    <h1 class="text-3xl font-bold tracking-tight">{{ t("settings.title") }}</h1>
-    <p class="text-muted-foreground mt-1">
-      {{ t("settings.subtitle") }}
-    </p>
+  <div class="scrollbar-thin h-full overflow-y-auto">
+    <div class="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-8 sm:py-10">
+      <!-- Header -->
+      <header>
+        <RouterLink
+          :to="{ name: 'fonts' }"
+          class="mb-5 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground-subtle transition-colors hover:text-foreground"
+        >
+          <ArrowLeft class="size-3" :stroke-width="2" />
+          {{ t("common.back") }}
+        </RouterLink>
 
-    <div class="mt-8 space-y-6">
+        <h1 class="text-3xl font-semibold tracking-tight">
+          {{ t("settings.title") }}
+        </h1>
+        <p class="mt-2 text-[13px] text-muted-foreground">
+          {{ t("settings.subtitle") }}
+        </p>
+      </header>
+
       <!-- Apparence -->
-      <div class="rounded-xl border bg-card p-6 space-y-4">
-        <div class="flex items-center gap-2">
-          <Palette class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">{{ t("settings.appearance") }}</h2>
-        </div>
-
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <p class="text-sm font-medium">{{ t("settings.theme") }}</p>
-            <p class="text-sm text-muted-foreground">
-              {{ t("settings.themeDesc") }}
-            </p>
-          </div>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            :model-value="theme"
-            @update:model-value="onThemeChange"
-          >
-            <ToggleGroupItem
-              v-for="option in themeOptions"
-              :key="option.value"
-              :value="option.value"
-              :aria-label="option.label"
+      <section>
+        <SectionLabel class="mb-3">{{ t("settings.appearance") }}</SectionLabel>
+        <Panel class="space-y-4 p-6">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="text-[13px] font-medium">{{ t("settings.theme") }}</p>
+              <p class="text-[13px] text-muted-foreground">
+                {{ t("settings.themeDesc") }}
+              </p>
+            </div>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              :model-value="theme"
+              @update:model-value="onThemeChange"
             >
-              <component :is="option.icon" class="h-4 w-4 sm:mr-1.5" />
-              <span class="hidden sm:inline">{{ option.label }}</span>
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <p class="text-sm font-medium">{{ t("settings.language") }}</p>
-            <p class="text-sm text-muted-foreground">
-              {{ t("settings.languageDesc") }}
-            </p>
+              <ToggleGroupItem
+                v-for="option in themeOptions"
+                :key="option.value"
+                :value="option.value"
+                :aria-label="option.label"
+              >
+                <component :is="option.icon" class="h-4 w-4 sm:mr-1.5" />
+                <span class="hidden sm:inline">{{ option.label }}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            :model-value="locale"
-            @update:model-value="onLocaleChange"
-          >
-            <ToggleGroupItem
-              v-for="option in localeOptions"
-              :key="option.value"
-              :value="option.value"
-              :aria-label="option.label"
+
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p class="text-[13px] font-medium">
+                {{ t("settings.language") }}
+              </p>
+              <p class="text-[13px] text-muted-foreground">
+                {{ t("settings.languageDesc") }}
+              </p>
+            </div>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              :model-value="locale"
+              @update:model-value="onLocaleChange"
             >
-              <Languages class="h-4 w-4 sm:mr-1.5" />
-              <span class="hidden sm:inline">{{ option.label }}</span>
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-      </div>
+              <ToggleGroupItem
+                v-for="option in localeOptions"
+                :key="option.value"
+                :value="option.value"
+                :aria-label="option.label"
+              >
+                <Languages class="h-4 w-4 sm:mr-1.5" />
+                <span class="hidden sm:inline">{{ option.label }}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        </Panel>
+      </section>
 
       <!-- Appareils -->
       <DevicesSection />
 
       <!-- Server info -->
-      <div class="rounded-xl border bg-card p-6 space-y-4">
-        <div class="flex items-center gap-2">
-          <Server class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">{{ t("settings.server") }}</h2>
-        </div>
-
-        <div class="space-y-3">
+      <section>
+        <SectionLabel class="mb-3">{{ t("settings.server") }}</SectionLabel>
+        <Panel class="space-y-4 p-6">
           <div>
-            <p class="text-sm text-muted-foreground mb-1">
-              {{ t("settings.serverUrl") }}
-            </p>
+            <SectionLabel as="p" class="mb-1.5">{{
+              t("settings.serverUrl")
+            }}</SectionLabel>
             <div class="flex items-center gap-2">
               <code
-                class="flex-1 rounded-lg border bg-muted/50 px-3 py-2 text-sm font-mono"
+                class="flex-1 rounded-lg border border-separator bg-muted/50 px-3 py-2 font-mono text-[13px]"
               >
                 {{ serverUrl }}
               </code>
@@ -196,59 +207,55 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
           </div>
 
           <div>
-            <p class="text-sm text-muted-foreground mb-1">
-              {{ t("settings.websocket") }}
-            </p>
+            <SectionLabel as="p" class="mb-1.5">{{
+              t("settings.websocket")
+            }}</SectionLabel>
             <Badge :variant="wsStatusVariant">{{ wsStatusLabel }}</Badge>
           </div>
-        </div>
-      </div>
+        </Panel>
+      </section>
 
       <!-- Token d'accès -->
-      <div class="rounded-xl border bg-card p-6 space-y-4">
-        <div class="flex items-center gap-2">
-          <KeyRound class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">
-            {{ t("settings.accessToken") }}
-          </h2>
-        </div>
-
-        <i18n-t
-          keypath="settings.tokenDesc"
-          tag="p"
-          class="text-sm text-muted-foreground"
-          scope="global"
-        >
-          <template #code
-            ><code class="font-mono">FONTSYNC_TOKEN</code></template
+      <section>
+        <SectionLabel class="mb-3">{{
+          t("settings.accessToken")
+        }}</SectionLabel>
+        <Panel class="space-y-4 p-6">
+          <i18n-t
+            keypath="settings.tokenDesc"
+            tag="p"
+            class="text-[13px] text-muted-foreground"
+            scope="global"
           >
-        </i18n-t>
+            <template #code
+              ><code class="font-mono">FONTSYNC_TOKEN</code></template
+            >
+          </i18n-t>
 
-        <Button variant="outline" @click="changeToken">
-          <KeyRound class="mr-2 h-4 w-4" />
-          {{ t("settings.changeToken") }}
-        </Button>
-      </div>
+          <Button variant="outline" @click="changeToken">
+            <KeyRound class="mr-2 h-4 w-4" />
+            {{ t("settings.changeToken") }}
+          </Button>
+        </Panel>
+      </section>
 
       <!-- Agent download -->
-      <div class="rounded-xl border bg-card p-6 space-y-4">
-        <div class="flex items-center gap-2">
-          <Download class="h-5 w-5 text-muted-foreground" />
-          <h2 class="text-lg font-semibold">{{ t("settings.agent") }}</h2>
-        </div>
+      <section>
+        <SectionLabel class="mb-3">{{ t("settings.agent") }}</SectionLabel>
+        <Panel class="space-y-4 p-6">
+          <p class="text-[13px] text-muted-foreground">
+            {{ t("settings.agentDesc") }}
+          </p>
 
-        <p class="text-sm text-muted-foreground">
-          {{ t("settings.agentDesc") }}
-        </p>
-
-        <Button variant="outline" disabled>
-          <Download class="mr-2 h-4 w-4" />
-          {{ t("settings.downloadAgent") }}
-        </Button>
-        <p class="text-xs text-muted-foreground">
-          {{ t("settings.agentSoon") }}
-        </p>
-      </div>
+          <Button variant="outline" disabled>
+            <Download class="mr-2 h-4 w-4" />
+            {{ t("settings.downloadAgent") }}
+          </Button>
+          <p class="text-xs text-muted-foreground">
+            {{ t("settings.agentSoon") }}
+          </p>
+        </Panel>
+      </section>
     </div>
   </div>
 </template>
