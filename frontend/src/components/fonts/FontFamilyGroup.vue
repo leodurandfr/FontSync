@@ -54,8 +54,14 @@ const revealed = ref(false);
 // `priming` coupe la transition des mots le temps de les poser en position
 // fermée (sans glissement parasite), avant de révéler.
 const priming = ref(false);
+// Graisses 2..N : le fond gris est en `absolute` (hauteur pleine, fondu seul,
+// ne grandit jamais). La poussée progressive des familles du dessous est faite
+// par un spacer en flux dont la HAUTEUR est animée (mesurée sur le fond gris).
+const restRef = ref<HTMLElement | null>(null);
+const restHeight = ref("0px");
 
 let abortController: AbortController | null = null;
+let restResizeObserver: ResizeObserver | null = null;
 
 const isMultiStyle = props.family.styleCount > 1;
 const previewFontId = props.family.previewFont?.id ?? null;
@@ -140,14 +146,32 @@ function toggle() {
   open.value = !open.value;
 }
 
-watch(open, (isOpen) => {
+// Préchargement au survol : on monte les lignes (repliées, invisibles) en
+// avance → leurs fontes se chargent via l'IntersectionObserver et `wordShift`
+// est mesuré, pour que le 1er dépliage soit prêt (mots déjà visibles).
+function prefetch() {
+  if (!loaded.value) fetchMembers();
+}
+
+watch(open, async (isOpen) => {
   if (!isOpen) {
     revealed.value = false;
+    restHeight.value = "0px"; // les familles du dessous remontent progressivement
     return;
   }
   if (loaded.value) revealNow();
   else fetchMembers(); // le glissement sera déclenché au chargement
+  await nextTick();
+  syncRestHeight(); // les familles du dessous descendent progressivement
 });
+
+// Cale la hauteur du spacer sur la hauteur réelle du fond gris (mesurée), pour
+// que les familles du dessous soient poussées d'exactement la bonne distance.
+function syncRestHeight() {
+  if (open.value && restRef.value) {
+    restHeight.value = `${restRef.value.scrollHeight}px`;
+  }
+}
 
 // Décalage vertical entre le mot de l'aperçu famille et celui de la 1re
 // graisse. Invariant des transforms (on retranche la position du wrapper), et
@@ -194,16 +218,24 @@ onMounted(() => {
   if (previewFontId && rootRef.value) {
     props.observe(rootRef.value, previewFontId);
   }
+  // Re-cale le spacer dès que la hauteur réelle du fond gris change, quelle
+  // qu'en soit la cause (taille de police, interligne, texte d'aperçu édité,
+  // reflow…) → le spacer ne désynchronise jamais du fond gris.
+  if (restRef.value) {
+    restResizeObserver = new ResizeObserver(() => syncRestHeight());
+    restResizeObserver.observe(restRef.value);
+  }
 });
 
 onBeforeUnmount(() => {
   abortController?.abort();
+  restResizeObserver?.disconnect();
   if (rootRef.value) props.unobserve(rootRef.value);
 });
 </script>
 
 <template>
-  <li ref="rootRef" class="group">
+  <li ref="rootRef" class="group overflow-hidden">
     <!-- ── List layout ──────────────────────────────────────── -->
     <RouterLink
       v-if="layout === 'list'"
@@ -253,6 +285,7 @@ onBeforeUnmount(() => {
             type="button"
             class="group/toggle flex items-center gap-2"
             @click="toggle"
+            @pointerenter="prefetch"
           >
             <ChevronUp
               v-if="open"
@@ -313,7 +346,7 @@ onBeforeUnmount(() => {
         -->
         <div
           ref="layerARef"
-          class="col-start-1 row-start-1 px-4 py-4 transition-[opacity,translate] duration-200 ease-out sm:px-8"
+          class="col-start-1 row-start-1 border-t border-transparent px-4 py-4 transition-[opacity,translate] duration-200 ease-out sm:px-8"
           :class="
             revealed
               ? 'pointer-events-none translate-y-[var(--word-shift)] opacity-0'
@@ -326,6 +359,14 @@ onBeforeUnmount(() => {
             :style="previewStyle"
             :placeholder="family.name"
           />
+          <!--
+            Réserve, SOUS le mot (pour ne pas le décaler → le glissement reste
+            possible), la hauteur exacte du label de graisse : bordure (1px) +
+            bouton size-8 (h-8) + mb-1 (mt-1). Le slot fait donc toujours la
+            hauteur d'UNE ligne de graisse — ni plus ni moins, et sans saut.
+            Inutile en mono-graisse (pas de dropdown).
+          -->
+          <div v-if="isMultiStyle" aria-hidden="true" class="mt-1 h-8" />
         </div>
 
         <!--
@@ -355,16 +396,23 @@ onBeforeUnmount(() => {
       </div>
 
       <!--
-        Graisses 2..N : la hauteur croît progressivement (grid 0fr → 1fr) pour
-        pousser en douceur les familles du dessous ; le contenu glisse en
-        translateY + fondu, exactement comme la 1re graisse.
+        Graisses 2..N. Le fond gris (ci-dessous, en `absolute`) ne change JAMAIS
+        de hauteur : il n'apparaît qu'en fondu d'opacité. La poussée progressive
+        des familles du dessous est assurée par ce spacer en flux, dont la
+        hauteur s'anime jusqu'à la hauteur (mesurée) du fond gris. Pendant la
+        descente, le fond gris recouvre brièvement le haut de la famille suivante.
       -->
-      <div
-        v-if="isMultiStyle"
-        class="grid transition-[grid-template-rows] duration-200 ease-out"
-        :class="open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
-      >
-        <div class="overflow-hidden">
+      <div v-if="isMultiStyle" class="relative">
+        <div
+          aria-hidden="true"
+          class="transition-[height] duration-200 ease-out"
+          :style="{ height: restHeight }"
+        />
+        <div
+          ref="restRef"
+          class="absolute inset-x-0 top-0 transition-opacity duration-200 ease-out"
+          :class="open ? 'opacity-100' : 'pointer-events-none opacity-0'"
+        >
           <!-- Squelette / erreur : visibles dès l'ouverture (retour de chargement). -->
           <div
             v-if="loadingMembers && members.length === 0"
@@ -389,31 +437,20 @@ onBeforeUnmount(() => {
             </Button>
           </div>
 
-          <!--
-            Fond gris CONTIGU : il ne translate pas (sinon il se décollerait du
-            slot du haut → blanc). Seule l'opacité fait son apparition (sur
-            `revealed`) ; chaque mot glisse à l'intérieur (slide-in), même
-            animation que la 1re graisse, dès le 1er dépliage.
-          -->
-          <div
+          <FontStyleRow
+            v-for="member in restMembers"
             v-else
-            class="transition-opacity duration-200 ease-out"
-            :class="revealed ? 'opacity-100' : 'opacity-0'"
-          >
-            <FontStyleRow
-              v-for="member in restMembers"
-              :key="member.fontId"
-              :member="member"
-              :typo="typo"
-              :family-name="family.name"
-              :slide-in="revealed"
-              :instant="priming"
-              :observe="observe"
-              :unobserve="unobserve"
-              :get-font-family="getFontFamily"
-              :is-font-ready="isFontReady"
-            />
-          </div>
+            :key="member.fontId"
+            :member="member"
+            :typo="typo"
+            :family-name="family.name"
+            :slide-in="revealed"
+            :instant="priming"
+            :observe="observe"
+            :unobserve="unobserve"
+            :get-font-family="getFontFamily"
+            :is-font-ready="isFontReady"
+          />
         </div>
       </div>
     </div>
