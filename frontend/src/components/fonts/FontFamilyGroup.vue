@@ -28,6 +28,7 @@ const props = defineProps<{
   getFontFamily: (fontId: string) => string;
   isFontReady: (fontId: string) => boolean;
   preload: (fontId: string) => void;
+  release: (fontId: string) => void;
 }>();
 
 const { t } = useI18n();
@@ -129,9 +130,7 @@ async function fetchMembers() {
       (a, b) => a.sortOrder - b.sortOrder,
     );
     loaded.value = true;
-    // Précharge directement les fontes des graisses : repliées, leurs lignes
-    // sont clippées (overflow-hidden) → invisibles pour l'IntersectionObserver.
-    members.value.forEach((m) => props.preload(m.fontId));
+    syncFonts(); // précharge les fontes des graisses si la famille est active
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return;
     fetchError.value = true;
@@ -150,14 +149,49 @@ function toggle() {
   open.value = !open.value;
 }
 
-// Préchargement au survol : on monte les lignes (repliées, invisibles) en
-// avance → leurs fontes se chargent via l'IntersectionObserver et `wordShift`
-// est mesuré, pour que le 1er dépliage soit prêt (mots déjà visibles).
-function prefetch() {
+// ── Cycle de vie des fontes des graisses ──────────────────────────────────
+// On précharge les fontes quand la famille est « active » (survolée ou ouverte)
+// et on les libère quand elle redevient inactive → pas d'accumulation mémoire.
+// (Les lignes repliées sont clippées par overflow-hidden, donc invisibles pour
+// l'IntersectionObserver : on charge/décharge directement, avec compteur de refs
+// côté composable.)
+let hovering = false;
+let fontsHeld = false;
+let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function syncFonts() {
+  const want = open.value || hovering;
+  if (want && loaded.value && !fontsHeld) {
+    members.value.forEach((m) => props.preload(m.fontId));
+    fontsHeld = true;
+  } else if (!want && fontsHeld) {
+    members.value.forEach((m) => props.release(m.fontId));
+    fontsHeld = false;
+  }
+}
+
+// Survol : on monte/charge les graisses en avance (fontes + mesure de wordShift)
+// pour que le 1er dépliage soit déjà prêt (mots visibles, sans flash).
+function onPointerEnter() {
+  if (releaseTimer) {
+    clearTimeout(releaseTimer);
+    releaseTimer = null;
+  }
+  hovering = true;
   if (!loaded.value) fetchMembers();
+  else syncFonts();
+}
+
+function onPointerLeave() {
+  // Délai de grâce : évite de décharger/recharger en passant la souris.
+  releaseTimer = setTimeout(() => {
+    hovering = false;
+    syncFonts();
+  }, 1500);
 }
 
 watch(open, async (isOpen) => {
+  syncFonts(); // acquiert (ouverture) ou libère (fermeture, si plus survolé)
   if (!isOpen) {
     revealed.value = false;
     restHeight.value = "0px"; // les familles du dessous remontent progressivement
@@ -233,8 +267,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   abortController?.abort();
+  if (releaseTimer) clearTimeout(releaseTimer);
   restResizeObserver?.disconnect();
   if (rootRef.value) props.unobserve(rootRef.value);
+  // Libère les fontes des graisses encore retenues par cette famille.
+  if (fontsHeld) members.value.forEach((m) => props.release(m.fontId));
 });
 </script>
 
@@ -289,7 +326,8 @@ onBeforeUnmount(() => {
             type="button"
             class="group/toggle flex items-center gap-2"
             @click="toggle"
-            @pointerenter="prefetch"
+            @pointerenter="onPointerEnter"
+            @pointerleave="onPointerLeave"
           >
             <ChevronUp
               v-if="open"
@@ -391,8 +429,6 @@ onBeforeUnmount(() => {
             :family-name="family.name"
             :slide-in="revealed"
             :instant="priming"
-            :observe="observe"
-            :unobserve="unobserve"
             :get-font-family="getFontFamily"
             :is-font-ready="isFontReady"
           />
@@ -450,8 +486,6 @@ onBeforeUnmount(() => {
             :family-name="family.name"
             :slide-in="revealed"
             :instant="priming"
-            :observe="observe"
-            :unobserve="unobserve"
             :get-font-family="getFontFamily"
             :is-font-ready="isFontReady"
           />

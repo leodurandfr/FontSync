@@ -6,6 +6,9 @@ export function useFontPreview() {
   const entries = new Map<Element, string>();
   const loadedFonts = new Map<string, FontFace>();
   const loadingFonts = new Set<string>();
+  // Compteur de références des préchargements directs (`preload`/`release`),
+  // pour décharger une fonte préchargée dès qu'elle n'est plus demandée.
+  const preloadRefs = new Map<string, number>();
   // IDs des fontes « résolues » (chargées OU en échec). Réactif : les cartes
   // s'en servent pour ne révéler leur aperçu qu'une fois la fonte prête, ce qui
   // évite tout flash fallback→vraie-fonte (FOUT) et le reflow associé au scroll.
@@ -98,13 +101,35 @@ export function useFontPreview() {
     entries.delete(el);
     observer.value?.unobserve(el);
 
-    // Only unload if no other element still references this font
-    if (fontId) {
-      const stillUsed = [...entries.values()].includes(fontId);
-      if (!stillUsed) {
-        unloadFont(fontId);
-      }
+    // Only unload if no other element observes it AND no preload still holds it
+    if (fontId && !isReferenced(fontId)) {
+      unloadFont(fontId);
     }
+  }
+
+  // Une fonte est encore « utilisée » si un élément observé la référence OU si
+  // un préchargement direct la retient (compteur > 0).
+  function isReferenced(fontId: string): boolean {
+    return (
+      (preloadRefs.get(fontId) ?? 0) > 0 ||
+      [...entries.values()].includes(fontId)
+    );
+  }
+
+  // Préchargement direct (sans IntersectionObserver), avec comptage de refs.
+  function preload(fontId: string) {
+    preloadRefs.set(fontId, (preloadRefs.get(fontId) ?? 0) + 1);
+    loadFont(fontId);
+  }
+
+  function release(fontId: string) {
+    const next = (preloadRefs.get(fontId) ?? 1) - 1;
+    if (next > 0) {
+      preloadRefs.set(fontId, next);
+      return;
+    }
+    preloadRefs.delete(fontId);
+    if (!isReferenced(fontId)) unloadFont(fontId);
   }
 
   onScopeDispose(() => {
@@ -120,8 +145,9 @@ export function useFontPreview() {
     isFontReady,
     observe,
     unobserve,
-    // Chargement direct (sans passer par l'IntersectionObserver), pour
-    // précharger des fontes dont l'élément n'est pas encore visible/observable.
-    preload: loadFont,
+    // Préchargement/relâche directs (hors IntersectionObserver), comptés, pour
+    // les fontes dont l'élément n'est pas observable (lignes repliées/clippées).
+    preload,
+    release,
   };
 }

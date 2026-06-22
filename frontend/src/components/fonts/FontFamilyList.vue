@@ -18,7 +18,7 @@ defineProps<{
 
 const familiesStore = useFamiliesStore();
 const filtersStore = useFamilyFiltersStore();
-const { getFontFamily, isFontReady, observe, unobserve, preload } =
+const { getFontFamily, isFontReady, observe, unobserve, preload, release } =
   useFontPreview();
 
 const sentinelRef = ref<HTMLElement | null>(null);
@@ -95,6 +95,7 @@ watch(sentinelRef, (el) => {
         :get-font-family="getFontFamily"
         :is-font-ready="isFontReady"
         :preload="preload"
+        :release="release"
       />
     </ul>
 

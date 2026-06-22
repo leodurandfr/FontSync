@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed } from "vue";
 import { RouterLink } from "vue-router";
 import DeviceInstallSheet from "./DeviceInstallSheet.vue";
 import EditablePreview from "./EditablePreview.vue";
 import type { FamilyMember } from "@/types/api";
 import type { Typo } from "./types";
 
+// Le chargement de la fonte est géré par le parent (`preload`/`release`) : la
+// ligne est clippée (overflow-hidden) donc invisible pour l'IntersectionObserver,
+// et elle ne doit pas retenir de référence qui empêcherait le déchargement.
 const props = withDefaults(
   defineProps<{
     member: FamilyMember;
     typo: Typo;
     familyName: string;
-    observe: (el: Element, fontId: string) => void;
-    unobserve: (el: Element) => void;
     getFontFamily: (fontId: string) => string;
     isFontReady: (fontId: string) => boolean;
     // Glissement du mot : false = posé en haut (−word-shift), true = en place.
@@ -24,15 +25,7 @@ const props = withDefaults(
   { slideIn: true, instant: false },
 );
 
-const rowRef = ref<HTMLElement | null>(null);
 const wordRef = ref<InstanceType<typeof EditablePreview> | null>(null);
-
-onMounted(() => {
-  if (rowRef.value) props.observe(rowRef.value, props.member.fontId);
-});
-onBeforeUnmount(() => {
-  if (rowRef.value) props.unobserve(rowRef.value);
-});
 
 // Expose l'élément du mot pour que le parent aligne le crossfade dessus.
 defineExpose({ getWordEl: () => wordRef.value?.getEl() ?? null });
@@ -69,10 +62,7 @@ const previewStyle = computed(() => ({
 </script>
 
 <template>
-  <div
-    ref="rowRef"
-    class="group/style border-t border-separator bg-font-preview px-8 py-4"
-  >
+  <div class="group/style border-t border-separator bg-font-preview px-8 py-4">
     <!-- Le fond gris (ci-dessus) reste fixe ; label + mot glissent ensemble. -->
     <div
       :class="[
