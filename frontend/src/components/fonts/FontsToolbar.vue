@@ -89,6 +89,11 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
     </Transition>
 
     <!-- 2 — Réglages typo (desktop uniquement) — début du groupe centré -->
+    <!--
+      Réglages typo désactivés en layout « list » : la liste n'affiche que les
+      noms (pas d'aperçu), donc size / interligne / interlettrage n'ont aucun
+      effet → grisés et non éditables.
+    -->
     <div
       class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:order-3 sm:flex"
     >
@@ -99,6 +104,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         :max="160"
         :step="1"
         suffix="px"
+        :disabled="layout === 'list'"
       />
       <TypoInput
         :icon="ArrowUpDown"
@@ -107,6 +113,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         :max="3"
         :step="0.1"
         :digits="1"
+        :disabled="layout === 'list'"
       />
       <TypoInput
         :icon="ArrowLeftRight"
@@ -115,6 +122,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         :max="0.3"
         :step="0.01"
         :digits="2"
+        :disabled="layout === 'list'"
       />
     </div>
 
@@ -127,7 +135,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 1 — Search (ancré à gauche) -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:max-w-[280px] sm:flex-1 sm:basis-0 sm:border-r sm:border-separator sm:px-6"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:flex-1 sm:basis-0 sm:border-r sm:border-separator sm:px-6"
     >
       <Search
         class="size-3 flex-shrink-0 text-foreground-subtle"
@@ -144,7 +152,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
     <!-- 4 — Compteur de familles (desktop uniquement, ancré à droite) -->
     <div
       v-if="familiesStore.initialized"
-      class="order-5 hidden h-full items-center justify-end whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex sm:max-w-[280px] sm:flex-1 sm:basis-0"
+      class="order-5 hidden h-full items-center justify-end whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex sm:flex-1 sm:basis-0"
     >
       {{
         t("toolbar.familyCount", familiesStore.total, {
