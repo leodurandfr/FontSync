@@ -133,7 +133,7 @@
   --brand: #ff6a33; /* couleur identitaire — orange vif/tech (accent au survol) */
   --foreground-subtle: #333333; /* fgSubtle */
   --separator: #1e1e1e;
-  --font-preview: #0f0f0f; /* fond des styles dépliés d'une famille */
+  --font-preview: #080808; /* fond des styles dépliés d'une famille — creux le plus sombre, sous le fond de page #0c0c0c */
   --panel-border: rgba(255, 255, 255, 0.08);
   --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 

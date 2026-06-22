@@ -53,38 +53,44 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
   >
     <!-- 0 — Feux de fenêtre + réouverture sidebar (visibles quand repliée) -->
     <!--
-      Pas de v-if : on garde l'élément monté et on anime sa largeur « auto » via
-      le truc grid 0fr↔1fr (seule façon d'animer une largeur auto en CSS) plus un
-      fondu. L'inner clippe (`overflow-hidden`) sa bordure et son padding pendant
-      le collapse, si bien que l'apparition reste synchro avec l'animation de la
-      sidebar (200 ms, même easing) et pousse progressivement le reste de la barre.
+      Monté uniquement quand la sidebar est repliée (v-if) : pas d'élément « vide »
+      dans la barre quand la sidebar est affichée. L'apparition/disparition reste
+      animée en largeur via une <Transition> qui interpole grid-template-columns
+      0fr↔1fr (seule façon d'animer une largeur « auto » en CSS) + un fondu.
+      L'inner clippe (overflow-hidden) sa bordure et son padding pendant le collapse,
+      synchro avec l'animation de la sidebar (200 ms, même easing).
     -->
-    <div
-      class="order-1 grid h-12 flex-shrink-0 overflow-hidden transition-[grid-template-columns,opacity] duration-200 ease-in-out sm:h-full"
-      :class="
-        layoutStore.sidebarOpen
-          ? 'grid-cols-[0fr] opacity-0'
-          : 'grid-cols-[1fr] opacity-100'
-      "
+    <Transition
+      enter-active-class="transition-[grid-template-columns,opacity] duration-200 ease-in-out"
+      leave-active-class="transition-[grid-template-columns,opacity] duration-200 ease-in-out"
+      enter-from-class="grid-cols-[0fr] opacity-0"
+      enter-to-class="grid-cols-[1fr] opacity-100"
+      leave-from-class="grid-cols-[1fr] opacity-100"
+      leave-to-class="grid-cols-[0fr] opacity-0"
     >
       <div
-        class="flex items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
+        v-if="!layoutStore.sidebarOpen"
+        class="order-1 grid h-12 flex-shrink-0 grid-cols-[1fr] overflow-hidden opacity-100 sm:h-full"
       >
-        <WindowControls v-if="showWindowControls" />
-        <button
-          type="button"
-          class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
-          :aria-label="t('sidebar.openSidebar')"
-          @click="layoutStore.setSidebarOpen(true)"
+        <div
+          class="flex items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
         >
-          <PanelLeftOpen class="size-4" :stroke-width="1.5" />
-        </button>
+          <WindowControls v-if="showWindowControls" />
+          <button
+            type="button"
+            class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
+            :aria-label="t('sidebar.openSidebar')"
+            @click="layoutStore.setSidebarOpen(true)"
+          >
+            <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+          </button>
+        </div>
       </div>
-    </div>
+    </Transition>
 
-    <!-- 1 — Réglages typo (desktop uniquement) -->
+    <!-- 2 — Réglages typo (desktop uniquement) -->
     <div
-      class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:flex"
+      class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:order-3 sm:flex"
     >
       <TypoInput
         :icon="Type"
@@ -112,16 +118,16 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       />
     </div>
 
-    <!-- 2 — Layout switch -->
+    <!-- 3 — Layout switch -->
     <div
-      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-3 sm:h-full sm:border-l-0 sm:border-r sm:px-6"
+      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-4 sm:h-full sm:border-l-0 sm:border-r sm:px-6"
     >
       <SegmentedControl v-model="layout" :options="layoutOptions" />
     </div>
 
-    <!-- 3 — Search -->
+    <!-- 1 — Search -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-4 sm:h-full sm:min-w-[120px] sm:max-w-[220px] sm:px-6"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:min-w-[120px] sm:max-w-[220px] sm:border-r sm:border-separator sm:px-6"
     >
       <Search
         class="size-3 flex-shrink-0 text-foreground-subtle"
@@ -138,7 +144,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
     <!-- 4 — Compteur de familles (desktop uniquement) -->
     <div
       v-if="familiesStore.initialized"
-      class="order-5 hidden h-full flex-shrink-0 items-center whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex"
+      class="order-5 hidden h-full flex-shrink-0 items-center whitespace-nowrap px-3 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex"
     >
       {{
         t("toolbar.familyCount", familiesStore.total, {
