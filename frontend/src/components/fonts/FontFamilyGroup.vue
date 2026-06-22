@@ -61,6 +61,14 @@ const priming = ref(false);
 // par un spacer en flux dont la HAUTEUR est animée (mesurée sur le fond gris).
 const restRef = ref<HTMLElement | null>(null);
 const restHeight = ref("0px");
+// Hauteur du spacer de l'emplacement de tête : 0 fermé (carte compacte, comme
+// une police seule), word-shift + 16 ouvert pour que la 1re graisse (en
+// `absolute`) tienne sans débordement. word-shift = hauteur de son label ;
+// +16 = l'excédent de padding-bas d'une ligne de graisse (pb-8 = 32) sur celui
+// de l'aperçu famille (py-4 = 16). Animé → ouverture sans saut.
+const headExtra = computed(() =>
+  open.value ? `${wordShift.value + 16}px` : "0px",
+);
 
 let abortController: AbortController | null = null;
 let restResizeObserver: ResizeObserver | null = null;
@@ -317,7 +325,12 @@ onBeforeUnmount(() => {
     </RouterLink>
 
     <!-- ── Specimen layout (default) ────────────────────────── -->
-    <div v-else :style="{ '--word-shift': `${wordShift}px` }">
+    <div
+      v-else
+      class="transition-[padding] duration-200 ease-out"
+      :class="open ? 'pb-0' : 'pb-4'"
+      :style="{ '--word-shift': `${wordShift}px` }"
+    >
       <!-- En-tête : nom · styles · auteur (toujours visible). -->
       <div class="px-4 pt-7 sm:px-8">
         <div class="flex items-center gap-3 font-mono">
@@ -376,19 +389,23 @@ onBeforeUnmount(() => {
       </div>
 
       <!--
-        Emplacement de tête (hauteur d'une ligne de graisse). L'aperçu famille
-        et la 1re graisse y sont superposés (grid stack). À l'ouverture, le mot
-        famille glisse d'exactement --word-shift (mesuré) pour se poser pile sur
-        le mot de la 1re graisse, en fondu croisé. Alignement parfait, sans saut.
+        Emplacement de tête. L'aperçu famille reste EN FLUX : il fixe une hauteur
+        fermée compacte (identique à une police seule). La 1re graisse est
+        superposée en `absolute` (hors flux → ne gonfle PAS la carte fermée, même
+        survolée/préchargée). Un spacer en flux, dont la hauteur s'anime de
+        0 → word-shift à l'ouverture, agrandit l'emplacement pile de la hauteur du
+        label de graisse → la 1re graisse tient sans déborder, sans saut. À
+        l'ouverture, le mot famille glisse d'exactement --word-shift (mesuré) pour
+        se poser pile sur le mot de la 1re graisse, en fondu croisé.
       -->
-      <div class="grid">
+      <div class="relative">
         <!--
           Aperçu famille (regular) : visible fermé. À l'ouverture il glisse de
           0 → +word-shift (mesuré) et s'efface en fondu.
         -->
         <div
           ref="layerARef"
-          class="col-start-1 row-start-1 border-t border-transparent px-4 py-4 transition-[opacity,translate] duration-200 ease-out sm:px-8"
+          class="border-t border-transparent px-4 py-4 transition-[opacity,translate] duration-200 ease-out sm:px-8"
           :class="
             revealed
               ? 'pointer-events-none translate-y-[var(--word-shift)] opacity-0'
@@ -401,25 +418,31 @@ onBeforeUnmount(() => {
             :style="previewStyle"
             :placeholder="family.name"
           />
-          <!--
-            Réserve, SOUS le mot (pour ne pas le décaler → le glissement reste
-            possible), la hauteur exacte du label de graisse : bordure (1px) +
-            bouton size-8 (h-8) + mb-1 (mt-1). Le slot fait donc toujours la
-            hauteur d'UNE ligne de graisse — ni plus ni moins, et sans saut.
-            Inutile en mono-graisse (pas de dropdown).
-          -->
-          <div v-if="isMultiStyle" aria-hidden="true" class="mt-1 h-8" />
         </div>
 
         <!--
-          1re graisse : son FOND reste fixe (pas de translate → pas de blanc
-          avec le bloc du dessous), seul son MOT glisse (slide-in) sur le même
-          trajet que la famille pour rester superposé pile dessus. Fondu in.
+          Spacer en flux : agrandit l'emplacement de 0 (fermé) à word-shift
+          (ouvert), soit exactement la hauteur du label de la 1re graisse. Laisse
+          la place à la 1re graisse (en `absolute`) sans déborder ni sauter.
+          Inutile en mono-graisse (pas de dépliage).
+        -->
+        <div
+          v-if="isMultiStyle"
+          aria-hidden="true"
+          class="transition-[height] duration-200 ease-out"
+          :style="{ height: headExtra }"
+        />
+
+        <!--
+          1re graisse : superposée en `absolute` (hors flux). Son FOND reste fixe
+          (pas de translate → pas de blanc avec le bloc du dessous), seul son MOT
+          glisse (slide-in) sur le même trajet que la famille pour rester
+          superposé pile dessus. Fondu in.
         -->
         <div
           v-if="firstMember"
           ref="layerBRef"
-          class="col-start-1 row-start-1 transition-opacity duration-200 ease-out"
+          class="absolute inset-x-0 top-0 transition-opacity duration-200 ease-out"
           :class="revealed ? 'opacity-100' : 'pointer-events-none opacity-0'"
         >
           <FontStyleRow

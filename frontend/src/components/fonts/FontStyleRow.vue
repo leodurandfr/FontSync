@@ -62,7 +62,15 @@ const previewStyle = computed(() => ({
 </script>
 
 <template>
-  <div class="group/style border-t border-separator bg-font-preview px-8 py-4">
+  <!--
+    pb-8 (32px sous le mot) au lieu de py-4 : même respiration basse qu'une carte
+    repliée (py-4 16 + pb-4 16). NB : le parent (FontFamilyGroup) compense cet
+    excédent (32−16 = 16) sur le spacer de l'emplacement de tête pour que la 1re
+    graisse, posée en `absolute`, ne soit pas clippée.
+  -->
+  <div
+    class="group/style border-t border-separator bg-font-preview px-8 pb-8 pt-4"
+  >
     <!-- Le fond gris (ci-dessus) reste fixe ; label + mot glissent ensemble. -->
     <div
       :class="[
