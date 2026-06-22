@@ -90,9 +90,9 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 2 — Réglages typo (desktop uniquement) — début du groupe centré -->
     <!--
-      Réglages typo désactivés en layout « list » : la liste n'affiche que les
-      noms (pas d'aperçu), donc size / interligne / interlettrage n'ont aucun
-      effet → grisés et non éditables.
+      En layout « list », la liste n'affiche que les noms : interligne et
+      interlettrage n'ont aucun effet → grisés et non éditables. La taille reste
+      éditable (elle pilote la taille du nom).
     -->
     <div
       class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:order-3 sm:flex"
@@ -104,7 +104,6 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         :max="160"
         :step="1"
         suffix="px"
-        :disabled="layout === 'list'"
       />
       <TypoInput
         :icon="ArrowUpDown"

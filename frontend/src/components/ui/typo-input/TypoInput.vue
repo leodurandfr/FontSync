@@ -23,8 +23,9 @@ const props = withDefaults(
     step: number;
     digits?: number;
     suffix?: string;
+    disabled?: boolean;
   }>(),
-  { digits: 0, suffix: "" },
+  { digits: 0, suffix: "", disabled: false },
 );
 
 const model = defineModel<number>({ required: true });
@@ -47,6 +48,7 @@ const fmt = (n: number) =>
   props.digits > 0 ? n.toFixed(props.digits) : String(n);
 
 async function startEdit() {
+  if (props.disabled) return;
   editing.value = true;
   await nextTick();
   inputRef.value?.focus();
@@ -61,10 +63,15 @@ function commit(raw: string) {
 </script>
 
 <template>
-  <HoverCardRoot :open-delay="80" :close-delay="120">
+  <HoverCardRoot
+    :open-delay="80"
+    :close-delay="120"
+    :open="disabled ? false : undefined"
+  >
     <HoverCardTrigger
       as="div"
-      class="flex flex-shrink-0 items-center gap-1"
+      class="flex flex-shrink-0 items-center gap-1 transition-opacity"
+      :class="disabled ? 'pointer-events-none opacity-40' : ''"
     >
       <component
         :is="icon"
@@ -85,6 +92,7 @@ function commit(raw: string) {
       <button
         v-else
         type="button"
+        :disabled="disabled"
         class="w-9 text-right font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
         @click="startEdit"
       >

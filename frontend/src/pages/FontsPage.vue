@@ -13,6 +13,19 @@ const lineHeight = ref(1.1);
 const letterSpacing = ref(0);
 const layout = ref<FontLayout>("specimen");
 
+// La liste démarre toujours à 16px (le specimen est plus gros). On mémorise la
+// taille du specimen pour la restaurer au retour, sans écraser le réglage choisi.
+const LIST_DEFAULT_SIZE = 16;
+let specimenFontSize = fontSize.value;
+watch(layout, (next) => {
+  if (next === "list") {
+    specimenFontSize = fontSize.value;
+    fontSize.value = LIST_DEFAULT_SIZE;
+  } else {
+    fontSize.value = specimenFontSize;
+  }
+});
+
 const typo = computed(() => ({
   fontSize: fontSize.value,
   lineHeight: lineHeight.value,

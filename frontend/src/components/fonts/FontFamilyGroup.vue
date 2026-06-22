@@ -313,12 +313,15 @@ onBeforeUnmount(() => {
           ? { name: 'font-detail', params: { id: family.previewFont.id } }
           : undefined
       "
-      class="flex h-12 items-center gap-4 px-4 transition-colors hover:bg-accent sm:px-8"
+      class="flex min-h-12 items-center gap-4 px-4 py-2 transition-colors hover:bg-accent sm:px-8"
     >
       <span class="size-1.5 flex-shrink-0 rounded-full bg-foreground-subtle" />
       <span
-        class="min-w-0 flex-1 truncate text-[13px] transition-colors group-hover:text-brand sm:min-w-[180px] sm:flex-none"
-        :style="{ fontFamily: previewStyle.fontFamily }"
+        class="min-w-0 flex-1 truncate leading-tight transition-colors group-hover:text-brand"
+        :style="{
+          fontFamily: previewStyle.fontFamily,
+          fontSize: `${typo.fontSize}px`,
+        }"
       >
         {{ family.name }}
       </span>
@@ -335,7 +338,6 @@ onBeforeUnmount(() => {
         class="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle sm:inline"
         >{{ format }}</span
       >
-      <div class="hidden flex-1 sm:block" />
       <div
         class="flex items-center gap-1 text-foreground-subtle"
         @click.prevent.stop
