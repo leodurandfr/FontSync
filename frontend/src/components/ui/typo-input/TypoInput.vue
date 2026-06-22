@@ -77,7 +77,7 @@ function commit(raw: string) {
         type="number"
         :step="step"
         :value="display"
-        class="w-12 appearance-none bg-transparent text-right font-mono text-[10px] tabular-nums text-foreground outline-none"
+        class="w-9 appearance-none bg-transparent text-right font-mono text-[10px] tabular-nums text-foreground outline-none"
         @blur="commit(($event.target as HTMLInputElement).value)"
         @keydown.enter="commit(($event.target as HTMLInputElement).value)"
         @keydown.escape="editing = false"
@@ -85,7 +85,7 @@ function commit(raw: string) {
       <button
         v-else
         type="button"
-        class="w-12 text-right font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+        class="w-9 text-right font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
         @click="startEdit"
       >
         {{ display }}{{ suffix }}

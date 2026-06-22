@@ -11,6 +11,7 @@ import {
 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { useLayoutStore } from "@/stores/layout";
+import { useFamiliesStore } from "@/stores/families";
 import { showWindowControls } from "@/composables/useWindowControls";
 import WindowControls from "@/components/layout/WindowControls.vue";
 import { Panel } from "@/components/ui/panel";
@@ -25,6 +26,7 @@ export type { FontLayout };
 
 const { t } = useI18n();
 const layoutStore = useLayoutStore();
+const familiesStore = useFamiliesStore();
 
 const fontSize = defineModel<number>("fontSize", { required: true });
 const lineHeight = defineModel<number>("lineHeight", { required: true });
@@ -82,7 +84,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 1 — Réglages typo (desktop uniquement) -->
     <div
-      class="order-2 hidden h-full flex-shrink-0 items-center gap-3 border-r border-separator px-4 sm:flex"
+      class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:flex"
     >
       <TypoInput
         :icon="Type"
@@ -112,14 +114,14 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 2 — Layout switch -->
     <div
-      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-3 sm:h-full sm:border-l-0 sm:border-r"
+      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-3 sm:h-full sm:border-l-0 sm:border-r sm:px-6"
     >
       <SegmentedControl v-model="layout" :options="layoutOptions" />
     </div>
 
     <!-- 3 — Search -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-4 sm:h-full sm:min-w-[148px]"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-4 sm:h-full sm:min-w-[120px] sm:max-w-[220px] sm:px-6"
     >
       <Search
         class="size-3 flex-shrink-0 text-foreground-subtle"
@@ -131,6 +133,18 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         :placeholder="t('toolbar.search')"
         class="w-full bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
       />
+    </div>
+
+    <!-- 4 — Compteur de familles (desktop uniquement) -->
+    <div
+      v-if="familiesStore.initialized"
+      class="order-5 hidden h-full flex-shrink-0 items-center whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex"
+    >
+      {{
+        t("toolbar.familyCount", familiesStore.total, {
+          named: { n: familiesStore.total },
+        })
+      }}
     </div>
   </Panel>
 </template>

@@ -47,6 +47,7 @@ export default {
     search: "Search…",
     specimen: "Specimen",
     list: "List",
+    familyCount: "{n} family | {n} families",
   },
   fonts: {
     noFontsFound: "No fonts found",

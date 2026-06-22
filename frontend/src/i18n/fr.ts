@@ -49,6 +49,7 @@ const fr: typeof en = {
     search: "Rechercher…",
     specimen: "Specimen",
     list: "Liste",
+    familyCount: "{n} famille | {n} familles",
   },
   fonts: {
     noFontsFound: "Aucune police trouvée",
