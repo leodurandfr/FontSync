@@ -88,7 +88,7 @@
   --brand: #f5500a; /* couleur identitaire — orange vif/tech (accent au survol) */
   --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
   --separator: #f2f2f2; /* séparateurs internes des panneaux */
-  --font-preview: #f6f6f6; /* fond des styles dépliés d'une famille */
+  --font-preview: #f0f0f3; /* fond des styles dépliés d'une famille — un cran sous le fond de page #f8f9fa */
   --panel-border: rgba(0, 0, 0, 0.08); /* bordure externe des panneaux flottants (design-ctt) */
   --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
 
