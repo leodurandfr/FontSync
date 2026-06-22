@@ -70,10 +70,10 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
     >
       <div
         v-if="!layoutStore.sidebarOpen"
-        class="order-1 grid h-12 flex-shrink-0 grid-cols-[1fr] overflow-hidden opacity-100 sm:h-full"
+        class="order-1 grid h-12 flex-shrink-0 overflow-hidden sm:h-full"
       >
         <div
-          class="flex items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
+          class="flex min-w-0 items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
         >
           <WindowControls v-if="showWindowControls" />
           <button
@@ -88,7 +88,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       </div>
     </Transition>
 
-    <!-- 2 — Réglages typo (desktop uniquement) -->
+    <!-- 2 — Réglages typo (desktop uniquement) — début du groupe centré -->
     <div
       class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:order-3 sm:flex"
     >
@@ -118,16 +118,16 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       />
     </div>
 
-    <!-- 3 — Layout switch -->
+    <!-- 3 — Layout switch (fin du groupe centré) -->
     <div
-      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-4 sm:h-full sm:border-l-0 sm:border-r sm:px-6"
+      class="order-3 flex h-12 flex-shrink-0 items-center border-l border-separator px-3 sm:order-4 sm:h-full sm:border-l-0 sm:px-6"
     >
       <SegmentedControl v-model="layout" :options="layoutOptions" />
     </div>
 
-    <!-- 1 — Search -->
+    <!-- 1 — Search (ancré à gauche) -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:min-w-[120px] sm:max-w-[220px] sm:border-r sm:border-separator sm:px-6"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:max-w-[280px] sm:flex-1 sm:basis-0 sm:border-r sm:border-separator sm:px-6"
     >
       <Search
         class="size-3 flex-shrink-0 text-foreground-subtle"
@@ -141,10 +141,10 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       />
     </div>
 
-    <!-- 4 — Compteur de familles (desktop uniquement) -->
+    <!-- 4 — Compteur de familles (desktop uniquement, ancré à droite) -->
     <div
       v-if="familiesStore.initialized"
-      class="order-5 hidden h-full flex-shrink-0 items-center whitespace-nowrap px-3 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex"
+      class="order-5 hidden h-full items-center justify-end whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex sm:max-w-[280px] sm:flex-1 sm:basis-0"
     >
       {{
         t("toolbar.familyCount", familiesStore.total, {
