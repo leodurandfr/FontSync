@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onUnmounted } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -23,7 +23,7 @@ import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
 import { downloadFromApi } from "@/lib/download";
 import { useLocale } from "@/composables/useLocale";
-import type { Font } from "@/types/api";
+import type { Font, FamilyMember, FontFamilyDetail } from "@/types/api";
 
 const props = defineProps<{ id: string }>();
 
@@ -41,6 +41,7 @@ function sourceLabel(s: string): string {
 }
 
 const font = ref<Font | null>(null);
+const familyMembers = ref<FamilyMember[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const fontLoaded = ref(false);
@@ -50,10 +51,24 @@ const previewLeading = ref(1.3);
 const previewTracking = ref(0);
 const glyphPage = ref(0);
 
-let fontFace: FontFace | null = null;
+let currentFace: FontFace | null = null;
 let fetchAbort: AbortController | null = null;
 
-const fontFamily = computed(() => `detail-${props.id}`);
+// La famille CSS affichée suit `activeFontId`, basculé seulement une fois la
+// nouvelle fonte chargée — pas `props.id` qui change dès le clic sur un onglet.
+// Sans ce découplage, le spécimen pointerait sur une `FontFace` pas encore
+// prête (texte invisible le temps du chargement) → le « saut » entre graisses.
+const activeFontId = ref(props.id);
+const fontFamily = computed(() => `detail-${activeFontId.value}`);
+
+// Aperçus : on garde la vraie famille en permanence (jamais de bascule de
+// `font-family`) et on révèle en fondu une fois la fonte chargée. Sans ça, tous
+// les spécimens (aperçu, cascade, glyphes) s'affichent d'abord en police
+// système puis « sautent » sur la vraie fonte — le flash visible à l'ouverture.
+const revealStyle = computed(() => ({
+  opacity: fontLoaded.value ? 1 : 0,
+  transition: "opacity 150ms ease",
+}));
 
 const WATERFALL_SIZES = [12, 16, 20, 24, 32, 48, 64, 72];
 
@@ -90,39 +105,82 @@ const WEIGHT_LABELS: Record<number, string> = {
   900: "Black",
 };
 
-async function fetchFont() {
-  fetchAbort?.abort();
-  fetchAbort = new AbortController();
-  loading.value = true;
-  error.value = null;
+// Libellé d'une graisse pour les onglets : on privilégie le sous-nom de style
+// (« Bold Italic »…), sinon on reconstruit depuis la weight class.
+function memberLabel(m: FamilyMember): string {
+  if (m.subfamilyName) return m.subfamilyName;
+  const base = m.weightClass
+    ? (WEIGHT_LABELS[m.weightClass] ?? `${m.weightClass}`)
+    : "Regular";
+  return m.isItalic ? `${base} Italic` : base;
+}
+
+// Onglets de graisses : uniquement si la famille compte plusieurs styles.
+const weightTabs = computed(() =>
+  familyMembers.value.length > 1
+    ? familyMembers.value.map((m) => ({
+        id: m.fontId,
+        label: memberLabel(m),
+        active: m.fontId === props.id,
+      }))
+    : [],
+);
+
+// Famille déjà chargée : en navigant entre graisses on reste dans la même
+// famille, donc on ne recharge pas (et surtout on ne vide pas la liste, ce qui
+// ferait disparaître/réapparaître la barre d'onglets → saut de mise en page).
+let loadedFamilyId: string | null = null;
+
+async function loadFamilyMembers(familyId: string | null) {
+  if (familyId === loadedFamilyId) return;
+  loadedFamilyId = familyId;
+  if (!familyId) {
+    familyMembers.value = [];
+    return;
+  }
   try {
-    const res = await apiFetch(`/api/fonts/${props.id}`, {
-      signal: fetchAbort.signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    font.value = await res.json();
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") return;
-    error.value = e instanceof Error ? e.message : t("common.unknownError");
-  } finally {
-    loading.value = false;
+    const res = await apiFetch(`/api/font-families/${familyId}`);
+    if (!res.ok) return;
+    const data: FontFamilyDetail = await res.json();
+    // On n'assigne qu'après le fetch : la barre d'onglets ne clignote pas.
+    familyMembers.value = data.members;
+  } catch {
+    // Onglets non bloquants : en cas d'échec on n'affiche simplement rien.
   }
 }
 
-async function loadFontFace() {
+async function fetchFont(id: string): Promise<Font | null> {
+  fetchAbort?.abort();
+  fetchAbort = new AbortController();
+  error.value = null;
+  try {
+    const res = await apiFetch(`/api/fonts/${id}`, {
+      signal: fetchAbort.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as Font;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return null;
+    error.value = e instanceof Error ? e.message : t("common.unknownError");
+    return null;
+  }
+}
+
+async function loadFontFace(id: string): Promise<FontFace | null> {
   try {
     // `/api/fonts/:id/preview` exige le token : on récupère les octets avec
     // `apiFetch` (en-tête `Authorization`) puis on construit la `FontFace` à
     // partir du buffer — `url(...)` ne peut pas porter d'en-tête d'auth.
-    const res = await apiFetch(`/api/fonts/${props.id}/preview`);
+    const res = await apiFetch(`/api/fonts/${id}/preview`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buffer = await res.arrayBuffer();
-    fontFace = new FontFace(fontFamily.value, buffer, { display: "swap" });
-    await fontFace.load();
-    document.fonts.add(fontFace);
-    fontLoaded.value = true;
+    // `block` : aucun rendu fallback n'est peint pendant le chargement.
+    const face = new FontFace(`detail-${id}`, buffer, { display: "block" });
+    await face.load();
+    document.fonts.add(face);
+    return face;
   } catch {
-    fontFace = null;
+    return null;
   }
 }
 
@@ -164,25 +222,59 @@ function formatDate(dateStr: string): string {
   });
 }
 
-onMounted(async () => {
-  await fetchFont();
-  if (font.value) loadFontFace();
-});
+// Chargement complet d'une fonte. Rejoué à chaque changement d'`id` car la
+// route réutilise l'instance du composant lors de la navigation entre graisses.
+// On charge données + `FontFace` en parallèle, puis on bascule l'affichage d'un
+// seul coup : l'ancien spécimen reste visible jusque-là, donc aucun clignotement.
+async function load() {
+  const id = props.id;
+  const isFirst = !font.value;
+  if (isFirst) loading.value = true;
+
+  const [nextFont, nextFace] = await Promise.all([
+    fetchFont(id),
+    loadFontFace(id),
+  ]);
+
+  // Navigation déjà repartie ailleurs entre-temps : on jette ce résultat.
+  if (id !== props.id) {
+    if (nextFace) document.fonts.delete(nextFace);
+    return;
+  }
+
+  if (nextFont) {
+    // Échange atomique vers la nouvelle graisse (face déjà prête, zéro flash).
+    if (currentFace && currentFace !== nextFace) {
+      document.fonts.delete(currentFace);
+    }
+    currentFace = nextFace;
+    font.value = nextFont;
+    activeFontId.value = id;
+    fontLoaded.value = true;
+    glyphPage.value = 0;
+    loadFamilyMembers(nextFont.familyId);
+  }
+  loading.value = false;
+}
+
+watch(() => props.id, load, { immediate: true });
 
 onUnmounted(() => {
   fetchAbort?.abort();
-  if (fontFace) {
-    document.fonts.delete(fontFace);
-    fontFace = null;
+  if (currentFace) {
+    document.fonts.delete(currentFace);
+    currentFace = null;
   }
 });
 </script>
 
 <template>
   <div class="scrollbar-thin h-full overflow-y-auto">
-    <!-- Loading -->
+    <!-- Loading : squelette au tout premier chargement seulement. Lors d'un
+         changement de graisse on garde le contenu courant affiché (sinon la
+         page « saute » par l'écran squelette à chaque onglet). -->
     <div
-      v-if="loading"
+      v-if="loading && !font"
       class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-8 sm:py-10"
     >
       <Skeleton class="h-8 w-64" />
@@ -207,7 +299,7 @@ onUnmounted(() => {
               {{ t("common.back") }}
             </RouterLink>
           </Button>
-          <Button @click="fetchFont">{{ t("common.retry") }}</Button>
+          <Button @click="load">{{ t("common.retry") }}</Button>
         </div>
       </Panel>
     </div>
@@ -250,6 +342,27 @@ onUnmounted(() => {
               >
                 {{ t("common.variable") }}
               </span>
+            </div>
+
+            <!-- Onglets de graisses : présents seulement si la famille en a plusieurs -->
+            <div
+              v-if="weightTabs.length > 1"
+              class="scrollbar-thin -mx-1 mt-4 flex gap-1 overflow-x-auto px-1 pb-1"
+            >
+              <RouterLink
+                v-for="tab in weightTabs"
+                :key="tab.id"
+                :to="{ name: 'font-detail', params: { id: tab.id } }"
+                :aria-current="tab.active ? 'page' : undefined"
+                class="shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+                :class="
+                  tab.active
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground-subtle hover:bg-accent hover:text-foreground'
+                "
+              >
+                {{ tab.label }}
+              </RouterLink>
             </div>
           </div>
           <div class="flex flex-shrink-0 items-center gap-2">
@@ -307,9 +420,8 @@ onUnmounted(() => {
               fontSize: `${previewSize}px`,
               lineHeight: previewLeading,
               letterSpacing: `${previewTracking}em`,
-              fontFamily: fontLoaded
-                ? `'${fontFamily}', sans-serif`
-                : 'sans-serif',
+              fontFamily: `'${fontFamily}', sans-serif`,
+              ...revealStyle,
             }"
           >
             {{ previewText }}
@@ -338,9 +450,8 @@ onUnmounted(() => {
               :style="{
                 fontSize: `${size}px`,
                 lineHeight: 1.3,
-                fontFamily: fontLoaded
-                  ? `'${fontFamily}', sans-serif`
-                  : 'sans-serif',
+                fontFamily: `'${fontFamily}', sans-serif`,
+                ...revealStyle,
               }"
             >
               {{ previewText }}
@@ -520,9 +631,8 @@ onUnmounted(() => {
           <div
             class="grid grid-cols-8 gap-1 sm:grid-cols-10 md:grid-cols-12"
             :style="{
-              fontFamily: fontLoaded
-                ? `'${fontFamily}', monospace`
-                : 'monospace',
+              fontFamily: `'${fontFamily}', monospace`,
+              ...revealStyle,
             }"
           >
             <div

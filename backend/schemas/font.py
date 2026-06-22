@@ -65,6 +65,9 @@ class FontResponse(CamelModel):
     is_variable: bool = False
     variable_axes: list | None = None
 
+    # Famille (renseignée sur le détail uniquement)
+    family_id: uuid.UUID | None = None
+
     # Source
     source: str
     source_device_id: uuid.UUID | None = None

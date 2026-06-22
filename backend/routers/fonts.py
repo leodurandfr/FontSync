@@ -218,6 +218,12 @@ async def get_font(
     font = await _get_font_or_404(font_id, db)
     resp = FontResponse.model_validate(font)
 
+    # Résoudre la famille d'appartenance (pour les onglets de graisses côté front)
+    family_result = await db.execute(
+        select(FontFamilyMember.family_id).where(FontFamilyMember.font_id == font.id)
+    )
+    resp.family_id = family_result.scalar_one_or_none()
+
     # Résoudre le nom du device source
     if font.source_device_id:
         device_result = await db.execute(

@@ -26,6 +26,7 @@ export interface Font {
   glyphCount: number | null;
   isVariable: boolean;
   variableAxes: unknown[] | null;
+  familyId: string | null;
   source: string;
   sourceDeviceId: string | null;
   sourceDeviceName: string | null;
