@@ -107,6 +107,11 @@ struct WebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
+        // Sans délégué de navigation, la WKWebView ignore les téléchargements :
+        // le front télécharge les fonts via un blob authentifié + `<a download>`
+        // (le token ne peut pas voyager dans un `href` direct sur route `/api`),
+        // et un clic sur un tel lien ne produit rien sans `WKDownloadDelegate`.
+        webView.navigationDelegate = context.coordinator
         webView.load(freshRequest())
         context.coordinator.webView = webView
         context.coordinator.currentURL = url
@@ -127,9 +132,16 @@ struct WebView: NSViewRepresentable {
     /// Pont JS→AppKit. Conserve une réf faible à la webview pour atteindre son
     /// `NSWindow` ; les actions utilisent les méthodes directes (pas `perform*`)
     /// pour ne jamais émettre de bip même sans boutons de titre visibles.
-    final class Coordinator: NSObject, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate,
+        WKDownloadDelegate
+    {
         var currentURL: URL?
         weak var webView: WKWebView?
+
+        /// Destination choisie pour chaque téléchargement en cours, pour pouvoir
+        /// révéler le fichier dans le Finder une fois terminé (`WKDownload` n'expose
+        /// pas de façon fiable l'URL de destination après coup).
+        private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
         func userContentController(
             _ controller: WKUserContentController,
@@ -176,6 +188,115 @@ struct WebView: NSViewRepresentable {
             default:
                 break
             }
+        }
+
+        // MARK: Téléchargements
+
+        /// Un `<a download>` (ou toute réponse en pièce jointe) doit devenir un
+        /// téléchargement plutôt qu'une navigation : `shouldPerformDownload` est
+        /// vrai quand l'action vient d'un lien marqué `download` (cas du front,
+        /// qui clique un `<a download href="blob:…">`).
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download)
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+
+        /// Filet de sécurité : une réponse `Content-Disposition: attachment` qui
+        /// n'a pas été déclenchée par un lien `download` (téléchargement direct)
+        /// est elle aussi convertie en téléchargement.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            if let http = navigationResponse.response as? HTTPURLResponse,
+                let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+                disposition.lowercased().contains("attachment")
+            {
+                decisionHandler(.download)
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationAction: WKNavigationAction,
+            didBecome download: WKDownload
+        ) {
+            download.delegate = self
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationResponse: WKNavigationResponse,
+            didBecome download: WKDownload
+        ) {
+            download.delegate = self
+        }
+
+        /// Choisit la destination du téléchargement : `~/Downloads`, en évitant
+        /// d'écraser un fichier existant (suffixe ` (n)` comme le navigateur).
+        func download(
+            _ download: WKDownload,
+            decideDestinationUsing response: URLResponse,
+            suggestedFilename: String,
+            completionHandler: @escaping (URL?) -> Void
+        ) {
+            let downloads = FileManager.default.urls(
+                for: .downloadsDirectory, in: .userDomainMask
+            ).first
+            guard let downloads else {
+                completionHandler(nil)
+                return
+            }
+            let name = suggestedFilename.isEmpty ? "fontsync-download" : suggestedFilename
+            let destination = Self.uniqueURL(in: downloads, filename: name)
+            downloadDestinations[ObjectIdentifier(download)] = destination
+            completionHandler(destination)
+        }
+
+        /// Révèle le fichier dans le Finder une fois le transfert terminé, pour
+        /// donner un retour visible (la fenêtre web ne montre rien d'autre).
+        func downloadDidFinish(_ download: WKDownload) {
+            let key = ObjectIdentifier(download)
+            if let url = downloadDestinations.removeValue(forKey: key) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
+
+        func download(
+            _ download: WKDownload,
+            didFailWithError error: Error,
+            resumeData: Data?
+        ) {
+            downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
+            NSLog("FontSync: téléchargement échoué — \(error.localizedDescription)")
+        }
+
+        /// Construit une URL non utilisée dans `directory` : `name`, puis
+        /// `name (1)`, `name (2)`… en préservant l'extension.
+        private static func uniqueURL(in directory: URL, filename: String) -> URL {
+            let fm = FileManager.default
+            var candidate = directory.appendingPathComponent(filename)
+            guard fm.fileExists(atPath: candidate.path) else { return candidate }
+
+            let ext = (filename as NSString).pathExtension
+            let base = (filename as NSString).deletingPathExtension
+            var index = 1
+            repeat {
+                let suffixed = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+                candidate = directory.appendingPathComponent(suffixed)
+                index += 1
+            } while fm.fileExists(atPath: candidate.path)
+            return candidate
         }
 
         /// Agrandit la fenêtre pour atteindre au moins `want` points de large,
