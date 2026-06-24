@@ -17,6 +17,12 @@ import { useFamilyFiltersStore } from "@/stores/familyFilters";
 import type { FontUploadResponse } from "@/types/api";
 
 const ACCEPT = ".ttf,.otf,.ttc,.woff,.woff2";
+const ACCEPTED_EXTENSIONS = ACCEPT.split(",");
+
+function hasFontExtension(name: string): boolean {
+  const lower = name.toLowerCase();
+  return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 const { t } = useI18n();
 
@@ -67,9 +73,77 @@ function onFileChange(event: Event) {
   input.value = "";
 }
 
-function onDrop(event: DragEvent) {
+// Le drag & drop natif n'expose que les fichiers de premier niveau via
+// `dataTransfer.files`. Pour accepter un dossier (voire une arborescence),
+// on parcourt récursivement les `FileSystemEntry` exposés par les navigateurs.
+type FileSystemEntryLike = {
+  isFile: boolean;
+  isDirectory: boolean;
+  file: (cb: (file: File) => void, err?: (e: unknown) => void) => void;
+  createReader: () => {
+    readEntries: (
+      cb: (entries: FileSystemEntryLike[]) => void,
+      err?: (e: unknown) => void,
+    ) => void;
+  };
+};
+
+function readEntryFile(entry: FileSystemEntryLike): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+function readDirEntries(
+  reader: ReturnType<FileSystemEntryLike["createReader"]>,
+): Promise<FileSystemEntryLike[]> {
+  return new Promise((resolve, reject) =>
+    reader.readEntries(resolve, reject),
+  );
+}
+
+async function collectEntryFiles(entry: FileSystemEntryLike): Promise<File[]> {
+  if (entry.isFile) {
+    const file = await readEntryFile(entry);
+    return hasFontExtension(file.name) ? [file] : [];
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const files: File[] = [];
+    // `readEntries` ne renvoie qu'un lot à la fois : on boucle jusqu'à épuisement.
+    for (;;) {
+      const batch = await readDirEntries(reader);
+      if (batch.length === 0) break;
+      for (const child of batch) files.push(...(await collectEntryFiles(child)));
+    }
+    return files;
+  }
+  return [];
+}
+
+async function onDrop(event: DragEvent) {
   dragOver.value = false;
-  upload(Array.from(event.dataTransfer?.files ?? []));
+  const items = event.dataTransfer?.items;
+  const entries = items
+    ? Array.from(items)
+        .map((item) =>
+          "webkitGetAsEntry" in item
+            ? (item.webkitGetAsEntry() as unknown as FileSystemEntryLike | null)
+            : null,
+        )
+        .filter((entry): entry is FileSystemEntryLike => entry !== null)
+    : [];
+
+  // Si l'API d'entries est disponible, on l'utilise (gère les dossiers).
+  // Sinon, repli sur la liste plate des fichiers.
+  if (entries.length > 0) {
+    const collected = await Promise.all(entries.map(collectEntryFiles));
+    upload(collected.flat());
+  } else {
+    upload(
+      Array.from(event.dataTransfer?.files ?? []).filter((f) =>
+        hasFontExtension(f.name),
+      ),
+    );
+  }
 }
 </script>
 

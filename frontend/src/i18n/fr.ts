@@ -161,7 +161,7 @@ const fr: typeof en = {
     title: "Uploader des polices",
     acceptedFormats: "Formats acceptés : TTF, OTF, TTC, WOFF, WOFF2.",
     uploading: "Upload en cours…",
-    dropHint: "Glissez vos fichiers ou cliquez",
+    dropHint: "Glissez vos fichiers ou un dossier, ou cliquez",
     imported: "{n} police importée. | {n} polices importées.",
     duplicates: "{n} déjà présente (ignorée). | {n} déjà présentes (ignorées).",
   },

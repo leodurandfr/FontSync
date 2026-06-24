@@ -159,7 +159,7 @@ export default {
     title: "Upload fonts",
     acceptedFormats: "Accepted formats: TTF, OTF, TTC, WOFF, WOFF2.",
     uploading: "Uploading…",
-    dropHint: "Drag your files or click",
+    dropHint: "Drag your files or a folder, or click",
     imported: "{n} font imported. | {n} fonts imported.",
     duplicates:
       "{n} already present (skipped). | {n} already present (skipped).",
