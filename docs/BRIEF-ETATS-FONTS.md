@@ -31,7 +31,7 @@ paramètre `activated` : le drapeau ne peut jamais passer à `false`, alors que
 l'agent sait détecter les polices désactivées (`~/.fontsync/disabled/`, cf.
 `agent/sync_command.py`). Fonctionnalité à moitié câblée sur un canal débranché.
 
-### 2.2 L'asymétrie qui force la pierre tombale
+### 2.2 Une asymétrie de périmètre — décision déjà prise
 
 L'agent **scanne et pousse** `/Library/Fonts` mais ne l'a **jamais nettoyé** (par
 conception : dossier tous-utilisateurs). Sur le Mac mini, **84 des 1025 empreintes
@@ -42,10 +42,17 @@ remonter au sync suivant, se recréer, et aucune suppression ne la ferait partir
 durablement. C'est **exactement** ce que la ligne conservée empêche
 (`backend/routers/sync.py`, refus de push si `deleted_at` est posé).
 
-**C'est le point d'architecture central du chantier**, et il tient en une
-décision : `/Library/Fonts` entre-t-il dans le périmètre de FontSync, oui ou non ?
-Tant qu'un dossier alimente la bibliothèque sans pouvoir être nettoyé,
-l'empreinte est obligatoire.
+**Décision prise, ne pas la rouvrir** : `/Library/Fonts` sort du périmètre
+d'ingestion. On continue de le scanner pour savoir ce qui est déjà installé sur
+la machine, on cesse de le pousser dans la bibliothèque synchronisée. C'est la
+convention du domaine — Font Book le range sous « Ordinateur », sa modification
+exige des droits admin, et aucun gestionnaire de polices ne s'autorise à y
+supprimer. Alimenter une bibliothèque synchronisée depuis un dossier qu'on ne
+nettoiera jamais est une incohérence, pas un choix de produit.
+
+Conséquence à assumer : les polices installées pour tous les utilisateurs ne
+sont plus synchronisées. Elles restent en place et visibles comme « déjà
+présente sur cette machine ».
 
 ### 2.3 Le garde-fou anti-suppression massive est réel et utile
 
@@ -85,7 +92,12 @@ est désactivée** — la corbeille ne se vide qu'à la main. Une suppression su
 appareil ne remonte que si `propagate_deletions` y est activé (`false` par
 défaut).
 
-## 3. Direction proposée — à challenger, pas à appliquer telle quelle
+## 3. Direction retenue
+
+> Ce chantier attend des décisions techniques prises et argumentées, pas un
+> catalogue d'options remontées à l'utilisateur. Quand une convention du domaine
+> existe, on la suit. On n'escalade que ce qui relève d'un vrai choix de produit
+> — c'est-à-dire ce que l'utilisateur perçoit et qu'aucune norme ne tranche.
 
 Le modèle mental de l'utilisateur (« installé sur toutes les machines / sur
 quelques-unes / sur aucune / corbeille / plus rien ») est un bon **vocabulaire
@@ -103,10 +115,42 @@ D'où une séparation en deux couches :
 
 Objectif de réduction : d'environ huit champs d'état à trois.
 
-`purged_at` ne peut disparaître **que** si §2.2 est tranché en faveur du retrait
-de `/Library/Fonts` du périmètre. Sinon il reste, et la simplification porte
-uniquement sur l'affichage (la corbeille ne liste que le restaurable, les
-empreintes deviennent invisibles).
+### 3.1 La suppression : marqueur, puis récolte
+
+Point le plus important du chantier, et le plus facile à mal cadrer.
+
+**Le marqueur de suppression n'est pas une conséquence de §2.2 : il découle de la
+synchronisation multi-machines.** Une machine éteinte au moment de la suppression
+détient encore le fichier ; à son retour elle le repousse et annule le geste.
+Tout système à réplicas résout ça de la même façon — un marqueur de suppression.
+Ce n'est pas de la complication maison, c'est une propriété du problème. Le
+supprimer serait un bug, pas une simplification.
+
+En revanche, **le marqueur n'a pas à être éternel** : il se récolte dès qu'il ne
+protège plus rien, c'est-à-dire quand **plus aucun appareil connu ne détient
+l'empreinte**. À ce moment, plus rien ne peut ressusciter la police, la ligne
+peut disparaître pour de bon.
+
+Le serveur sait déjà le calculer : `device_fonts` est un inventaire vivant par
+machine (8215 lignes), purgé quand un agent signale une police disparue
+(`backend/services/deletion_propagation.py`). La condition est une requête, pas
+une infrastructure à bâtir.
+
+Cible fonctionnelle, qui satisfait « vider la corbeille → plus aucune trace » :
+
+1. Vider la corbeille retire les fichiers du stockage **et** vide la corbeille à
+   l'écran — plus aucune entrée listée, restaurable ou non.
+2. Le marqueur subsiste, invisible, tant qu'une machine connue détient encore le
+   fichier.
+3. Il est récolté automatiquement dès que ce n'est plus le cas.
+
+L'utilisateur obtient donc sa règle, avec un délai borné par la resynchronisation
+de la dernière machine concernée — pas un état « supprimé » permanent à
+contempler.
+
+Corollaire : `purged_at` et `deleted_reason` (trois valeurs) peuvent fondre en un
+marqueur unique + un booléen de confirmation, une fois §2.2 appliqué et la
+récolte en place.
 
 ## 4. Contraintes non négociables
 
@@ -154,8 +198,13 @@ empreintes deviennent invisibles).
 
 ## 7. Ce qu'il ne faut pas faire
 
-- Supprimer `deleted_at` ou la notion de corbeille au nom de la simplicité.
+- Supprimer le marqueur de suppression au nom de la simplicité : il découle de la
+  synchronisation multi-machines, pas d'un choix d'implémentation (§3.1). Le bon
+  geste est de le **récolter**, pas de s'en passer.
 - Stocker les agrégats « sur N machines » (§3).
 - Retirer le garde-fou de quarantaine (§2.3).
 - Toucher au chemin de suppression sans migration Alembic ni plan de retour.
 - Considérer les 3 tests skippés comme des régressions.
+- Rouvrir la décision sur `/Library/Fonts` (§2.2) : elle suit la convention du
+  domaine et n'attend pas d'arbitrage.
+- Remonter à l'utilisateur des choix que la pratique courante tranche déjà.
