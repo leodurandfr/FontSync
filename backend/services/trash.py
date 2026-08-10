@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
-from backend.models.font import Font
+from backend.models.font import Font, deletion_confirmed_clause
 from backend.services.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,10 @@ async def purge_expired(
     `retention_days` à 0 (défaut de la configuration) désactive la purge : la
     fonction ne fait rien et le dit.
 
+    Les suppressions non confirmées sont épargnées quel que soit leur âge : une
+    quarantaine retenue par le seuil attend un arbitrage humain, et le temps qui
+    passe n'est pas cet arbitrage.
+
     Returns:
         Nombre de fichiers effectivement retirés du stockage.
     """
@@ -83,6 +87,7 @@ async def purge_expired(
             Font.deleted_at.is_not(None),
             Font.deleted_at < cutoff,
             Font.purged_at.is_(None),
+            deletion_confirmed_clause(),
         )
     )
     expired = list(result.scalars().all())

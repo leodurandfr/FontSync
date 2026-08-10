@@ -38,7 +38,8 @@ export interface Font {
   /**
    * Fichier retiré du stockage lors d'un vidage de corbeille. L'empreinte, elle,
    * est conservée : c'est ce qui empêche la police de revenir au push suivant.
-   * Une police purgée n'est plus restaurable — il faut la ré-importer.
+   * Une police purgée n'est plus restaurable — il faut la ré-importer, et elle
+   * ne figure plus dans la corbeille.
    */
   purgedAt?: string | null;
 }
@@ -60,6 +61,17 @@ export interface FontListResponse {
 
 export interface TrashListResponse extends FontListResponse {
   pendingConfirmation: number;
+}
+
+/** Bilan d'un vidage de corbeille. */
+export interface PurgeResult {
+  /** Fichiers retirés du stockage. */
+  purged: number;
+  /**
+   * Suppressions épargnées faute de confirmation — elles restent en corbeille.
+   * Le dire est ce qui distingue « épargnées » de « oubliées ».
+   */
+  retained: number;
 }
 
 /**

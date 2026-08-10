@@ -215,13 +215,15 @@ const fr: typeof en = {
     restore: "Restaurer",
     empty: "Vider la corbeille",
     deletedOn: "Supprimée le {date}",
-    // Vider garde la ligne, à dessein. Le dire franchement : ça ressemble à une
-    // demi-mesure tant qu'on n'en connaît pas la raison.
+    // Vider est irréversible et le geste ne le dit pas de lui-même. La note sur
+    // l'empreinte reste : sans elle, « la police revient toute seule » passerait
+    // pour un bug plutôt que pour la mécanique qui rend une suppression durable.
     emptyExplainer:
-      "Vider retire les fichiers du stockage mais conserve l'empreinte de chaque police. C'est cette empreinte qui rend une suppression durable : sans elle, la police reviendrait au premier sync d'une machine qui détient encore le fichier.",
-    purged: "Fichier retiré",
-    purgedHint:
-      "Le fichier a été retiré du stockage. Ré-importez-le pour retrouver cette police.",
+      "Vider retire définitivement les fichiers du stockage : les polices concernées quittent la corbeille et ne sont plus restaurables. FontSync conserve leur empreinte, sans quoi elles reviendraient au premier sync d'une machine qui détient encore le fichier. Les suppressions en attente d'arbitrage ne sont pas vidées.",
+    emptyDone:
+      "{n} fichier retiré du stockage. | {n} fichiers retirés du stockage.",
+    emptyRetained:
+      "{n} suppression en attente d'arbitrage n'a pas été vidée : confirmez-la ou restaurez-la. | {n} suppressions en attente d'arbitrage n'ont pas été vidées : confirmez-les ou restaurez-les.",
     restoreAutoPullNote:
       "Restaurer remet la police dans la bibliothèque. Ces appareils ont le pull automatique désactivé et ne la réinstalleront pas : {devices}.",
     pendingTitle:

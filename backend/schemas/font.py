@@ -195,6 +195,11 @@ class PurgeResponse(CamelModel):
     """Fichiers retirés du stockage. Les empreintes, elles, sont conservées :
     sans ça la police reviendrait au premier push d'une machine qui l'a encore."""
 
+    retained: int = 0
+    """Suppressions laissées intactes faute de confirmation. Elles restent dans
+    la corbeille après le vidage — le dire est ce qui distingue « épargnées »
+    de « oubliées »."""
+
 
 class ConfirmDeletionsResponse(CamelModel):
     """Bilan d'une confirmation de quarantaines en attente."""

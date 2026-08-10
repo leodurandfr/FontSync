@@ -20,6 +20,9 @@ from backend.models.font import (
     DELETION_PENDING,
     DELETION_QUARANTINE,
     Font,
+    deletion_confirmed_clause,
+    deletion_unconfirmed_clause,
+    is_deletion_confirmed,
 )
 from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
@@ -332,20 +335,30 @@ async def list_trash(
     per_page: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> TrashListResponse:
-    """Polices supprimées, les plus récentes d'abord.
+    """Polices supprimées **et encore restaurables**, les plus récentes d'abord.
 
-    Elles restent en base : une suppression garde son empreinte, y compris après
-    vidage du fichier. C'est ce qui l'empêche de revenir au push suivant.
+    Une ligne dont le fichier a été retiré du stockage (`purged_at`) n'est plus
+    une entrée de corbeille : c'est une pierre tombale. Elle reste en base — son
+    empreinte est ce qui empêche la police de revenir au push suivant — mais
+    l'afficher ne proposait qu'un bouton grisé et une explication. Elle sort donc
+    de la vue, sans sortir de la base.
     """
-    query = select(Font).where(Font.deleted_at.is_not(None))
+    query = select(Font).where(Font.deleted_at.is_not(None), Font.purged_at.is_(None))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar() or 0
 
+    # Même clause de visibilité : annoncer « N en attente d'arbitrage » au-dessus
+    # d'une liste qui ne les contient pas offrirait un seul bouton — celui qui
+    # propage la désinstallation de polices que l'utilisateur ne peut plus voir.
     pending_result = await db.execute(
         select(func.count())
         .select_from(Font)
-        .where(Font.deleted_at.is_not(None), Font.deleted_reason == DELETION_PENDING)
+        .where(
+            Font.deleted_at.is_not(None),
+            Font.purged_at.is_(None),
+            Font.deleted_reason == DELETION_PENDING,
+        )
     )
 
     result = await db.execute(
@@ -375,17 +388,42 @@ async def empty_trash(
     Garder la ligne n'est pas une demi-mesure. Sans elle, la police reviendrait
     au premier push d'une machine qui détient encore le fichier — et une purge
     au jour 30 la ferait réapparaître au jour 31, indéfiniment.
+
+    Les suppressions **non confirmées** sont épargnées : retirer leur fichier les
+    rendrait irrécupérables alors qu'elles attendent précisément un arbitrage. On
+    les compte et on le dit — un vidage qui laisse des lignes sans l'expliquer
+    passe pour un bug.
     """
+    retained_result = await db.execute(
+        select(func.count())
+        .select_from(Font)
+        .where(
+            Font.deleted_at.is_not(None),
+            Font.purged_at.is_(None),
+            deletion_unconfirmed_clause(),
+        )
+    )
+    retained = retained_result.scalar() or 0
+
     result = await db.execute(
-        select(Font).where(Font.deleted_at.is_not(None), Font.purged_at.is_(None))
+        select(Font).where(
+            Font.deleted_at.is_not(None),
+            Font.purged_at.is_(None),
+            deletion_confirmed_clause(),
+        )
     )
     purged = 0
     for font in result.scalars().all():
         if await purge_font(font, storage, db):
             purged += 1
     await db.commit()
-    logger.info("Corbeille vidée : %d fichier(s) retiré(s) du stockage.", purged)
-    return PurgeResponse(purged=purged)
+    logger.info(
+        "Corbeille vidée : %d fichier(s) retiré(s) du stockage, "
+        "%d suppression(s) retenue(s) faute de confirmation.",
+        purged,
+        retained,
+    )
+    return PurgeResponse(purged=purged, retained=retained)
 
 
 @router.post("/trash/confirm", response_model=ConfirmDeletionsResponse)
@@ -399,8 +437,15 @@ async def confirm_pending_deletions(
     suspension — c'est la seule action de tout ce module qui peut faire
     disparaître un fichier ailleurs, d'où le geste explicite.
     """
+    # `deleted_at IS NOT NULL` n'est pas redondant. Le motif est aujourd'hui le
+    # seul filtre, et il le restera d'autant moins que le verrou deviendra un
+    # booléen partagé par toutes les polices vivantes : sans cette clause, un
+    # clic sur « Confirmer et propager » porterait sur la bibliothèque entière.
     result = await db.execute(
-        select(Font).where(Font.deleted_reason == DELETION_PENDING)
+        select(Font).where(
+            Font.deleted_at.is_not(None),
+            Font.deleted_reason == DELETION_PENDING,
+        )
     )
     fonts = list(result.scalars().all())
     for font in fonts:
@@ -711,13 +756,22 @@ async def purge_font_file(
     """Retire du stockage le fichier d'une font supprimée. La ligne est gardée.
 
     Refuse une font active : on ne supprime pas le fichier d'une police que la
-    bibliothèque référence encore.
+    bibliothèque référence encore. Refuse aussi une suppression non confirmée :
+    elle attend un arbitrage, retirer son fichier le trancherait sans le dire.
     """
     font = await _get_font_or_404(font_id, db, include_deleted=True)
     if font.deleted_at is None:
         raise HTTPException(
             status_code=400,
             detail="Cette font n'est pas dans la corbeille.",
+        )
+    if not is_deletion_confirmed(font):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cette suppression attend une confirmation. Confirmez-la ou "
+                "restaurez la police avant de retirer son fichier."
+            ),
         )
     await purge_font(font, storage, db)
     await db.commit()

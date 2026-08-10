@@ -211,13 +211,15 @@ export default {
     restore: "Restore",
     empty: "Empty trash",
     deletedOn: "Deleted {date}",
-    // Emptying keeps the row on purpose. Say so plainly: it looks like a
-    // half-measure until you know why.
+    // Emptying is irreversible and the gesture does not say so on its own. The
+    // note about fingerprints stays: without it, "the font came back by itself"
+    // reads as a bug rather than as what makes a deletion stick.
     emptyExplainer:
-      "Emptying removes the files from storage but keeps each font's fingerprint. That fingerprint is what makes a deletion stick — without it, the font would come back the next time a machine that still has the file syncs.",
-    purged: "File removed",
-    purgedHint:
-      "The file was removed from storage. Re-import it to bring this font back.",
+      "Emptying permanently removes the files from storage: those fonts leave the trash and can no longer be restored. FontSync keeps their fingerprint — without it they would come back the next time a machine that still has the file syncs. Deletions awaiting review are not emptied.",
+    emptyDone:
+      "{n} file removed from storage. | {n} files removed from storage.",
+    emptyRetained:
+      "{n} deletion awaiting review was not emptied: confirm it or restore it. | {n} deletions awaiting review were not emptied: confirm them or restore them.",
     restoreAutoPullNote:
       "Restoring puts the font back in the library. These devices have auto pull off and will not reinstall it: {devices}.",
     pendingTitle:

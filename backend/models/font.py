@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     Uuid,
     func,
+    or_,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -121,6 +122,41 @@ class Font(UUIDPrimaryKey, Base):
         Index("ix_fonts_file_hash", "file_hash"),
         Index("ix_fonts_source", "source"),
         Index("ix_fonts_deleted_at", "deleted_at"),
+    )
+
+
+# ---------- « Cette suppression est-elle confirmée ? » ----------
+#
+# Une question binaire, posée par tout ce qui peut rendre une suppression
+# irréversible : retirer le fichier du stockage, vider la corbeille, purger à
+# l'échéance. Le prédicat vit ici plutôt qu'à ces trois endroits — dupliqué, il
+# dériverait. (`sync_manager` pose la même question sur une ligne de résultat
+# brute, pas sur un objet `Font` ; c'est la quatrième et dernière lecture.)
+#
+# Forme **liste blanche**, jamais négation : un motif absent ou inattendu reste
+# NON confirmé, donc inerte. C'est le sens sûr — rien ne s'efface sur un doute.
+
+
+def is_deletion_confirmed(font: Font) -> bool:
+    """Cette suppression peut-elle produire un effet irréversible ?"""
+    return font.deleted_reason in PROPAGATING_DELETION_REASONS
+
+
+def deletion_confirmed_clause():
+    """Version SQL de `is_deletion_confirmed`, pour un `WHERE`."""
+    return Font.deleted_reason.in_(PROPAGATING_DELETION_REASONS)
+
+
+def deletion_unconfirmed_clause():
+    """Le complément — et **pas** `~deletion_confirmed_clause()`.
+
+    En logique ternaire SQL, `NOT (NULL IN (…))` vaut NULL : une ligne au motif
+    absent échapperait aux deux clauses à la fois, donc ne serait ni purgée ni
+    comptée comme retenue. La forme explicite la range du bon côté.
+    """
+    return or_(
+        Font.deleted_reason.is_(None),
+        Font.deleted_reason.not_in(PROPAGATING_DELETION_REASONS),
     )
 
 

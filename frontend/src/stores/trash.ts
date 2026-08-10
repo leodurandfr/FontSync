@@ -1,16 +1,22 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { apiFetch } from "@/lib/api";
-import type { Font, TrashListResponse } from "@/types/api";
+import type { Font, PurgeResult, TrashListResponse } from "@/types/api";
 
 /**
- * Corbeille : les polices supprimées, et les deux gestes qui les concernent —
- * restaurer, ou vider (retirer le fichier du stockage).
+ * Corbeille : les polices supprimées **et encore restaurables**, avec les deux
+ * gestes qui les concernent — restaurer, ou vider (retirer le fichier du
+ * stockage).
  *
- * Vider ne supprime pas la ligne en base. C'est délibéré côté serveur :
- * l'empreinte doit survivre au fichier, sinon la police revient au premier push
- * d'une machine qui la détient encore. Conséquence visible ici : une police
- * `purgedAt` reste affichée mais n'est plus restaurable.
+ * Vider ne supprime pas la ligne en base : l'empreinte doit survivre au fichier,
+ * sinon la police revient au premier push d'une machine qui la détient encore.
+ * Elle sort en revanche de cette liste — sans fichier, il n'y a plus rien à
+ * proposer. Ce que le serveur renvoie ici est donc « ce qu'on peut encore
+ * défaire », pas « tout ce qui a été supprimé un jour ».
+ *
+ * Vider épargne aussi les suppressions en attente d'arbitrage : la réponse porte
+ * leur décompte (`retained`), sans quoi le vidage laisserait des lignes à
+ * l'écran sans dire pourquoi.
  */
 export const useTrashStore = defineStore("trash", () => {
   const items = ref<Font[]>([]);
@@ -66,10 +72,12 @@ export const useTrashStore = defineStore("trash", () => {
     await fetchTrash();
   }
 
-  async function emptyTrash() {
+  async function emptyTrash(): Promise<PurgeResult> {
     const res = await apiFetch("/api/fonts/trash/empty", { method: "POST" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const result: PurgeResult = await res.json();
     await fetchTrash();
+    return result;
   }
 
   /** Lève la suspension : les appareils concernés désinstalleront ces polices. */

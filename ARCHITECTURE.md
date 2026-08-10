@@ -355,6 +355,23 @@ can no longer be restored; re-importing the file is the way back (it also
 rewrites the file to storage). Automatic purge is opt-in and off by default
 (`TRASH_RETENTION_DAYS=0`).
 
+Two consequences of that design are load-bearing enough to name:
+
+- **`purged_at` is the visibility discriminator.** `deleted_at NOT NULL ∧
+  purged_at NULL` is the trash — visible, restorable. Add `purged_at NOT NULL`
+  and it is a tombstone: still in the database, so the deletion holds, but
+  listed nowhere. Listing it only ever offered a greyed-out button and an
+  explanation. `GET /api/fonts/trash` and its `pendingConfirmation` count both
+  carry the clause; the count without it would announce "N awaiting review"
+  above a list that does not contain them, and the only button on offer
+  propagates an uninstall for fonts the user can no longer see.
+- **Nothing irreversible happens to an unconfirmed deletion.** A quarantine held
+  back by the threshold keeps its file: `POST /api/fonts/trash/empty` skips it
+  (and reports the count as `retained`), `POST /api/fonts/{id}/purge` answers
+  `409`, and automatic purge ignores it whatever its age — time passing is not a
+  user's arbitration. The predicate is a **whitelist** (`backend/models/font.py`):
+  an absent or unexpected reason counts as unconfirmed, hence inert.
+
 **Quarantine** ([`backend/services/deletion_propagation.py`](backend/services/deletion_propagation.py))
 turns a device's disappearances into deletions. It lives in the sync **router**,
 not in `compute_delta`, because it writes — the delta stays a pure read. Three
@@ -447,9 +464,9 @@ way — those groups go undetected, never mis-resolved.
 | `PATCH` | `/api/fonts/{id}` | Modify the metadata |
 | `DELETE` | `/api/fonts/{id}` | Soft delete (tombstone, reason `manual`) |
 | `POST` | `/api/fonts/{id}/restore` | Restore — `409` if the file was purged |
-| `GET` | `/api/fonts/trash` | Deleted fonts + count awaiting review |
-| `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row |
-| `POST` | `/api/fonts/trash/empty` | Same, for the whole trash |
+| `GET` | `/api/fonts/trash` | Deleted, still-restorable fonts (`purged_at IS NULL`) + count awaiting review |
+| `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row — `409` if the deletion is unconfirmed |
+| `POST` | `/api/fonts/trash/empty` | Same, for the whole trash; unconfirmed deletions are spared and returned as `retained` |
 | `POST` | `/api/fonts/trash/confirm` | Confirm the quarantines held back by the threshold |
 | `GET` | `/api/fonts/duplicates` | Faces held by several files, with the keeper picked — cf. §4.5 |
 | `POST` | `/api/fonts/duplicates/resolve` | Move the redundant files to the trash (`dryRun` to count first) |

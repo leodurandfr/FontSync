@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useTrashStore } from "@/stores/trash";
 import { useDevicesStore } from "@/stores/devices";
 import { useLocale } from "@/composables/useLocale";
-import type { Font } from "@/types/api";
+import type { Font, PurgeResult } from "@/types/api";
 
 const { t } = useI18n();
 const { dateLocale } = useLocale();
@@ -28,6 +28,7 @@ const devices = useDevicesStore();
 const busy = ref<Set<string>>(new Set());
 const bulkBusy = ref(false);
 const actionError = ref<string | null>(null);
+const emptyOutcome = ref<PurgeResult | null>(null);
 
 onMounted(() => {
   trash.fetchTrash();
@@ -87,6 +88,13 @@ async function runBulk(action: () => Promise<void>) {
     bulkBusy.value = false;
   }
 }
+
+async function emptyTrash() {
+  // Remis à zéro d'abord : en cas d'échec, le bilan du vidage précédent ne doit
+  // pas rester affiché sous le message d'erreur.
+  emptyOutcome.value = null;
+  emptyOutcome.value = await trash.emptyTrash();
+}
 </script>
 
 <template>
@@ -145,7 +153,7 @@ async function runBulk(action: () => Promise<void>) {
             variant="outline"
             size="sm"
             :disabled="bulkBusy"
-            @click="runBulk(() => trash.emptyTrash())"
+            @click="runBulk(emptyTrash)"
           >
             <Trash2 class="mr-2 size-4" />
             {{ t("trash.empty") }}
@@ -155,6 +163,15 @@ async function runBulk(action: () => Promise<void>) {
         <Panel class="space-y-4 p-6">
           <p class="text-[13px] text-muted-foreground">
             {{ t("trash.emptyExplainer") }}
+          </p>
+
+          <!-- Un vidage qui épargne des lignes doit dire lesquelles, sinon
+               l'écran donne l'impression d'avoir échoué à moitié. -->
+          <p v-if="emptyOutcome" class="text-[13px] text-foreground">
+            {{ t("trash.emptyDone", { n: emptyOutcome.purged }) }}
+            <template v-if="emptyOutcome.retained">
+              {{ t("trash.emptyRetained", { n: emptyOutcome.retained }) }}
+            </template>
           </p>
 
           <p
@@ -215,33 +232,20 @@ async function runBulk(action: () => Promise<void>) {
                   {{ t("trash.reasons.quarantine") }}
                 </Badge>
 
-                <Badge v-if="font.purgedAt" variant="outline">
-                  {{ t("trash.purged") }}
-                </Badge>
-
                 <Loader2
                   v-if="busy.has(font.id)"
                   class="size-4 animate-spin text-muted-foreground"
                 />
-                <!-- Purgée : le fichier n'existe plus, seule l'empreinte reste.
-                     Restaurer une ligne sans fichier n'aurait aucun sens. -->
+                <!-- Toute ligne listée ici a encore son fichier : le serveur ne
+                     renvoie plus les polices purgées. Restaurer est donc
+                     toujours offert, jamais grisé. -->
                 <Button
-                  v-if="!font.purgedAt"
                   variant="outline"
                   size="sm"
                   :disabled="busy.has(font.id) || bulkBusy"
                   @click="run(font.id, () => trash.restore(font.id))"
                 >
                   <RotateCcw class="mr-2 size-4" />
-                  {{ t("trash.restore") }}
-                </Button>
-                <Button
-                  v-else
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  :title="t('trash.purgedHint')"
-                >
                   {{ t("trash.restore") }}
                 </Button>
               </div>

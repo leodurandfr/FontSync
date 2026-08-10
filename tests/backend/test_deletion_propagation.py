@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.config import settings
 from backend.models.device import Device
@@ -30,6 +30,7 @@ from backend.models.font import (
     DELETION_QUARANTINE,
     Font,
 )
+from backend.routers.fonts import delete_font, restore_font
 from backend.schemas.sync import DeviceFontEntry
 from backend.services.deletion_propagation import (
     detect_local_deletions,
@@ -271,6 +272,10 @@ async def test_emptying_trash_keeps_the_fingerprint(
     Supprimer la ligne aussi ferait revenir la police au premier push d'une
     machine qui la détient encore — et une purge au jour 30 la ferait
     réapparaître au jour 31, indéfiniment.
+
+    La ligne conservée quitte en revanche la **vue** corbeille : sans fichier,
+    elle n'offrait qu'un bouton grisé. C'est bien la vue qui change, pas la
+    garantie — d'où l'assertion de push, inchangée, qui est ici le vrai sujet.
     """
     device_id = await _register_device(api_client)
     data = font_factory(family="Purged")
@@ -282,8 +287,7 @@ async def test_emptying_trash_keeps_the_fingerprint(
     assert resp.json()["purged"] == 1
 
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
-    assert trash["total"] == 1
-    assert trash["items"][0]["purgedAt"] is not None
+    assert trash["total"] == 0
 
     # L'empreinte fait son travail : la machine ne peut pas la ramener.
     assert (await _push(api_client, device_id, data, "Purged.ttf"))[
@@ -753,3 +757,293 @@ async def test_device_with_fonts_can_be_deleted(
     # La bibliothèque n'est pas amputée : le serveur reste la source de vérité.
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
     assert listing.json()["total"] == 1
+
+
+# =====================================================================
+# 5. Les propriétés sur lesquelles le reste repose
+#
+# Écrites avant de toucher au chemin de suppression, pas après. Chacune est
+# supposée vraie par au moins un autre mécanisme du produit, et aucune n'était
+# observée : le registre `device_fonts` après une suppression, le comportement
+# de `/trash/confirm` à deux machines, le lotissement des `DELETE`, et le refus
+# de rendre irréversible une suppression que personne n'a confirmée.
+# =====================================================================
+
+
+async def _association_count(db, font_id) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(DeviceFont)
+        .where(DeviceFont.font_id == font_id)
+    )
+    return result.scalar() or 0
+
+
+@pytest.mark.asyncio
+async def test_machine_offline_at_deletion_does_not_resurrect_on_return(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """La machine éteinte au moment de la suppression revient : rien ne renaît.
+
+    C'est le scénario qui *justifie* la pierre tombale, et le seul que les tests
+    ne jouaient pas — tous font re-déclarer la machine immédiatement après la
+    suppression. Ici elle est absente au moment du geste, détient toujours le
+    fichier, et redéclare bien plus tard. Trois issues sont possibles et deux
+    sont fausses : la repousser (résurrection), l'ignorer (la police reste sur
+    son disque sans que personne ne le sache). La bonne est la troisième.
+    """
+    laptop = await _register_device(api_client, hostname="laptop")
+    await api_client.patch(
+        f"/api/devices/{laptop}",
+        headers=AUTH_HEADERS,
+        json={"propagateDeletions": True},
+    )
+    data = font_factory(family="Away")
+    gone = await _push(api_client, laptop, data, "Away.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Home"), "Home.ttf")
+
+    # La machine est éteinte : elle ne poste aucun delta entre les deux gestes.
+    await api_client.delete(f"/api/fonts/{gone['fontId']}", headers=AUTH_HEADERS)
+
+    # Elle revient, et déclare *toujours* les deux fichiers.
+    delta = await _delta(api_client, laptop, [gone["fileHash"], kept["fileHash"]])
+
+    # 1. Jamais reproposée au push : c'est le maillon qui bouclait.
+    assert delta["unknownToServer"] == []
+    # 2. On lui demande de l'effacer, elle a opté pour.
+    assert [ref["fileHash"] for ref in delta["toUninstall"]] == [gone["fileHash"]]
+    # 3. Et si elle poussait quand même, l'empreinte refuse.
+    assert (await _push(api_client, laptop, data, "Away.ttf"))["refusedDeleted"] is True
+
+    listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
+    assert listing.json()["total"] == 1
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert [item["fileHash"] for item in trash["items"]] == [gone["fileHash"]]
+
+
+@pytest.mark.asyncio
+async def test_delete_then_restore_leaves_the_registry_empty(
+    db, storage, font_factory
+) -> None:
+    """Supprimer puis restaurer remet l'inventaire de la police à zéro.
+
+    La propriété que la boucle « restauration → re-quarantaine » exploite quand
+    elle est fausse, et qu'aucun test ne regardait : personne ne comptait
+    `device_fonts` après une suppression. Restaurer ne réinscrit rien non plus —
+    c'est à chaque machine de se redéclarer détentrice à son propre sync.
+    """
+    device = await _make_device(db)
+    font = await _make_font(db, storage, font_factory, "RoundTrip")
+    await register_device_font(device.id, font.id, "/Users/x/RoundTrip.ttf", db)
+    await db.commit()
+    assert await _association_count(db, font.id) == 1
+
+    await delete_font(font.id, db)
+    assert await _association_count(db, font.id) == 0
+
+    await restore_font(font.id, db)
+    assert font.deleted_at is None
+    assert await _association_count(db, font.id) == 0
+
+    # Conséquence directe : le sync suivant ne peut plus la lire comme disparue.
+    detection = await detect_local_deletions(device.id, {"f" * 64}, db)
+    assert detection.total == 0
+    assert font.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_delete_font_clears_every_association(db, storage, font_factory) -> None:
+    """`delete_font` efface les associations de **toutes** les machines.
+
+    Tout le reste en dépend — la non-résurrection, la non-boucle, et demain la
+    condition de récolte — et rien ne l'observait. La police voisine sert de
+    témoin : l'effacement doit être ciblé, pas généreux.
+    """
+    one = await _make_device(db, hostname="one")
+    two = await _make_device(db, hostname="two")
+    gone = await _make_font(db, storage, font_factory, "Gone")
+    kept = await _make_font(db, storage, font_factory, "Kept")
+    for device in (one, two):
+        await register_device_font(
+            device.id, gone.id, f"/Users/{device.hostname}/G", db
+        )
+        await register_device_font(
+            device.id, kept.id, f"/Users/{device.hostname}/K", db
+        )
+    await db.commit()
+
+    await delete_font(gone.id, db)
+
+    assert await _association_count(db, gone.id) == 0
+    assert await _association_count(db, kept.id) == 2
+
+
+@pytest.mark.asyncio
+async def test_confirming_pending_spares_the_living_library(
+    api_client: AsyncClient, font_factory, monkeypatch
+) -> None:
+    """Confirmer ne touche que la corbeille — et parle bien aux **autres** machines.
+
+    Deux garanties en un scénario, parce qu'elles se tiennent : `/trash/confirm`
+    est global (ni identifiant, ni appareil, ni date dans sa requête) et c'est le
+    seul geste du produit capable de faire disparaître un fichier ailleurs. Le
+    seul test qui l'exerçait n'avait qu'un appareil, donc ne prouvait pas la
+    seconde moitié ; et aucun n'observait ce qu'il advient des polices vivantes.
+    """
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
+    laptop = await _register_device(api_client, hostname="laptop")
+    desktop = await _register_device(api_client, hostname="desktop")
+    for device_id in (laptop, desktop):
+        resp = await api_client.patch(
+            f"/api/devices/{device_id}",
+            headers=AUTH_HEADERS,
+            json={"propagateDeletions": True},
+        )
+        assert resp.status_code == 200, resp.text
+
+    alpha = await _push(api_client, laptop, font_factory(family="Alpha"), "Alpha.ttf")
+    beta = await _push(api_client, laptop, font_factory(family="Beta"), "Beta.ttf")
+    alive = await _push(api_client, laptop, font_factory(family="Alive"), "Alive.ttf")
+    for pushed in (alpha, beta):
+        pull = await api_client.get(
+            f"/api/sync/pull/{pushed['fontId']}?device_id={desktop}",
+            headers=AUTH_HEADERS,
+        )
+        assert pull.status_code == 200, pull.text
+
+    # Le laptop perd deux polices d'un coup : au-delà du seuil → retenues.
+    await _delta(api_client, laptop, [alive["fileHash"]])
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["pendingConfirmation"] == 2
+
+    resp = await api_client.post("/api/fonts/trash/confirm", headers=AUTH_HEADERS)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["confirmed"] == 2
+
+    # La police vivante n'a pas bougé — ni son état, ni le motif que `confirm`
+    # écrit. C'est le canari du jour où le verrou deviendra un booléen partagé
+    # par toute la bibliothèque : une clause oubliée se verrait ici.
+    still = await api_client.get(f"/api/fonts/{alive['fontId']}", headers=AUTH_HEADERS)
+    assert still.status_code == 200, still.text
+    assert still.json()["deletedAt"] is None
+    assert still.json()["deletedReason"] is None
+    listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
+    assert listing.json()["total"] == 1
+
+    # Et la seconde machine reçoit enfin l'ordre — c'est tout l'objet du geste.
+    delta = await _delta(api_client, desktop, [alpha["fileHash"], beta["fileHash"]])
+    assert sorted(ref["fileHash"] for ref in delta["toUninstall"]) == sorted(
+        [alpha["fileHash"], beta["fileHash"]]
+    )
+
+
+@pytest.mark.asyncio
+async def test_more_than_one_batch_of_disappearances(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """Plus de 500 disparitions : le lotissement des `DELETE` n'avait jamais tourné.
+
+    `_DELETE_BATCH` vaut 500 et existe pour ne pas dépasser la limite de
+    variables liées de SQLite — or l'incident fondateur portait sur 625 fichiers
+    et le test de disparition massive n'en utilise que 6. Un seul lot passé, le
+    second silencieusement ignoré, et le registre garderait des associations
+    fantômes qui re-détecteraient la même disparition à chaque sync.
+    """
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 3)
+    device = await _make_device(db)
+    disappeared = [
+        await _make_font(db, storage, font_factory, f"Batch{i}") for i in range(601)
+    ]
+    survivor = await _make_font(db, storage, font_factory, "Survivor")
+    for font in [*disappeared, survivor]:
+        await register_device_font(device.id, font.id, f"/Users/x/{font.id}.ttf", db)
+    await db.commit()
+
+    detection = await detect_local_deletions(
+        db=db, device_id=device.id, declared_hashes={survivor.file_hash}
+    )
+
+    assert len(detection.pending) == 601
+    remaining = await db.execute(
+        select(DeviceFont.font_id).where(DeviceFont.device_id == device.id)
+    )
+    assert list(remaining.scalars().all()) == [survivor.id]
+
+
+@pytest.mark.asyncio
+async def test_emptying_the_trash_spares_unconfirmed_deletions(
+    api_client: AsyncClient, font_factory, monkeypatch
+) -> None:
+    """Vider n'emporte pas ce qui attend un arbitrage — et le dit.
+
+    Retirer le fichier d'une quarantaine retenue trancherait la question à la
+    place de l'utilisateur, dans le sens irréversible : sans fichier, la police
+    n'est plus restaurable. Elle reste donc en corbeille, et la réponse porte le
+    décompte — un vidage qui laisse des lignes sans l'expliquer passe pour un bug.
+    """
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
+    laptop = await _register_device(api_client, hostname="laptop")
+    held = await _push(api_client, laptop, font_factory(family="Held"), "Held.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+    # Une suppression manuelle, elle, est confirmée dès l'origine.
+    await api_client.delete(f"/api/fonts/{kept['fontId']}", headers=AUTH_HEADERS)
+    await _delta(api_client, laptop, ["a" * 64])
+
+    resp = await api_client.post("/api/fonts/trash/empty", headers=AUTH_HEADERS)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"purged": 1, "retained": 1}
+    # Épargnée, donc toujours là et toujours restaurable.
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert [item["fileHash"] for item in trash["items"]] == [held["fileHash"]]
+    restore = await api_client.post(
+        f"/api/fonts/{held['fontId']}/restore", headers=AUTH_HEADERS
+    )
+    assert restore.status_code == 200, restore.text
+
+
+@pytest.mark.asyncio
+async def test_purging_an_unconfirmed_deletion_is_refused(
+    api_client: AsyncClient, font_factory, monkeypatch
+) -> None:
+    """L'autre chemin vers le même fichier : la purge unitaire, refusée aussi.
+
+    Deux portes mènent au stockage (`/trash/empty` et `/{id}/purge`) ; verrouiller
+    l'une et pas l'autre ne verrouille rien.
+    """
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
+    laptop = await _register_device(api_client, hostname="laptop")
+    held = await _push(api_client, laptop, font_factory(family="Held"), "Held.ttf")
+    await _delta(api_client, laptop, ["a" * 64])
+
+    resp = await api_client.post(
+        f"/api/fonts/{held['fontId']}/purge", headers=AUTH_HEADERS
+    )
+
+    assert resp.status_code == 409, resp.text
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["items"][0]["purgedAt"] is None
+
+
+@pytest.mark.asyncio
+async def test_auto_purge_spares_unconfirmed_deletions(
+    db, storage, font_factory
+) -> None:
+    """Le troisième chemin — le seul qui s'exécute sans que personne ne clique.
+
+    Le temps qui passe n'est pas un arbitrage : une quarantaine retenue reste
+    entière au jour 40 comme au jour 1.
+    """
+    held = await _make_font(db, storage, font_factory, "Held")
+    manual = await _make_font(db, storage, font_factory, "Manual")
+    old = datetime.now(timezone.utc) - timedelta(days=40)
+    held.deleted_at, held.deleted_reason = old, DELETION_PENDING
+    manual.deleted_at, manual.deleted_reason = old, DELETION_MANUAL
+    await db.commit()
+
+    assert await purge_expired(storage, db, retention_days=30) == 1
+    assert manual.purged_at is not None
+    assert held.purged_at is None
