@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
@@ -84,9 +84,37 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Politiques de cache du SPA. Sans en-tête explicite, un cache HTTP a le droit
+# de deviner une fraîcheur à partir de `Last-Modified` (RFC 9111 §4.2.2) et de
+# resservir une page périmée sans rien revalider — ce qui fige une version du
+# frontend chez le client (typiquement la WKWebView de l'app macOS, dont le
+# `websiteDataStore` persiste sur disque et survit au redémarrage de l'app).
+#
+# `index.html` est le seul point d'entrée mutable : on le fait **toujours**
+# revalider (`no-cache` autorise le cache, mais impose un aller-retour ; l'ETag
+# rend la réponse 304 la plupart du temps). Les assets Vite portent un hash de
+# contenu dans leur nom : leur URL change à chaque build, ils sont donc
+# immuables et cachables sans limite.
+_HTML_CACHE_CONTROL = "no-cache"
+_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """`StaticFiles` marquant ses réponses comme immuables (assets hashés)."""
+
+    def file_response(self, *args: object, **kwargs: object) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = _ASSET_CACHE_CONTROL
+        return response
+
+
 # Serve frontend static assets (JS, CSS, images, etc.)
 if FRONTEND_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="static")
+    app.mount(
+        "/assets",
+        ImmutableStaticFiles(directory=FRONTEND_DIR / "assets"),
+        name="static",
+    )
 
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
@@ -95,10 +123,15 @@ if FRONTEND_DIR.is_dir():
         Les chemins `/api/*` non résolus renvoient un 404 JSON plutôt que la
         SPA, pour qu'une URL d'API mal orthographiée échoue clairement au lieu
         de renvoyer du HTML.
+
+        Tout ce qui passe ici est servi en `no-cache` : `index.html` change à
+        chaque build, et les fichiers racine (favicon, manifeste…) n'ont pas de
+        hash dans leur nom — aucun n'est sûr à figer côté client.
         """
         if full_path == "api" or full_path.startswith("api/"):
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        headers = {"Cache-Control": _HTML_CACHE_CONTROL}
         file_path = FRONTEND_DIR / full_path
         if file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(FRONTEND_DIR / "index.html")
+            return FileResponse(file_path, headers=headers)
+        return FileResponse(FRONTEND_DIR / "index.html", headers=headers)
