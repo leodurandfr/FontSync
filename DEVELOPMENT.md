@@ -171,3 +171,28 @@ All local dev state lives in `.dev/` (gitignored). To start fresh:
 ```bash
 rm -rf .dev
 ```
+
+## Backing up production
+
+`scripts/backup-prod.sh` runs **on the NAS, as root**. Two halves, two regimes:
+a timestamped snapshot of the database (rotated, `KEEP=14` by default) and an
+incremental rsync mirror of the font blobs.
+
+```bash
+# From this Mac, without installing anything on the NAS:
+ssh -p 93 Leo@192.168.1.140 'sudo bash -s' < scripts/backup-prod.sh
+```
+
+The database goes through `sqlite3.Connection.backup` **inside the container**,
+never through a file copy: the database runs in WAL mode, so copying the `.db`
+alone yields an invalid backup — the latest transactions live in the `-wal`
+beside it. The copy is checked with `PRAGMA integrity_check` before it leaves the
+container. The blob mirror never deletes (`rsync` without `--delete`): emptying
+the trash in production must not propagate to the backup.
+
+The script's footer carries the cron entries to install on the NAS (daily for the
+database, weekly for the blobs) and the restore procedure — including the part
+that is easy to get wrong: **delete `fontsync.db-wal` and `fontsync.db-shm`
+before putting a snapshot back**, and keep the agents off while auditing the
+trash, since an older database re-activates fonts deleted since and `auto_pull`
+would reinstall them.
