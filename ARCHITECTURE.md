@@ -220,7 +220,7 @@ Machines registered with the server.
 | `font_directories` | JSON | Watched directories |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
-| `propagate_deletions` | BOOLEAN | Take part in deletion propagation, both ways (default `false`) — cf. §4.4 |
+| `propagate_deletions` | BOOLEAN | Apply *other* devices' deletions here, i.e. uninstall (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded |
 | `created_at` | DateTime (tz) | |
 
 #### `device_fonts`
@@ -379,6 +379,52 @@ restoring the font from the trash would re-quarantine it on the next one.
 
 Two agent-side properties are load-bearing here (cf. §6.6).
 
+---
+
+### 4.5 Duplicates: by face, not by checksum
+
+Import-time deduplication compares `file_hash`. That catches a file copied
+twice and **nothing else**. Measured on a real 3 328-file library: *zero*
+checksum duplicate groups, against **918 faces held by several files** and
+1 019 redundant files. « GT Maru Mono Bold Oblique.otf »,
+« GT-Maru-Mono-Bold-Oblique.ttf » and « GTMaruMono-BoldOblique.otf » are three
+names, three checksums, one face — and Font Book shows it three times.
+
+The identity of a face is `(nameID 16 else 1, nameID 17 else 2)` — typographic
+family and style. `font_analyzer` already stores exactly those as `family_name`
+and `subfamily_name`, so
+[`duplicate_faces.py`](backend/services/duplicate_faces.py) needs no migration
+and no re-parsing.
+
+Reviewing ~900 groups by hand is hours of work, so the resolution is **one
+gesture over a deterministic rule** rather than a group-by-group choice. What
+the user reviews is the rule's output. Three properties make that safe:
+
+1. **Incomplete identity is never grouped.** Missing family *or* style and the
+   font is left alone — a malformed font is stored with partial metadata
+   (cf. CLAUDE.md), it must not end up stacked under an empty identity where a
+   bulk resolution would trash all but one of them.
+2. **Nothing covering several styles is ever proposed for removal.** A variable
+   font declares named instances from a single file, a `.ttc` carries several
+   fonts; in both cases the stored identity describes only the first. They are
+   always kept, and preferred as the keeper — this is « prefer the file that
+   covers the most styles », applied where it can be seen.
+3. **The ranking is total**, ending on `file_hash`, so the proposal is
+   reproducible. A recommendation that moved between two loads would not be
+   reviewable.
+
+The redundant files get `deleted_reason = manual`: this is a user's gesture, so
+it is durable (no push revives it) and it reaches the devices that opted into
+propagation. Devices that did not keep their files — so the library is cleaned
+without Font Book being cleaned, until `propagate_deletions` is on for that
+machine.
+
+Known gap: a variable font is only matched against the statics it restates when
+the style it *declares* coincides. Its `fvar` named instances are not stored;
+covering them all would need a migration and a re-analysis of the library. On
+the measurement above that is 87 of 918 faces, and the gap always falls the safe
+way — those groups go undetected, never mis-resolved.
+
 ## 5. Backend API (FastAPI)
 
 > **Auth:** all of `/api/*`, the SSE stream and the WebSocket require the shared
@@ -405,6 +451,8 @@ Two agent-side properties are load-bearing here (cf. §6.6).
 | `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row |
 | `POST` | `/api/fonts/trash/empty` | Same, for the whole trash |
 | `POST` | `/api/fonts/trash/confirm` | Confirm the quarantines held back by the threshold |
+| `GET` | `/api/fonts/duplicates` | Faces held by several files, with the keeper picked — cf. §4.5 |
+| `POST` | `/api/fonts/duplicates/resolve` | Move the redundant files to the trash (`dryRun` to count first) |
 | `GET` | `/api/fonts/{id}/devices` | On which devices the font is installed |
 | `POST` | `/api/fonts/{id}/install/{device_id}` | Request installation (SSE signal → agent) |
 
@@ -643,12 +691,20 @@ After installation, the agent can display a system notification: "Inter font ins
 **Nothing is deleted on a device unless `propagate_deletions` is on for it**
 (default `false`). That setting is deliberately separate from `auto_push` /
 `auto_pull`: those two words promise only *to send* and *to install*, and turning
-them on must not become destructive. It works both ways — this machine's local
-deletions become quarantines on the server, and fonts deleted on the server are
-uninstalled here. Server-side rules and thresholds: §4.4.
+them on must not become destructive. Server-side rules and thresholds: §4.4.
 
-With the setting off, the behaviour is the historical one: the server records
-the font as deleted, the device keeps its file, nothing is erased anywhere.
+The setting gates **one direction only: uninstalling here**. A device's own
+disappearances are always interpreted (§4.4), whatever its setting. Gating that
+half too made local deletion impossible, and the failure was silent: the server
+concluded nothing, the font stayed in the library, `missing_on_device` offered
+it back, and `auto_pull` reinstalled it — measured at 31 s between the gesture
+and its undoing, with an empty trash to show for it. Recording a disappearance
+destroys nothing: the font moves to the trash, recoverable in one click, and
+only devices that opted in ever lose a file.
+
+With the setting off, this device therefore keeps every file it has; what it
+stops doing is *taking orders* — a font deleted elsewhere is never uninstalled
+here.
 
 Uninstall is **guarded by hash** ([`agent/font_installer.py`](agent/font_installer.py)):
 only a file whose content matches the requested hash is removed, so a personal

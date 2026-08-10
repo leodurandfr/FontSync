@@ -16,6 +16,7 @@ export default {
     allFonts: "All fonts",
     categories: "Categories",
     manage: "Manage",
+    duplicates: "Duplicates",
     trash: "Trash",
     upload: "Upload",
     settings: "Settings",
@@ -170,12 +171,37 @@ export default {
     // this is the only setting that can make a file disappear.
     propagateDeletions: "Propagate deletions",
     propagateDeletionsDesc:
-      "Fonts deleted here move to the trash on the server, and fonts deleted on the server are uninstalled here. Off by default — nothing is erased without this.",
+      "Uninstalls from this device the fonts deleted on the server. Off by default: without it, no file is ever erased here. Deletions made on this device are recorded by the server either way — this setting only governs what gets erased.",
     delete: "Remove device",
     deleteConfirm:
       "Remove “{name}”? Your fonts stay on the server. What is lost is the record of which fonts this machine held — the basis for detecting local deletions.",
     watchedFolders: "Watched folders",
   },
+  duplicates: {
+    title: "Duplicates",
+    subtitle:
+      "The same font under several filenames. Each name yields a different checksum, so import-time deduplication never sees them — they are found here on the face's real identity: typographic family and style.",
+    none: "No duplicates.",
+    noneDesc: "{n} font examined. | {n} fonts examined.",
+    summary:
+      "{files} redundant file across {faces} face, {size} to reclaim. | {files} redundant files across {faces} faces, {size} to reclaim.",
+    // State the rule, not just the number: the rule is what you review here —
+    // group by group would take hours.
+    rule: "For each face the most complete file is kept — a variable font or a collection always wins, since it carries styles the others don't.",
+    reversible:
+      "Nothing is erased: files go to the trash, one click away from coming back for as long as you haven't emptied it.",
+    resolve: "Move {n} file to trash | Move {n} files to trash",
+    review: "What will be removed",
+    showing: "Showing {shown} of {total} faces",
+    kept: "Kept:",
+    exclude: "Keep",
+    include: "Remove",
+    doneTitle: "{n} file moved to trash. | {n} files moved to trash.",
+    doneDesc:
+      "{size} will be reclaimed when you empty the trash. Until then everything is restorable.",
+    seeTrash: "Open the trash",
+  },
+
   trash: {
     title: "Trash",
     subtitle:

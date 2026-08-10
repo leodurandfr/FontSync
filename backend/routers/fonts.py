@@ -24,6 +24,8 @@ from backend.models.font import (
 from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
     ConfirmDeletionsResponse,
+    DuplicateFaceGroup,
+    DuplicateFacesResponse,
     FontDeviceStatus,
     FontListResponse,
     FontResponse,
@@ -31,8 +33,17 @@ from backend.schemas.font import (
     FontUpdate,
     FontUploadResponse,
     PurgeResponse,
+    ResolveDuplicatesRequest,
+    ResolveDuplicatesResponse,
     SortOrder,
     TrashListResponse,
+)
+from backend.services.duplicate_faces import (
+    DuplicateGroup,
+    decode_key,
+    encode_key,
+    find_duplicate_faces,
+    resolve_duplicate_faces,
 )
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
@@ -198,6 +209,113 @@ async def list_fonts(
         page=page,
         per_page=per_page,
         pages=math.ceil(total / per_page) if total > 0 else 0,
+    )
+
+
+# ---------- Doublons de face ----------
+#
+# Déclarées **avant** `/{font_id}`, pour la même raison que la corbeille.
+
+
+@router.get("/duplicates", response_model=DuplicateFacesResponse)
+async def list_duplicate_faces(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> DuplicateFacesResponse:
+    """Faces présentes en plusieurs exemplaires, groupe par groupe.
+
+    Le recensement porte sur `(famille typographique, style)` — l'identité
+    réelle d'une face — là où la déduplication à l'import ne compare que des
+    empreintes de fichier. Trois noms différents pour une seule face donnent
+    trois empreintes : par hash, aucun de ces doublons n'est visible.
+
+    Lecture pure. Les totaux décrivent l'ensemble du recensement, pas la page :
+    c'est sur eux que porte le geste de résolution.
+    """
+    groups = await find_duplicate_faces(db)
+    scanned = await db.execute(
+        select(func.count()).select_from(Font).where(Font.deleted_at.is_(None))
+    )
+
+    start = (page - 1) * per_page
+    return DuplicateFacesResponse(
+        items=[_to_group_schema(g) for g in groups[start : start + per_page]],
+        total_groups=len(groups),
+        total_redundant=sum(len(g.redundant) for g in groups),
+        bytes_freed=sum(f.file_size for g in groups for f in g.redundant),
+        scanned=scanned.scalar() or 0,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(len(groups) / per_page) if groups else 0,
+    )
+
+
+def _to_group_schema(group: DuplicateGroup) -> DuplicateFaceGroup:
+    return DuplicateFaceGroup(
+        family=group.family,
+        subfamily=group.subfamily,
+        key=encode_key(group.key),
+        keeper=FontResponse.model_validate(group.keeper),
+        redundant=[FontResponse.model_validate(f) for f in group.redundant],
+        also_kept=[FontResponse.model_validate(f) for f in group.also_kept],
+        bytes_freed=sum(f.file_size for f in group.redundant),
+    )
+
+
+@router.post("/duplicates/resolve", response_model=ResolveDuplicatesResponse)
+async def resolve_duplicate_faces_endpoint(
+    body: ResolveDuplicatesRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ResolveDuplicatesResponse:
+    """Envoie à la corbeille les fichiers en trop. Un seul « oui » pour tout.
+
+    Réviser 918 groupes un par un se compte en heures ; ce que l'utilisateur
+    révise ici, c'est le **résultat de la règle** — un gardé par face, le plus
+    complet, choisi par un classement total donc reproductible. La corbeille est
+    ce qui rend le geste en bloc acceptable : rien n'est effacé, tout se
+    restaure, et les fichiers ne quittent le stockage qu'au vidage.
+
+    `dry_run` compte sans rien déplacer, pour confirmer le chiffre avant de le
+    déclencher. Sans `keys`, toutes les faces recensées y passent.
+    """
+    keys: set[tuple[str, str]] | None = None
+    if body.keys is not None:
+        decoded = [decode_key(raw) for raw in body.keys]
+        if any(k is None for k in decoded):
+            raise HTTPException(
+                status_code=400, detail="Identité de face malformée dans `keys`."
+            )
+        keys = {k for k in decoded if k is not None}
+
+    if body.dry_run:
+        groups = await find_duplicate_faces(db)
+        if keys is not None:
+            groups = [g for g in groups if g.key in keys]
+        return ResolveDuplicatesResponse(
+            groups=len(groups),
+            trashed=sum(len(g.redundant) for g in groups),
+            bytes_freed=sum(f.file_size for g in groups for f in g.redundant),
+            dry_run=True,
+        )
+
+    outcome = await resolve_duplicate_faces(db, keys=keys)
+    await db.commit()
+
+    for font in outcome.trashed:
+        await ws_manager.broadcast_to_clients(
+            {"type": "font.deleted", "data": {"id": str(font.id)}}
+        )
+    if outcome.trashed:
+        # Les appareils qui propagent les suppressions doivent les appliquer ;
+        # ils l'apprendront au prochain delta, qu'on déclenche tout de suite.
+        await ws_manager.broadcast_sync()
+
+    return ResolveDuplicatesResponse(
+        groups=outcome.groups,
+        trashed=len(outcome.trashed),
+        bytes_freed=outcome.bytes_freed,
+        dry_run=False,
     )
 
 

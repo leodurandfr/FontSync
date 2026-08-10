@@ -18,6 +18,7 @@ const fr: typeof en = {
     allFonts: "Toutes les polices",
     categories: "Catégories",
     manage: "Gestion",
+    duplicates: "Doublons",
     trash: "Corbeille",
     upload: "Uploader",
     settings: "Paramètres",
@@ -172,12 +173,39 @@ const fr: typeof en = {
     // push/pull : c'est le seul réglage qui puisse faire disparaître un fichier.
     propagateDeletions: "Propager les suppressions",
     propagateDeletionsDesc:
-      "Les polices supprimées ici passent à la corbeille du serveur, et les polices supprimées du serveur sont désinstallées ici. Désactivé par défaut — rien ne s'efface sans ça.",
+      "Désinstalle de cet appareil les polices supprimées du serveur. Désactivé par défaut : sans ça, aucun fichier n'est jamais effacé ici. Les suppressions faites sur cet appareil, elles, sont enregistrées par le serveur dans tous les cas — ce réglage ne commande que ce qui s'efface.",
     delete: "Retirer l'appareil",
     deleteConfirm:
       "Retirer « {name} » ? Vos polices restent sur le serveur. Ce qui est perdu, c'est la trace des polices que cette machine détenait — la base de la détection des suppressions locales.",
     watchedFolders: "Dossiers surveillés",
   },
+  duplicates: {
+    title: "Doublons",
+    subtitle:
+      "La même police sous plusieurs noms de fichier. Comme chaque nom donne une empreinte différente, la déduplication à l'import ne les voit pas — ils sont repérés ici sur l'identité réelle de la face : famille typographique et style.",
+    none: "Aucun doublon.",
+    noneDesc: "{n} police passée au crible. | {n} polices passées au crible.",
+    summary:
+      "{files} fichier en trop sur {faces} face, {size} à libérer. | {files} fichiers en trop sur {faces} faces, {size} à libérer.",
+    // Dire la règle, pas seulement le chiffre : c'est elle qu'on révise ici,
+    // groupe par groupe ce serait des heures.
+    rule: "Pour chaque face, le fichier le plus complet est gardé — une police variable ou une collection l'emporte toujours, puisqu'elle porte des styles que les autres n'ont pas.",
+    reversible:
+      "Rien n'est effacé : les fichiers partent à la corbeille, d'où ils reviennent d'un clic tant que vous ne l'avez pas vidée.",
+    resolve:
+      "Envoyer {n} fichier à la corbeille | Envoyer {n} fichiers à la corbeille",
+    review: "Ce qui sera retiré",
+    showing: "{shown} faces affichées sur {total}",
+    kept: "Gardé :",
+    exclude: "Garder",
+    include: "Retirer",
+    doneTitle:
+      "{n} fichier envoyé à la corbeille. | {n} fichiers envoyés à la corbeille.",
+    doneDesc:
+      "{size} seront libérés au vidage de la corbeille. D'ici là, tout est restaurable.",
+    seeTrash: "Voir la corbeille",
+  },
+
   trash: {
     title: "Corbeille",
     subtitle:

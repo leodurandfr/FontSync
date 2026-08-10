@@ -62,6 +62,43 @@ export interface TrashListResponse extends FontListResponse {
   pendingConfirmation: number;
 }
 
+/**
+ * Une face portée par plusieurs fichiers.
+ *
+ * Le doublon qui gêne n'est pas le fichier identique — celui-là, la
+ * déduplication par empreinte l'attrape déjà à l'import — mais la même face
+ * sous plusieurs noms, qui a donc autant d'empreintes différentes.
+ */
+export interface DuplicateFaceGroup {
+  family: string;
+  subfamily: string;
+  /** Identité normalisée ; c'est elle que `resolve` attend. */
+  key: string;
+  keeper: Font;
+  redundant: Font[];
+  /** Gardés sans être *le* gardé (plusieurs fichiers multi-styles). */
+  alsoKept: Font[];
+  bytesFreed: number;
+}
+
+export interface DuplicateFacesResponse {
+  items: DuplicateFaceGroup[];
+  totalGroups: number;
+  totalRedundant: number;
+  bytesFreed: number;
+  scanned: number;
+  page: number;
+  perPage: number;
+  pages: number;
+}
+
+export interface ResolveDuplicatesResponse {
+  groups: number;
+  trashed: number;
+  bytesFreed: number;
+  dryRun: boolean;
+}
+
 export interface FontUploadResponse {
   imported: Font[];
   duplicates: Font[];

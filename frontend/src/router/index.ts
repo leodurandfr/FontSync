@@ -15,6 +15,11 @@ const router = createRouter({
       props: true,
     },
     {
+      path: "/duplicates",
+      name: "duplicates",
+      component: () => import("@/pages/DuplicatesPage.vue"),
+    },
+    {
       path: "/trash",
       name: "trash",
       component: () => import("@/pages/TrashPage.vue"),

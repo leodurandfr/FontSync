@@ -126,6 +126,68 @@ class TrashListResponse(FontListResponse):
     propagée."""
 
 
+class DuplicateFaceGroup(CamelModel):
+    """Une face portée par plusieurs fichiers."""
+
+    family: str
+    subfamily: str
+    key: str
+    """Identité normalisée, `famille\\x1fstyle`. C'est cette chaîne que la
+    résolution attend : la paire brute ne survivrait pas à un aller-retour JSON
+    sans ambiguïté de séparateur."""
+
+    keeper: FontResponse
+    """Le fichier gardé : le plus complet du groupe."""
+
+    redundant: list[FontResponse]
+    """Les fichiers en trop, proposés à la corbeille."""
+
+    also_kept: list[FontResponse] = []
+    """Gardés sans être *le* gardé — plusieurs fichiers couvrant chacun
+    plusieurs styles, qu'on ne saurait départager sans perdre de la matière."""
+
+    bytes_freed: int
+    """Ce que le retrait des redondants libérerait, une fois la corbeille vidée."""
+
+
+class DuplicateFacesResponse(CamelModel):
+    """Recensement des doublons de face."""
+
+    items: list[DuplicateFaceGroup]
+    total_groups: int
+    """Faces en plusieurs exemplaires (toutes pages confondues)."""
+
+    total_redundant: int
+    """Fichiers en trop. C'est le nombre qui compte : le geste de résolution
+    porte sur lui, pas sur le nombre de groupes."""
+
+    bytes_freed: int
+    scanned: int
+    """Polices actives passées au crible."""
+
+    page: int
+    per_page: int
+    pages: int
+
+
+class ResolveDuplicatesRequest(CamelModel):
+    """Demande de résolution. Sans `keys`, toutes les faces recensées y passent."""
+
+    keys: list[str] | None = None
+    dry_run: bool = False
+    """Compter sans rien envoyer à la corbeille — de quoi confirmer un chiffre
+    avant de le déclencher."""
+
+
+class ResolveDuplicatesResponse(CamelModel):
+    """Bilan d'une résolution de doublons."""
+
+    groups: int
+    trashed: int
+    bytes_freed: int
+    dry_run: bool
+
+
 class PurgeResponse(CamelModel):
     """Bilan d'un vidage de corbeille."""
 

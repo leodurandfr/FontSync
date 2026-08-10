@@ -634,18 +634,58 @@ async def test_restore_after_propagated_delete_does_not_loop(
 
 
 @pytest.mark.asyncio
-async def test_delta_does_not_quarantine_without_the_setting(
+async def test_local_deletion_is_recorded_without_the_setting(
     api_client: AsyncClient, font_factory
 ) -> None:
-    """Défaut sûr : sans le réglage, une disparition locale n'efface rien."""
+    """Sans le réglage, la disparition est **enregistrée** — mais rien n'est effacé.
+
+    C'est la moitié qui manquait : conditionner l'écoute à `propagate_deletions`
+    rendait toute suppression locale impossible (le serveur ne concluait rien,
+    la police restait offerte au pull, `auto_pull` la réinstallait). Enregistrer
+    ne détruit rien : la police part en corbeille, récupérable.
+    """
     laptop = await _register_device(api_client, hostname="laptop")
-    data = font_factory(family="Untouched")
-    await _push(api_client, laptop, data, "Untouched.ttf")
+    gone = await _push(api_client, laptop, font_factory(family="Gone"), "Gone.ttf")
+    # Une seconde police reste : sans elle c'est le garde-fou « déclaration
+    # vide » qui répondrait, et le test ne prouverait rien.
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
 
-    await _delta(api_client, laptop, [])
+    delta = await _delta(api_client, laptop, [kept["fileHash"]])
 
+    # Sortie de la bibliothèque, et plus jamais re-proposée au pull.
+    assert [ref["fileHash"] for ref in delta["missingOnDevice"]] == []
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
     assert listing.json()["total"] == 1
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert [item["fileHash"] for item in trash["items"]] == [gone["fileHash"]]
+
+
+@pytest.mark.asyncio
+async def test_deletion_recorded_here_is_not_applied_there(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """L'appareil qui n'a pas opté ne reçoit jamais d'ordre de désinstallation.
+
+    Le pendant du test précédent : enregistrer se fait toujours, *appliquer*
+    reste derrière `propagate_deletions`. C'est bien la moitié destructrice qui
+    est gardée, et elle seule.
+    """
+    laptop = await _register_device(api_client, hostname="laptop")
+    desktop = await _register_device(api_client, hostname="desktop")
+    pushed = await _push(api_client, laptop, font_factory(family="Both"), "Both.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+    pull = await api_client.get(
+        f"/api/sync/pull/{pushed['fontId']}?device_id={desktop}", headers=AUTH_HEADERS
+    )
+    assert pull.status_code == 200, pull.text
+
+    # Le laptop la perd → quarantaine propageable (sous le seuil).
+    await _delta(api_client, laptop, [kept["fileHash"]])
+
+    # Le desktop la détient toujours, mais n'a pas opté : on ne lui demande rien.
+    delta_desktop = await _delta(api_client, desktop, [pushed["fileHash"]])
+    assert delta_desktop["toUninstall"] == []
+    assert delta_desktop["deletedOnServer"] == 1
 
 
 @pytest.mark.asyncio

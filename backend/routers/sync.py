@@ -66,16 +66,25 @@ async def delta_sync(
     que le calcul du delta est en lecture pure — une propriété qu'on préserve.
     L'ordre compte : détecter d'abord, calculer ensuite, pour que le delta de ce
     sync-ci voie déjà les quarantaines qu'il vient de poser.
+
+    La détection tourne pour **tout** appareil, quel que soit
+    `propagate_deletions`. Conditionner l'écoute à ce réglage rendait toute
+    suppression locale impossible : le serveur ne concluait rien, la police
+    restait dans la bibliothèque, et `auto_pull` la réinstallait au sync suivant
+    — mesuré, 31 s entre le geste et son annulation. Or enregistrer une
+    disparition n'efface aucun fichier : la police part en corbeille,
+    récupérable d'un clic. `propagate_deletions` garde la moitié qui, elle,
+    détruit — la désinstallation sur les *autres* machines, arbitrée plus bas
+    par `compute_delta`.
     """
     device = await _get_device_or_404(body.device_id, db)
 
-    if device.propagate_deletions:
-        detection = await detect_local_deletions(
-            device.id, {entry.hash for entry in body.fonts}, db
-        )
-        if detection.total:
-            await db.commit()
-            await _notify_quarantined(detection, source_device_id=str(device.id))
+    detection = await detect_local_deletions(
+        device.id, {entry.hash for entry in body.fonts}, db
+    )
+    if detection.total:
+        await db.commit()
+        await _notify_quarantined(detection, source_device_id=str(device.id))
 
     return await compute_delta(
         body.fonts, db, propagate_deletions=device.propagate_deletions
