@@ -64,7 +64,13 @@ async def test_distinct_content_creates_distinct_fonts(
 
 @pytest.mark.asyncio
 async def test_reimport_revives_soft_deleted_font(db, storage, font_factory) -> None:
-    """Réimporter une font soft-deleted la ressuscite (deleted_at → None)."""
+    """Réimporter une font soft-deleted la ressuscite (deleted_at → None).
+
+    Réveil ⇒ `is_duplicate=False` : la question posée est « était-elle déjà dans
+    la bibliothèque ? », et la réponse est non. C'est ce qui fait émettre à
+    l'appelant l'événement d'ajout et le signal « re-sync » — sans quoi le seul
+    chemin de retour après un vidage de corbeille resterait invisible.
+    """
     data = font_factory(family="Phoenix", subfamily="Regular")
     font, _ = await import_font("phoenix.ttf", data, storage, db)
 
@@ -75,7 +81,7 @@ async def test_reimport_revives_soft_deleted_font(db, storage, font_factory) -> 
 
     revived, is_duplicate = await import_font("phoenix.ttf", data, storage, db)
 
-    assert is_duplicate is True
+    assert is_duplicate is False
     assert revived.id == font.id
     assert revived.deleted_at is None
     assert await _count_fonts(db) == 1

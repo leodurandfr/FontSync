@@ -7,6 +7,10 @@ services:
       DATABASE_URL: sqlite+aiosqlite:////data/fontsync.db
       STORAGE_BACKEND: filesystem
       FONT_STORAGE_PATH: /data/fonts
+      # Vidage automatique de la corbeille après N jours. 0 = désactivé : rien
+      # ne supprime de fichier tout seul sans qu'on l'ait demandé. Vider retire
+      # le fichier et conserve l'empreinte (cf. ARCHITECTURE.md §4.4).
+      TRASH_RETENTION_DAYS: "0"
     volumes:
       - db_data:/data
       - font_data:/data/fonts

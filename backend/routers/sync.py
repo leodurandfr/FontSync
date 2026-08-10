@@ -14,6 +14,10 @@ from backend.models.device import Device
 from backend.models.font import Font
 from backend.schemas.font import FontResponse
 from backend.schemas.sync import DeltaSyncRequest, DeltaSyncResponse, PushResponse
+from backend.services.deletion_propagation import (
+    DeletionDetection,
+    detect_local_deletions,
+)
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
 from backend.services.sync_manager import compute_delta, register_device_font
@@ -55,10 +59,45 @@ async def delta_sync(
     - unknown_to_server : hashes à pusher
     - missing_on_device : fonts à puller
     - already_synced : nombre de fonts en commun
+    - deleted_on_server / to_uninstall : polices tombées que l'appareil détient
+
+    C'est **ici**, et non dans `compute_delta`, qu'on interprète les
+    disparitions : la détection écrit (quarantaine, nettoyage du registre) alors
+    que le calcul du delta est en lecture pure — une propriété qu'on préserve.
+    L'ordre compte : détecter d'abord, calculer ensuite, pour que le delta de ce
+    sync-ci voie déjà les quarantaines qu'il vient de poser.
     """
-    # Vérifier que le device existe
-    await _get_device_or_404(body.device_id, db)
-    return await compute_delta(body.fonts, db)
+    device = await _get_device_or_404(body.device_id, db)
+
+    if device.propagate_deletions:
+        detection = await detect_local_deletions(
+            device.id, {entry.hash for entry in body.fonts}, db
+        )
+        if detection.total:
+            await db.commit()
+            await _notify_quarantined(detection, source_device_id=str(device.id))
+
+    return await compute_delta(
+        body.fonts, db, propagate_deletions=device.propagate_deletions
+    )
+
+
+async def _notify_quarantined(
+    detection: DeletionDetection, *, source_device_id: str
+) -> None:
+    """Signale les quarantaines au frontend, et le re-sync aux autres appareils.
+
+    Le device source n'est pas re-signalé : il vient de nous dire qu'il n'a plus
+    ces polices, la réponse au delta en cours lui suffit. Une quarantaine en
+    attente de confirmation ne déclenche aucun re-sync — c'est tout l'objet du
+    seuil : personne d'autre ne touche à ses fichiers avant un oui.
+    """
+    for font in detection.quarantined + detection.pending:
+        await ws_manager.broadcast_to_clients(
+            {"type": "font.deleted", "data": {"id": str(font.id)}}
+        )
+    if detection.quarantined:
+        await ws_manager.broadcast_sync(exclude_device_id=source_device_id)
 
 
 @router.post("/push", response_model=PushResponse)
@@ -72,6 +111,14 @@ async def push_font(
     """Push d'une font depuis un agent vers le serveur.
 
     Utilise le pipeline d'import standard, puis enregistre l'association device ↔ font.
+
+    Une font en **pierre tombale** n'est jamais ressuscitée par ce chemin
+    (`revive_deleted=False`) : c'est ce réveil-là qui rendait toute suppression
+    illusoire. Le refus est signalé explicitement (`refused_deleted`) pour que
+    l'agent ne le compte pas en erreur — ce n'en est pas une. En régime normal
+    le cas ne se présente pas : le delta ne propose plus de pousser une police
+    tombée. Il reste pour les courses (suppression pendant un sync) et pour un
+    agent qui pousserait sans delta préalable.
     """
     # Vérifier que le device existe
     device = await _get_device_or_404(device_id, db)
@@ -86,9 +133,27 @@ async def push_font(
             storage=storage,
             db=db,
             source="local_scan",
+            revive_deleted=False,
         )
     except FontImportError as e:
         raise HTTPException(status_code=400, detail=e.detail)
+
+    if font.deleted_at is not None:
+        # Refus : ni association device ↔ font (l'appareil n'a pas à figurer
+        # comme détenteur d'une police hors bibliothèque), ni notification.
+        logger.info(
+            "Push refusé pour %s (font supprimée le %s, motif %s)",
+            filename,
+            font.deleted_at,
+            font.deleted_reason,
+        )
+        return PushResponse(
+            font_id=font.id,
+            file_hash=font.file_hash,
+            is_duplicate=True,
+            family_name=font.family_name,
+            refused_deleted=True,
+        )
 
     # Mettre à jour source_device_id si c'est une nouvelle font
     if not is_duplicate and font.source_device_id is None:

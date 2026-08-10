@@ -53,7 +53,17 @@ export const useDevicesStore = defineStore('devices', () => {
     }
   }
 
-  async function updateDevice(deviceId: string, fields: Partial<Pick<Device, 'name' | 'autoPull' | 'autoPush'>>) {
+  // Retirer un appareil n'ampute pas la bibliothèque : le serveur reste la
+  // source de vérité. Ce qui part avec lui, c'est la trace des polices qu'il
+  // détenait — la base de la détection des suppressions locales.
+  async function deleteDevice(deviceId: string) {
+    const res = await apiFetch(`/api/devices/${deviceId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    devices.value = devices.value.filter((d) => d.id !== deviceId)
+    setDeviceOffline(deviceId)
+  }
+
+  async function updateDevice(deviceId: string, fields: Partial<Pick<Device, 'name' | 'autoPull' | 'autoPush' | 'propagateDeletions'>>) {
     const res = await apiFetch(`/api/devices/${deviceId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -80,5 +90,6 @@ export const useDevicesStore = defineStore('devices', () => {
     setDeviceOffline,
     updateDeviceFields,
     updateDevice,
+    deleteDevice,
   }
 })

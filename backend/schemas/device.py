@@ -29,6 +29,11 @@ class DeviceUpdate(CamelModel):
     font_directories: list[str] | None = None
     auto_pull: bool | None = None
     auto_push: bool | None = None
+    # Réglage volontairement distinct d'auto_pull/auto_push : ces deux-là ne
+    # promettent que d'envoyer et d'installer. Les rendre destructeurs serait
+    # une trahison de leur nom. Piloté depuis le frontend uniquement — l'agent
+    # ne se l'attribue jamais à l'enregistrement.
+    propagate_deletions: bool | None = None
     sync_status: str | None = Field(None, pattern=r"^(idle|scanning|syncing|error)$")
 
 
@@ -47,6 +52,7 @@ class DeviceResponse(CamelModel):
     font_directories: list[str] | None = None
     auto_pull: bool
     auto_push: bool
+    propagate_deletions: bool = False
     created_at: datetime
     # Présence « en ligne » : calculée à la volée depuis les connexions SSE
     # `listen` (cf. routeur), pas une colonne en base.

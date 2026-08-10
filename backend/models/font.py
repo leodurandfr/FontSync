@@ -16,6 +16,29 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, UUIDPrimaryKey
 
+# ---------- Motifs de suppression ----------
+#
+# Une suppression est une **intention**, pas une observation : c'est ce qui rend
+# la pierre tombale nécessaire. Sans motif, on ne peut pas distinguer « cette
+# police a été supprimée » de « cette police est absente », et le push d'une
+# machine qui détient encore le fichier la ressuscite (cf.
+# `font_importer._revive_if_deleted`).
+
+DELETION_MANUAL = "manual"
+"""Supprimée depuis l'interface web. Se propage aux appareils."""
+
+DELETION_QUARANTINE = "quarantine"
+"""Disparue d'un appareil qui propage ses suppressions. Se propage aux autres."""
+
+DELETION_PENDING = "quarantine_pending"
+"""Disparition d'un appareil **au-delà du seuil** : mise en quarantaine (elle sort
+de la bibliothèque, récupérable d'un clic) mais **non propagée** tant que
+l'utilisateur n'a pas confirmé. C'est le garde-fou du nettoyage manuel massif :
+personne d'autre ne perd son fichier sur la foi d'un seul scan."""
+
+PROPAGATING_DELETION_REASONS = (DELETION_MANUAL, DELETION_QUARANTINE)
+"""Motifs dont la suppression descend jusqu'aux appareils."""
+
 
 class Font(UUIDPrimaryKey, Base):
     __tablename__ = "fonts"
@@ -73,6 +96,18 @@ class Font(UUIDPrimaryKey, Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Pierre tombale. `deleted_at` seul ne dit pas *pourquoi* : c'est
+    # `deleted_reason` qui porte l'intention (cf. constantes en tête de module) et
+    # qui empêche la résurrection au prochain push d'une machine qui détient
+    # encore le fichier. Toujours renseigné quand `deleted_at` l'est.
+    deleted_reason: Mapped[str | None] = mapped_column(String(30))
+
+    # Fichier retiré du stockage (vidage de corbeille), **ligne conservée**.
+    # L'empreinte (`file_hash`) doit survivre au fichier : sinon la police
+    # reviendrait au push suivant, et une purge au jour 30 la ferait réapparaître
+    # au jour 31.
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relations
     device_fonts: Mapped[list["DeviceFont"]] = relationship(back_populates="font")

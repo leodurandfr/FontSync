@@ -8,26 +8,35 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import asc, desc, func, or_
+from sqlalchemy import asc, delete, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
-from backend.models.font import Font
+from backend.models.font import (
+    DELETION_MANUAL,
+    DELETION_PENDING,
+    DELETION_QUARANTINE,
+    Font,
+)
 from backend.models.font_family import FontFamilyMember
 from backend.schemas.font import (
+    ConfirmDeletionsResponse,
     FontDeviceStatus,
     FontListResponse,
     FontResponse,
     FontSortField,
     FontUpdate,
     FontUploadResponse,
+    PurgeResponse,
     SortOrder,
+    TrashListResponse,
 )
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.storage import StorageBackend, get_storage_backend
+from backend.services.trash import purge_font
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -190,6 +199,102 @@ async def list_fonts(
         per_page=per_page,
         pages=math.ceil(total / per_page) if total > 0 else 0,
     )
+
+
+# ---------- Corbeille ----------
+#
+# Ces routes sont déclarées **avant** `/{font_id}` : FastAPI résout dans l'ordre
+# de déclaration, et `/trash` serait sinon capté comme un identifiant de police
+# (échec de parsing UUID → 422).
+
+
+@router.get("/trash", response_model=TrashListResponse)
+async def list_trash(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> TrashListResponse:
+    """Polices supprimées, les plus récentes d'abord.
+
+    Elles restent en base : une suppression garde son empreinte, y compris après
+    vidage du fichier. C'est ce qui l'empêche de revenir au push suivant.
+    """
+    query = select(Font).where(Font.deleted_at.is_not(None))
+
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar() or 0
+
+    pending_result = await db.execute(
+        select(func.count())
+        .select_from(Font)
+        .where(Font.deleted_at.is_not(None), Font.deleted_reason == DELETION_PENDING)
+    )
+
+    result = await db.execute(
+        query.order_by(desc(Font.deleted_at))
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    fonts = result.scalars().all()
+
+    return TrashListResponse(
+        items=[FontResponse.model_validate(f) for f in fonts],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0,
+        pending_confirmation=pending_result.scalar() or 0,
+    )
+
+
+@router.post("/trash/empty", response_model=PurgeResponse)
+async def empty_trash(
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+) -> PurgeResponse:
+    """Vide la corbeille : retire les fichiers du stockage, garde les empreintes.
+
+    Garder la ligne n'est pas une demi-mesure. Sans elle, la police reviendrait
+    au premier push d'une machine qui détient encore le fichier — et une purge
+    au jour 30 la ferait réapparaître au jour 31, indéfiniment.
+    """
+    result = await db.execute(
+        select(Font).where(Font.deleted_at.is_not(None), Font.purged_at.is_(None))
+    )
+    purged = 0
+    for font in result.scalars().all():
+        if await purge_font(font, storage, db):
+            purged += 1
+    await db.commit()
+    logger.info("Corbeille vidée : %d fichier(s) retiré(s) du stockage.", purged)
+    return PurgeResponse(purged=purged)
+
+
+@router.post("/trash/confirm", response_model=ConfirmDeletionsResponse)
+async def confirm_pending_deletions(
+    db: AsyncSession = Depends(get_db),
+) -> ConfirmDeletionsResponse:
+    """Confirme les quarantaines retenues par le seuil : elles se propagent.
+
+    Ces polices sont déjà hors de la bibliothèque ; ce qui était suspendu, c'est
+    leur **désinstallation sur les autres machines**. Confirmer lève cette
+    suspension — c'est la seule action de tout ce module qui peut faire
+    disparaître un fichier ailleurs, d'où le geste explicite.
+    """
+    result = await db.execute(
+        select(Font).where(Font.deleted_reason == DELETION_PENDING)
+    )
+    fonts = list(result.scalars().all())
+    for font in fonts:
+        font.deleted_reason = DELETION_QUARANTINE
+    await db.commit()
+
+    if fonts:
+        logger.info(
+            "%d quarantaine(s) confirmée(s) : la propagation reprend.", len(fonts)
+        )
+        await ws_manager.broadcast_sync()
+    return ConfirmDeletionsResponse(confirmed=len(fonts))
 
 
 # ---------- Détail ----------
@@ -449,10 +554,24 @@ async def delete_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Soft delete d'une font."""
+    """Soft delete d'une font — une **intention**, pas une absence constatée.
+
+    Le motif `manual` est ce qui rend la suppression durable : sans lui,
+    `deleted_at` seul ne dit pas si la police a été supprimée ou si elle est
+    simplement absente, et la première machine qui détient encore le fichier la
+    ressuscite au push suivant.
+    """
     font = await _get_font_or_404(font_id, db)
     font.deleted_at = datetime.now(timezone.utc)
+    font.deleted_reason = DELETION_MANUAL
     font.updated_at = datetime.now(timezone.utc)
+    # Les associations « cet appareil détient cette police » tombent avec elle.
+    # Les garder ferait re-quarantiner la police au premier sync suivant une
+    # restauration : elle serait de nouveau active, toujours associée à un
+    # appareil qui l'a désinstallée entre-temps, donc lue comme disparue. La
+    # liste `to_uninstall` se calcule de toute façon sur ce que l'appareil
+    # déclare, pas sur ces associations.
+    await db.execute(delete(DeviceFont).where(DeviceFont.font_id == font.id))
     await db.commit()
     await ws_manager.broadcast_to_clients(
         {
@@ -460,6 +579,30 @@ async def delete_font(
             "data": {"id": str(font_id)},
         }
     )
+    # Les appareils qui propagent les suppressions doivent la désinstaller : ils
+    # l'apprendront à leur prochain delta, qu'on déclenche tout de suite.
+    await ws_manager.broadcast_sync()
+
+
+@router.post("/{font_id}/purge", status_code=204)
+async def purge_font_file(
+    font_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+) -> None:
+    """Retire du stockage le fichier d'une font supprimée. La ligne est gardée.
+
+    Refuse une font active : on ne supprime pas le fichier d'une police que la
+    bibliothèque référence encore.
+    """
+    font = await _get_font_or_404(font_id, db, include_deleted=True)
+    if font.deleted_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Cette font n'est pas dans la corbeille.",
+        )
+    await purge_font(font, storage, db)
+    await db.commit()
 
 
 # ---------- Restauration ----------
@@ -470,11 +613,26 @@ async def restore_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> FontResponse:
-    """Restaure une font supprimée (soft delete)."""
+    """Restaure une font supprimée (soft delete).
+
+    Impossible si la corbeille a été vidée : le fichier n'existe plus, seule
+    l'empreinte subsiste. Ré-uploader le même fichier depuis l'interface
+    reconstitue tout (l'upload est le seul chemin autorisé à réveiller une
+    pierre tombale, cf. `import_font(revive_deleted=...)`).
+    """
     font = await _get_font_or_404(font_id, db, include_deleted=True)
     if font.deleted_at is None:
         raise HTTPException(status_code=400, detail="Cette font n'est pas supprimée.")
+    if font.purged_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Le fichier de cette font a été retiré du stockage lors du vidage "
+                "de la corbeille. Ré-importez-le pour la retrouver."
+            ),
+        )
     font.deleted_at = None
+    font.deleted_reason = None
     font.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(font)

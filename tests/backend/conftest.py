@@ -14,12 +14,20 @@ import pytest
 import pytest_asyncio
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from backend import auth
+from backend.config import settings
+from backend.database import get_db
+from backend.main import app
+
 # Importer le package modèles enregistre toutes les tables sur Base.metadata.
 from backend.models import Base
+from backend.routers import fonts as fonts_router
+from backend.routers import sync as sync_router
 from backend.services.storage import FilesystemStorage
 
 # Alphabet latin de base (>= 10 codepoints → script « Latin » détecté par
@@ -134,4 +142,63 @@ async def db() -> AsyncGenerator[AsyncSession, None]:
     async with session_maker() as session:
         yield session
 
+    await engine.dispose()
+
+
+# ---------- Client API complet (routeurs montés, auth armée) ----------
+
+API_TOKEN = "test-secret-token"
+AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
+
+
+@pytest.fixture
+def _api_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "fontsync_token", API_TOKEN)
+    monkeypatch.setattr(auth, "_generated_token", None)
+
+
+@pytest_asyncio.fixture
+async def api_client(tmp_path, _api_token) -> AsyncGenerator[AsyncClient, None]:
+    """Client ASGI sur l'app réelle : DB in-memory + stockage isolé.
+
+    Le stockage est surchargé pour les **deux** routeurs qui l'injectent (fonts
+    et sync) : un vidage de corbeille écrit par l'un et lu par l'autre doit voir
+    le même dossier, sinon les tests de purge passeraient pour de mauvaises
+    raisons.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _fk_on(dbapi_connection, _record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_maker = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_maker() as session:
+            yield session
+
+    api_storage = FilesystemStorage(base_path=str(tmp_path / "api-storage"))
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[fonts_router.get_storage] = lambda: api_storage
+    app.dependency_overrides[sync_router.get_storage] = lambda: api_storage
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
     await engine.dispose()

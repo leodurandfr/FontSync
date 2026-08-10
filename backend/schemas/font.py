@@ -77,6 +77,15 @@ class FontResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
 
+    # Pierre tombale — nuls pour une police de la bibliothèque.
+    deleted_at: datetime | None = None
+    deleted_reason: str | None = None
+    """`manual`, `quarantine`, ou `quarantine_pending` (suppression détectée
+    au-delà du seuil : en corbeille, mais non propagée sans confirmation)."""
+    purged_at: datetime | None = None
+    """Fichier retiré du stockage. La police n'est plus restaurable telle
+    quelle ; seule son empreinte subsiste, pour que la suppression tienne."""
+
     model_config = {
         "from_attributes": True,
         "alias_generator": CamelModel.model_config["alias_generator"],
@@ -105,6 +114,31 @@ class FontListResponse(CamelModel):
     page: int
     per_page: int
     pages: int
+
+
+class TrashListResponse(FontListResponse):
+    """Corbeille : polices supprimées, plus le décompte des cas à trancher."""
+
+    pending_confirmation: int = 0
+    """Polices mises en quarantaine **au-delà du seuil** de propagation. Elles
+    attendent un arbitrage : confirmer (les autres machines les désinstallent)
+    ou restaurer. Tant que le compte n'est pas nul, aucune d'elles n'est
+    propagée."""
+
+
+class PurgeResponse(CamelModel):
+    """Bilan d'un vidage de corbeille."""
+
+    purged: int
+    """Fichiers retirés du stockage. Les empreintes, elles, sont conservées :
+    sans ça la police reviendrait au premier push d'une machine qui l'a encore."""
+
+
+class ConfirmDeletionsResponse(CamelModel):
+    """Bilan d'une confirmation de quarantaines en attente."""
+
+    confirmed: int
+    """Polices dont la suppression se propage désormais aux appareils."""
 
 
 class FontUpdate(CamelModel):

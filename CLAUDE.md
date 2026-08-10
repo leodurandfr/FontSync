@@ -113,7 +113,7 @@ fontsync/
 - **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.
 - **Robustesse du parsing fonttools** : toujours wrapper dans try/except. Une font malformée doit être stockée avec des métadonnées partielles, jamais rejetée.
 - **Auth = token partagé d'instance** (`FONTSYNC_TOKEN`), vérifié sur tout `/api/*` + SSE + WS (header `Authorization: Bearer` ; query `?token=` accepté pour le WS navigateur uniquement, **URL-encodé** car un token base64 contient des `+`). **Pas de comptes utilisateurs** — ça reste mode cloud / multi-utilisateurs (long terme).
-- **L'agent peut désinstaller des fonts localement sur ordre explicite de l'utilisateur** (via le frontend), mais la font reste toujours sur le serveur.
+- **Rien ne s'efface sans un oui explicite.** L'agent ne désinstalle que si `propagate_deletions` est activé sur l'appareil (défaut `false`), réglage volontairement distinct d'`auto_push`/`auto_pull` — ces deux mots ne promettent qu'envoyer et installer. Côté serveur, une suppression est une **intention** portée par `deleted_reason` : elle survit aux syncs (plus de résurrection au push) et la police reste récupérable en corbeille. Vider la corbeille retire le fichier mais **conserve l'empreinte**. Une disparition massive sur une machine est mise en quarantaine sans être propagée tant que l'utilisateur n'a pas confirmé. Détail complet : `ARCHITECTURE.md` §4.4 et §6.6.
 - **Formats WOFF/WOFF2** : acceptés au stockage et prévisualisables, mais jamais proposés à l'installation système.
 
 ## Commandes utiles

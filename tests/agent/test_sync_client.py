@@ -200,11 +200,9 @@ def test_push_fonts_dedups_and_counts(tmp_path: Path) -> None:
         )
 
     with _client(handler) as client:
-        pushed, duplicates, errors = client.push_fonts(
-            "dev-1", [f1, f1bis, f2], {"hashA", "hashB"}
-        )
+        counts = client.push_fonts("dev-1", [f1, f1bis, f2], {"hashA", "hashB"})
 
-    assert (pushed, duplicates, errors) == (1, 1, 0)
+    assert counts == (1, 1, 0, 0)
 
 
 def test_push_fonts_counts_http_error(tmp_path: Path) -> None:
@@ -214,9 +212,36 @@ def test_push_fonts_counts_http_error(tmp_path: Path) -> None:
         return httpx.Response(400, json={"detail": "bad"})
 
     with _client(handler) as client:
-        pushed, duplicates, errors = client.push_fonts("dev-1", [font], {"hashA"})
+        counts = client.push_fonts("dev-1", [font], {"hashA"})
 
-    assert (pushed, duplicates, errors) == (0, 0, 1)
+    assert counts == (0, 0, 1, 0)
+
+
+def test_push_fonts_refusal_is_not_an_error(tmp_path: Path) -> None:
+    """Une font tombée côté serveur est refusée : c'est le comportement voulu.
+
+    La compter en erreur ferait passer une suppression qui tient pour une panne
+    de synchronisation — et l'agent réessaierait indéfiniment.
+    """
+    font = _font(tmp_path, "A.ttf", b"a", "hashA")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "fontId": "f-1",
+                "fileHash": "hashA",
+                "isDuplicate": True,
+                "refusedDeleted": True,
+            },
+        )
+
+    with _client(handler) as client:
+        pushed, duplicates, errors, refused = client.push_fonts(
+            "dev-1", [font], {"hashA"}
+        )
+
+    assert (pushed, duplicates, errors, refused) == (0, 0, 0, 1)
 
 
 # ---- pull ----

@@ -4,11 +4,13 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from backend.database import get_db
 from backend.models.device import Device
+from backend.models.device_font import DeviceFont
 from backend.schemas.device import DeviceRegister, DeviceResponse, DeviceUpdate
 from backend.services.ws_manager import ws_manager
 
@@ -108,18 +110,18 @@ async def rescan_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Demande un re-scan de fonts à l'agent via WebSocket."""
+    """Signale à l'appareil de se re-synchroniser (SSE).
+
+    Passait auparavant par `send_to_agent` (WebSocket agent), canal mort depuis
+    la bascule de l'agent en SSE : l'endpoint répondait 503 en permanence.
+
+    Best-effort, comme `/fonts/{id}/install/{device_id}` : si aucun process
+    `listen` n'est abonné, le signal est ignoré — l'appareil se resynchronise de
+    toute façon périodiquement et sur `WatchPaths`.
+    """
     await _get_device_or_404(device_id, db)
-    sent = await ws_manager.send_to_agent(str(device_id), {"type": "sync.request"})
-    if not sent:
-        raise HTTPException(
-            status_code=503,
-            detail="L'agent n'est pas connecté.",
-        )
-
-    # L'agent enverra sync.status scanning/idle via WebSocket
-
-    return {"status": "requested"}
+    await ws_manager.signal_sync(str(device_id))
+    return {"status": "resync_requested"}
 
 
 @router.delete("/{device_id}", status_code=204)
@@ -127,7 +129,16 @@ async def delete_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Supprime un device et ses associations."""
+    """Supprime un device et ses associations.
+
+    Les lignes `device_fonts` sont retirées explicitement : elles portent le
+    device dans leur clé primaire, donc SQLAlchemy ne peut pas les dissocier et
+    la suppression échouait sur la contrainte de clé étrangère (`PRAGMA
+    foreign_keys=ON`) dès que l'appareil avait transféré la moindre police —
+    c'est-à-dire toujours. Les polices, elles, restent : le serveur est la
+    source de vérité, retirer une machine n'ampute pas la bibliothèque.
+    """
     device = await _get_device_or_404(device_id, db)
+    await db.execute(delete(DeviceFont).where(DeviceFont.device_id == device.id))
     await db.delete(device)
     await db.commit()

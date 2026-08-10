@@ -1,7 +1,21 @@
 """Découverte des fonts installées sur macOS.
 
-Mode principal : Core Text via pyobjc.
-Fallback : scan direct des dossiers ~/Library/Fonts et /Library/Fonts.
+**Union de deux sources**, pas un mode avec repli : Core Text (pyobjc) *et* le
+scan direct des dossiers configurés.
+
+L'union n'est pas un excès de prudence, c'est une nécessité depuis que l'absence
+d'une police vaut suppression. Core Text ne voit que ce que macOS a **indexé** ;
+or l'index se fige (macOS 14+, cf. `agent.font_registry`) et un fichier bien
+présent sur le disque devient alors invisible de Core Text. Tant que la
+découverte ne servait qu'à *ajouter*, une police manquée était simplement
+re-téléchargée. Maintenant que le serveur en déduit « cette machine ne l'a
+plus », la manquer la ferait supprimer partout. Ce que la machine possède se
+mesure donc sur le disque, et Core Text n'apporte que ce qu'il voit en plus
+(polices indexées hors des dossiers scannés).
+
+Les motifs d'exclusion s'appliquent aux deux sources : ce qu'on ignore doit être
+ignoré quelle que soit la source qui l'a trouvé, sinon la liste déclarée dépend
+de l'état de l'index.
 """
 
 from __future__ import annotations
@@ -119,24 +133,44 @@ def discover_via_directories(
     return fonts
 
 
+def _matches_ignore(filename: str, ignore_patterns: list[str] | None) -> bool:
+    return any(fnmatch.fnmatch(filename, pat) for pat in ignore_patterns or [])
+
+
 def discover_fonts(
     directories: list[str],
     ignore_patterns: list[str] | None = None,
 ) -> list[DiscoveredFont]:
-    """Découvre toutes les fonts installées.
+    """Découvre toutes les fonts de cette machine : disque **union** Core Text.
 
-    Tente Core Text d'abord, fallback sur scan dossiers.
+    Le scan de dossiers fait autorité sur « le fichier existe » ; Core Text
+    n'ajoute que les polices indexées hors des dossiers scannés. Voir l'en-tête
+    de module : depuis que l'absence vaut suppression, se fier au seul index de
+    macOS ferait effacer partout ce que cet index a momentanément perdu.
 
-    En développement, ``FONTSYNC_DISCOVERY=directories`` force le scan de dossiers
-    et court-circuite Core Text (qui renverrait toujours le vrai
-    ``~/Library/Fonts``) : indispensable pour simuler une machine au jeu de fonts
-    isolé. Neutre en production (variable non définie).
+    En développement, ``FONTSYNC_DISCOVERY=directories`` court-circuite Core
+    Text (qui renverrait toujours le vrai ``~/Library/Fonts``) : indispensable
+    pour simuler une machine au jeu de fonts isolé. Neutre en production.
     """
+    on_disk = discover_via_directories(directories, ignore_patterns)
     if os.environ.get("FONTSYNC_DISCOVERY") == "directories":
-        return discover_via_directories(directories, ignore_patterns)
+        return on_disk
 
-    fonts = discover_via_core_text()
-    if fonts:
-        return fonts
+    seen = {str(f.path.resolve()) for f in on_disk}
+    extra = 0
+    for font in discover_via_core_text():
+        if _matches_ignore(font.filename, ignore_patterns):
+            continue
+        try:
+            resolved = str(font.path.resolve())
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        on_disk.append(font)
+        extra += 1
 
-    return discover_via_directories(directories, ignore_patterns)
+    if extra:
+        logger.info("Core Text : %d font(s) hors des dossiers scannés", extra)
+    return on_disk

@@ -232,10 +232,14 @@ class SyncClient:
         fonts: list[ScannedFont],
         hashes_to_push: set[str],
         on_progress: Callable[[int, int], None] | None = None,
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Push les fonts dont les hashes sont dans hashes_to_push.
 
-        Retourne (pushed, duplicates, errors).
+        Retourne (pushed, duplicates, errors, refused).
+
+        `refused` compte les polices que le serveur connaît mais a **supprimées**
+        : il refuse de les ressusciter, et c'est le comportement voulu. Les
+        compter en erreur ferait passer une suppression réussie pour une panne.
         """
         seen_hashes: set[str] = set()
         to_push: list[ScannedFont] = []
@@ -246,12 +250,18 @@ class SyncClient:
         pushed = 0
         duplicates = 0
         errors = 0
+        refused = 0
         total = len(to_push)
 
         for i, font in enumerate(to_push):
             try:
                 result = self.push_font(device_id, font)
-                if result.get("isDuplicate"):
+                if result.get("refusedDeleted"):
+                    refused += 1
+                    logger.info(
+                        "Push refusé (supprimée côté serveur) : %s", font.filename
+                    )
+                elif result.get("isDuplicate"):
                     duplicates += 1
                 else:
                     pushed += 1
@@ -267,7 +277,7 @@ class SyncClient:
             if on_progress:
                 on_progress(i + 1, total)
 
-        return pushed, duplicates, errors
+        return pushed, duplicates, errors, refused
 
     # ---- Pull ----
 

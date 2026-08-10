@@ -97,15 +97,43 @@ async def _find_by_hash(db: AsyncSession, file_hash: str) -> Font | None:
     return result.scalar_one_or_none()
 
 
-async def _revive_if_deleted(font: Font, db: AsyncSession) -> None:
-    """Ressuscite une font soft-deleted ré-importée (import idempotent).
+async def _restore_purged_file(
+    font: Font,
+    file_data: bytes,
+    storage: StorageBackend,
+    db: AsyncSession,
+) -> None:
+    """Ré-écrit le fichier d'une font dont la corbeille avait été vidée.
 
-    Ré-importer un contenu identique signifie « cette font est de nouveau
-    présente » : on annule le soft-delete et on la re-rattache à sa famille.
+    Vider la corbeille supprime le fichier mais garde la ligne (l'empreinte doit
+    survivre au fichier). Un ré-upload du même contenu est donc le seul moment
+    où le stockage peut être reconstitué : sans ça, la police reviendrait dans
+    la bibliothèque avec un `storage_path` qui ne pointe sur rien.
+    """
+    if font.purged_at is None:
+        return
+    font.storage_path = await storage.store(font.file_hash, file_data, font.file_format)
+    await db.flush()
+    logger.info("Fichier restauré au stockage pour la font %s", font.id)
+
+
+async def _revive_if_deleted(font: Font, db: AsyncSession) -> bool:
+    """Ressuscite une font soft-deleted ré-importée. Retourne True si c'est arrivé.
+
+    **Réservé aux ré-imports explicites de l'utilisateur** (upload web). Une
+    police en pierre tombale ne se réveille jamais toute seule : c'est
+    exactement ce réveil-là qui rendait toute suppression illusoire — la machine
+    qui détenait encore le fichier la repoussait au sync suivant et la police
+    revenait. Cf. `import_font(revive_deleted=...)`.
+
+    Le fichier est ré-écrit si la corbeille avait été vidée (`purged_at`) : la
+    ligne survit au fichier, pas l'inverse.
     """
     if font.deleted_at is None:
-        return
+        return False
     font.deleted_at = None
+    font.deleted_reason = None
+    font.purged_at = None
     await db.commit()
     await db.refresh(font)
     try:
@@ -116,6 +144,7 @@ async def _revive_if_deleted(font: Font, db: AsyncSession) -> None:
         logger.warning(
             "Échec du regroupement après réveil de la font %s", font.id, exc_info=True
         )
+    return True
 
 
 async def import_font(
@@ -124,6 +153,7 @@ async def import_font(
     storage: StorageBackend,
     db: AsyncSession,
     source: str = "upload",
+    revive_deleted: bool = True,
 ) -> tuple[Font, bool]:
     """Importe une font : validation, stockage, parsing, insertion.
 
@@ -133,10 +163,19 @@ async def import_font(
         storage: Backend de stockage.
         db: Session de base de données.
         source: Source de l'import (upload, local_scan, google_fonts).
+        revive_deleted: ressusciter une font en pierre tombale (`deleted_at`
+            posé) au lieu de la laisser supprimée. **True pour un geste
+            explicite de l'utilisateur** (ré-upload depuis l'interface : c'est
+            une restauration délibérée), **False pour un push d'agent** — sinon
+            aucune suppression ne tient : la machine qui détient encore le
+            fichier la repousse au sync suivant et la police revient.
 
     Returns:
-        Tuple (Font, is_duplicate) : le modèle Font et un booléen
-        indiquant si c'est un doublon.
+        Tuple (Font, is_duplicate). `is_duplicate` répond à « cette police
+        était-elle déjà dans la bibliothèque ? » : le réveil d'une pierre
+        tombale renvoie donc `False`, puisque la police vient d'y (re)entrer.
+        Une font retournée avec `deleted_at` non nul est un **refus** : elle est
+        connue et supprimée, rien n'a été importé.
 
     Raises:
         FontImportError: Si le fichier est invalide.
@@ -150,11 +189,21 @@ async def import_font(
     # 3. Calcul SHA-256
     file_hash = _compute_hash(file_data)
 
-    # 4. Vérification doublon (idempotence). Une font soft-deleted est
-    #    ressuscitée plutôt que ré-insérée (le hash est unique en base).
+    # 4. Vérification doublon (idempotence). Une font soft-deleted n'est
+    #    ressuscitée que sur geste explicite (`revive_deleted`) ; sinon elle est
+    #    retournée telle quelle, supprimée : c'est le refus que l'appelant
+    #    signalera. Le hash étant unique en base, on ne ré-insère jamais.
     existing = await _find_by_hash(db, file_hash)
     if existing is not None:
-        await _revive_if_deleted(existing, db)
+        if revive_deleted:
+            await _restore_purged_file(existing, file_data, storage, db)
+            if await _revive_if_deleted(existing, db):
+                # Ce n'est pas un doublon inerte : la police vient de rentrer
+                # dans la bibliothèque. L'appelant doit la traiter comme un
+                # ajout (event frontend, signal « re-sync » aux agents), sinon
+                # le seul chemin de retour après un vidage de corbeille reste
+                # invisible jusqu'au prochain rechargement.
+                return existing, False
         return existing, True
 
     # 5. Stockage. Le chemin est déterministe (dérivé du hash) : ré-écrire le
@@ -217,7 +266,9 @@ async def import_font(
         await db.rollback()
         existing = await _find_by_hash(db, file_hash)
         if existing is not None:
-            await _revive_if_deleted(existing, db)
+            if revive_deleted:
+                await _restore_purged_file(existing, file_data, storage, db)
+                await _revive_if_deleted(existing, db)
             return existing, True
         # Conflit sans ligne correspondante (anormal) : pas de fichier orphelin.
         await _safe_delete_storage(storage, file_hash, extension)

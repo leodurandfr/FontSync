@@ -47,7 +47,10 @@ Machine A                    FontSync Server                 Machine B
 ### Guiding principles
 
 - The **server is the source of truth** for the library and the metadata
-- The agent can **uninstall** fonts locally on the user's explicit order (via the frontend), but the font always stays on the server
+- **Nothing is erased without an explicit yes.** A deletion is an *intention* the
+  server records and keeps (trash + tombstone, cf. §4.4); an agent only uninstalls
+  if that device opted into propagation, and a mass disappearance is held back
+  until confirmed
 - The user always has **explicit control** over what is installed on their machine
 - Communication is **real time**: WebSocket server↔frontend, SSE server→agent (« re-sync » signal)
 - The code in this document is **purely illustrative** — Claude Code implements according to best practices
@@ -194,6 +197,8 @@ Each record = a unique physical font file, identified by its SHA-256 hash.
 | `created_at` | DateTime (tz) | |
 | `updated_at` | DateTime (tz) | |
 | `deleted_at` | DateTime (tz), nullable | Soft delete |
+| `deleted_reason` | VARCHAR(30), nullable | `manual`, `quarantine`, `quarantine_pending` — cf. §4.4 |
+| `purged_at` | DateTime (tz), nullable | File removed from storage; the row (and its fingerprint) is kept |
 
 Indexes: `family_name`, `classification`, `file_hash`, `source`, `deleted_at`.
 
@@ -215,6 +220,7 @@ Machines registered with the server.
 | `font_directories` | JSON | Watched directories |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
+| `propagate_deletions` | BOOLEAN | Take part in deletion propagation, both ways (default `false`) — cf. §4.4 |
 | `created_at` | DateTime (tz) | |
 
 #### `device_fonts`
@@ -312,6 +318,67 @@ In S3 mode, the same structure is used as the object key (`fonts/ab/abcdef...ttf
 
 ---
 
+### 4.4 Deletion: tombstones, trash, quarantine
+
+A deletion is an **intention**, not an observation. That distinction is the whole
+design; without it, no deletion was durable. The original failure chain, verified
+end to end: a font deleted on the server was excluded from the delta, so the
+machine that still held the file saw it as *unknown to the server*, pushed it
+back, and the import pipeline revived it. Three links, any one of which was
+enough to undo the gesture.
+
+**The tombstone.** `deleted_reason` records *why* a font fell. It is what keeps
+`deleted_at` from being ambiguous between "deleted" and "merely absent":
+
+| Reason | Set by | Propagates to devices? |
+|---|---|---|
+| `manual` | `DELETE /api/fonts/{id}` (web UI) | yes |
+| `quarantine` | a device that stopped declaring the font | yes |
+| `quarantine_pending` | same, but **beyond the safety threshold** | **no**, until confirmed |
+
+Consequences, all deliberate:
+
+- `compute_delta` reads deleted fonts too. A deleted hash is neither
+  `unknown_to_server` (which would make the holder push it every single sync, in
+  a loop) nor `missing_on_device`. The delta says *known, deleted*.
+- `import_font(revive_deleted=…)` gates the resurrection. `True` for a web
+  upload — re-uploading is a deliberate restore. `False` for an agent push,
+  which is answered with `refused_deleted: true`. That is not an error and the
+  agent does not count it as one.
+
+**The trash** (`GET /api/fonts/trash`) makes the gesture reversible without
+making it illusory. Emptying it (`POST /api/fonts/trash/empty`) removes the
+*file* from storage and keeps the *row*: the fingerprint has to outlive the
+file, otherwise the font returns on the next push from a machine that still has
+it — and a day-30 purge would make it reappear on day 31, forever. A purged font
+can no longer be restored; re-importing the file is the way back (it also
+rewrites the file to storage). Automatic purge is opt-in and off by default
+(`TRASH_RETENTION_DAYS=0`).
+
+**Quarantine** ([`backend/services/deletion_propagation.py`](backend/services/deletion_propagation.py))
+turns a device's disappearances into deletions. It lives in the sync **router**,
+not in `compute_delta`, because it writes — the delta stays a pure read. Three
+guardrails, in order:
+
+1. **A device declaring nothing has not emptied its library.** An unmounted
+   folder or a failed scan is far likelier. Nothing is concluded.
+2. **Only fonts associated with that device.** A font never transferred there
+   cannot have disappeared from it.
+3. **Thresholds.** `DELETION_PROPAGATION_MAX_FONTS` (25) and
+   `_MAX_RATIO` (5 %) apply together — the stricter one decides — lifted by
+   `_MIN_FONTS` (3) so that small deletions always go through. Beyond them the
+   fonts still leave the library (recoverable in one click) but **nothing is
+   propagated** until the user confirms via `POST /api/fonts/trash/confirm`.
+   The case this exists for: 625 files vanished at once from `~/Library/Fonts`
+   during a manual de-duplication; without a threshold another Mac would have
+   lost 225 of them automatically.
+
+Handled disappearances drop their `device_fonts` row — the registry has to match
+the disk. Keeping it would re-detect the same disappearance every sync and, worse,
+restoring the font from the trash would re-quarantine it on the next one.
+
+Two agent-side properties are load-bearing here (cf. §6.6).
+
 ## 5. Backend API (FastAPI)
 
 > **Auth:** all of `/api/*`, the SSE stream and the WebSocket require the shared
@@ -332,10 +399,17 @@ In S3 mode, the same structure is used as the object key (`fonts/ab/abcdef...ttf
 | `GET` | `/api/fonts/{id}/preview` | File for @font-face |
 | `POST` | `/api/fonts/upload` | Basic upload of file(s) |
 | `PATCH` | `/api/fonts/{id}` | Modify the metadata |
-| `DELETE` | `/api/fonts/{id}` | Soft delete |
-| `POST` | `/api/fonts/{id}/restore` | Restore |
+| `DELETE` | `/api/fonts/{id}` | Soft delete (tombstone, reason `manual`) |
+| `POST` | `/api/fonts/{id}/restore` | Restore — `409` if the file was purged |
+| `GET` | `/api/fonts/trash` | Deleted fonts + count awaiting review |
+| `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row |
+| `POST` | `/api/fonts/trash/empty` | Same, for the whole trash |
+| `POST` | `/api/fonts/trash/confirm` | Confirm the quarantines held back by the threshold |
 | `GET` | `/api/fonts/{id}/devices` | On which devices the font is installed |
 | `POST` | `/api/fonts/{id}/install/{device_id}` | Request installation (SSE signal → agent) |
+
+> The `/trash*` routes are declared **before** `/{font_id}` — FastAPI resolves in
+> declaration order, and `trash` would otherwise be parsed as a font UUID (`422`).
 
 > The `uninstall` / `activate` / `deactivate` routes (`POST /api/fonts/{id}/{action}/{device_id}`)
 > exist as **stubs** (`501` response) — uninstall by hash and activation/deactivation
@@ -361,10 +435,10 @@ In S3 mode, the same structure is used as the object key (`fonts/ab/abcdef...ttf
 |---------|----------|-------------|
 | `POST` | `/api/devices/register` | Register a device |
 | `GET` | `/api/devices` | List the devices |
-| `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`…) |
-| `DELETE` | `/api/devices/{id}` | Delete |
+| `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`, `propagate_deletions`…) |
+| `DELETE` | `/api/devices/{id}` | Delete (its `device_fonts` rows go with it; the library does not) |
 | `POST` | `/api/devices/{id}/rescan` | Force a re-scan (SSE signal → agent) |
-| `POST` | `/api/sync/delta` | Delta sync: local hashes → differences |
+| `POST` | `/api/sync/delta` | Delta sync: local hashes → differences, plus `to_uninstall` |
 | `POST` | `/api/sync/push` | Push font(s) to the server |
 | `GET` | `/api/sync/pull/{font_id}` | Pull a font from the server |
 
@@ -501,12 +575,19 @@ The subsequent `sync` runs are nearly instantaneous thanks to the cache.
 
 **Registration:** the agent registers with name, hostname, OS, version → receives/reuses a `device_id` (persisted locally, cf. config).
 
-**Delta sync:** the agent sends its hashes → the server responds with three sets:
-- `unknown_to_server`: fonts to push
+**Delta sync:** the agent sends its hashes → the server responds with:
+- `unknown_to_server`: fonts to push. A font **deleted** on the server never
+  appears here — it is *known*, and listing it as unknown made the machine that
+  still held the file push it back on every single sync (cf. §4.4)
 - `missing_on_device`: fonts available to pull
 - `already_synced`: up to date
+- `deleted_on_server`: how many of the declared fonts have fallen (informative)
+- `to_uninstall`: fonts to remove from this device — empty unless
+  `propagate_deletions` is on, and never a quarantine awaiting review
 
-The delta computation on the server side is a **pure read** (no writes, no `commit` in the middle).
+The delta computation itself (`compute_delta`) is a **pure read** (no writes, no
+`commit` in the middle). Interpreting *disappearances* writes, so it lives in the
+router, before the delta, so that this same response already reflects it.
 
 **Push:** for each font in `unknown_to_server`, the agent sends the file (`POST /api/sync/push`). The server import is **idempotent** on the `file_hash` (two concurrent pushes of the same hash → a single font). The server then emits the SSE `sync` signal to the other relevant devices.
 
@@ -523,10 +604,35 @@ After installation, the agent can display a system notification: "Inter font ins
 
 ### 6.6 Deletion behavior
 
-**The agent never deletes fonts locally automatically.**
-- The user can uninstall a font from a device via the frontend. The font always stays on the server — only the local installation is removed. (Uninstall should rely on a mapping **by hash** rather than by name.)
-- Font deleted on the server (soft delete) → the devices are not affected, the next `sync` simply no longer installs that font.
-- Font deleted locally by the user (outside FontSync) → the next `sync` sees it disappear from the disk; the server does not delete the font from its library (it remains the source of truth).
+**Nothing is deleted on a device unless `propagate_deletions` is on for it**
+(default `false`). That setting is deliberately separate from `auto_push` /
+`auto_pull`: those two words promise only *to send* and *to install*, and turning
+them on must not become destructive. It works both ways — this machine's local
+deletions become quarantines on the server, and fonts deleted on the server are
+uninstalled here. Server-side rules and thresholds: §4.4.
+
+With the setting off, the behaviour is the historical one: the server records
+the font as deleted, the device keeps its file, nothing is erased anywhere.
+
+Uninstall is **guarded by hash** ([`agent/font_installer.py`](agent/font_installer.py)):
+only a file whose content matches the requested hash is removed, so a personal
+font that merely shares a filename is never touched. Identification stays
+stateless — derived from the real disk, not from a mutable manifest.
+
+Two agent-side properties make the whole thing safe, both in
+`_declared_fonts` ([`agent/sync_command.py`](agent/sync_command.py)):
+
+- **`~/.fontsync/disabled/` is declared.** `deactivate_font` moves files there
+  and it belongs to no `scan.directories`. Staying silent about it would tell
+  the server those fonts no longer exist — they would be quarantined and erased
+  from every machine, for the crime of having been deactivated.
+- **Discovery is anchored to the disk**, not to Core Text alone
+  ([`agent/discovery.py`](agent/discovery.py)). macOS's font index can go stale
+  (cf. [`agent/font_registry.py`](agent/font_registry.py)) and stop reporting a
+  file that is plainly there. That was harmless while discovery only ever
+  *added*; now that absence means deletion, it would erase the font everywhere.
+  The directory scan is authoritative on "the file exists"; Core Text only adds
+  what it sees beyond the scanned folders.
 
 ### 6.7 Real-time channel (SSE)
 
@@ -573,6 +679,7 @@ loaded/unloaded by `launchctl bootstrap` / `bootout`.
 | `/fonts` | Library | Font grid with filters and search |
 | `/fonts/:id` | Font detail | Preview, waterfall, metadata, languages |
 | `/devices` | Devices | Connected machines, sync state, config |
+| `/trash` | Trash | Deleted fonts: restore, empty, confirm held-back quarantines |
 | `/settings` | Settings | Server configuration |
 
 Pages added by phase:

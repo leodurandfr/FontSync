@@ -20,6 +20,16 @@ class Device(UUIDPrimaryKey, Base):
     font_directories: Mapped[dict | None] = mapped_column(JSON)
     auto_pull: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_push: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Participation de cet appareil à la **propagation des suppressions**, dans
+    # les deux sens : ses suppressions locales mettent la police en quarantaine
+    # côté serveur, et une police supprimée côté serveur y est désinstallée.
+    #
+    # Réglage distinct d'`auto_push`/`auto_pull` à dessein : ces deux mots ne
+    # promettent aujourd'hui que d'envoyer et d'installer. Les activer ne doit
+    # pas devenir destructeur. Défaut `False` — on n'efface rien sans un oui.
+    propagate_deletions: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -32,7 +32,23 @@ export interface Font {
   sourceDeviceName: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Pierre tombale — nul pour une police de la bibliothèque. */
+  deletedAt?: string | null;
+  deletedReason?: DeletionReason | null;
+  /**
+   * Fichier retiré du stockage lors d'un vidage de corbeille. L'empreinte, elle,
+   * est conservée : c'est ce qui empêche la police de revenir au push suivant.
+   * Une police purgée n'est plus restaurable — il faut la ré-importer.
+   */
+  purgedAt?: string | null;
 }
+
+/**
+ * `quarantine_pending` : disparition détectée **au-delà du seuil**. La police est
+ * en corbeille mais sa suppression n'est propagée à aucune machine tant que
+ * l'utilisateur n'a pas tranché.
+ */
+export type DeletionReason = "manual" | "quarantine" | "quarantine_pending";
 
 export interface FontListResponse {
   items: Font[];
@@ -40,6 +56,10 @@ export interface FontListResponse {
   page: number;
   perPage: number;
   pages: number;
+}
+
+export interface TrashListResponse extends FontListResponse {
+  pendingConfirmation: number;
 }
 
 export interface FontUploadResponse {
@@ -84,6 +104,12 @@ export interface Device {
   fontDirectories: string[] | null;
   autoPull: boolean;
   autoPush: boolean;
+  /**
+   * Cet appareil participe-t-il à la propagation des suppressions ? Réglage
+   * distinct d'autoPull/autoPush à dessein : ces deux-là ne promettent
+   * qu'envoyer et installer, les activer ne doit pas devenir destructeur.
+   */
+  propagateDeletions: boolean;
   createdAt: string;
   /** Présence « en ligne » (connexion SSE `listen` active), calculée serveur. */
   isOnline?: boolean;

@@ -15,6 +15,11 @@ const router = createRouter({
       props: true,
     },
     {
+      path: "/trash",
+      name: "trash",
+      component: () => import("@/pages/TrashPage.vue"),
+    },
+    {
       path: "/settings",
       name: "settings",
       component: () => import("@/pages/SettingsPage.vue"),

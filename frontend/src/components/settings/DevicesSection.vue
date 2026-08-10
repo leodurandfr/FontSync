@@ -7,6 +7,7 @@ import {
   ArrowUpFromLine,
   ArrowDownToLine,
   FolderOpen,
+  Trash2,
 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { useDevicesStore } from "@/stores/devices";
@@ -61,6 +62,37 @@ async function toggleAutoPull(deviceId: string, value: boolean) {
     await devicesStore.updateDevice(deviceId, { autoPull: value });
   } catch (e) {
     console.error("Failed to update auto_pull:", e);
+  } finally {
+    const next = new Set(saving.value);
+    next.delete(deviceId);
+    saving.value = next;
+  }
+}
+
+async function togglePropagateDeletions(deviceId: string, value: boolean) {
+  saving.value = new Set([...saving.value, deviceId]);
+  try {
+    await devicesStore.updateDevice(deviceId, { propagateDeletions: value });
+  } catch (e) {
+    console.error("Failed to update propagate_deletions:", e);
+  } finally {
+    const next = new Set(saving.value);
+    next.delete(deviceId);
+    saving.value = next;
+  }
+}
+
+// Le serveur reste la source de vérité : retirer un appareil n'ampute pas la
+// bibliothèque. La confirmation porte sur autre chose — le registre « quelle
+// machine détient quelle police » disparaît avec lui, et c'est ce registre qui
+// permet de détecter les suppressions locales.
+async function handleDelete(deviceId: string, name: string) {
+  if (!window.confirm(t("devices.deleteConfirm", { name }))) return;
+  saving.value = new Set([...saving.value, deviceId]);
+  try {
+    await devicesStore.deleteDevice(deviceId);
+  } catch (e) {
+    console.error("Failed to delete device:", e);
   } finally {
     const next = new Set(saving.value);
     next.delete(deviceId);
@@ -183,6 +215,16 @@ function formatRelativeTime(dateStr: string | null): string {
                 <RefreshCw class="mr-2 h-4 w-4" />
                 {{ t("devices.rescan") }}
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                :aria-label="t('devices.delete')"
+                :title="t('devices.delete')"
+                :disabled="saving.has(device.id)"
+                @click="handleDelete(device.id, device.name)"
+              >
+                <Trash2 class="h-4 w-4 text-muted-foreground" />
+              </Button>
             </div>
           </div>
 
@@ -229,6 +271,32 @@ function formatRelativeTime(dateStr: string | null): string {
                 :model-value="device.autoPull"
                 :disabled="saving.has(device.id)"
                 @update:model-value="toggleAutoPull(device.id, $event)"
+              />
+            </div>
+
+            <!-- Réglage à part, et à dessein : « push » et « pull » ne promettent
+                 qu'envoyer et installer. Celui-ci peut faire disparaître des
+                 fichiers — il mérite son propre oui. -->
+            <div
+              class="flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 sm:col-span-2"
+            >
+              <div class="flex items-center gap-2.5">
+                <Trash2 class="h-4 w-4 text-muted-foreground shrink-0" />
+                <Label class="text-sm font-normal cursor-pointer">
+                  <span class="font-medium">{{
+                    t("devices.propagateDeletions")
+                  }}</span>
+                  <span class="block text-xs text-muted-foreground">
+                    {{ t("devices.propagateDeletionsDesc") }}
+                  </span>
+                </Label>
+              </div>
+              <Switch
+                :model-value="device.propagateDeletions"
+                :disabled="saving.has(device.id)"
+                @update:model-value="
+                  togglePropagateDeletions(device.id, $event)
+                "
               />
             </div>
           </div>

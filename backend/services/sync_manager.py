@@ -1,35 +1,60 @@
 """Service de gestion de la synchronisation delta entre agents et serveur."""
 
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
-from backend.models.font import Font
+from backend.models.font import PROPAGATING_DELETION_REASONS, Font
 from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
+
+
+def _to_ref(row: Any) -> FontRef:
+    return FontRef(
+        id=row.id,
+        file_hash=row.file_hash,
+        original_filename=row.original_filename,
+        file_format=row.file_format,
+        family_name=row.family_name,
+        file_size=row.file_size,
+    )
 
 
 async def compute_delta(
     device_fonts: list[DeviceFontEntry],
     db: AsyncSession,
+    *,
+    propagate_deletions: bool = False,
 ) -> DeltaSyncResponse:
     """Compare les fonts de l'agent avec celles du serveur.
 
     Lecture pure : ne crée aucune association `device_fonts` et ne commit
     jamais. Les associations sont enregistrées au moment réel du transfert
-    (push pour les fonts montantes, pull pour les fonts descendantes).
+    (push pour les fonts montantes, pull pour les fonts descendantes). La
+    détection des suppressions *locales* vit délibérément dans le routeur, pas
+    ici : elle écrit.
+
+    Les fonts supprimées côté serveur sont lues elles aussi. Les ignorer les
+    ferait retomber dans `unknown_to_server`, et la machine qui détient encore
+    le fichier les repousserait à chaque sync — la boucle qui rendait toute
+    suppression illusoire.
 
     Args:
         device_fonts: Liste des fonts présentes sur le device (hash + filename).
         db: Session de base de données.
+        propagate_deletions: l'appareil applique-t-il les suppressions du
+            serveur ? Si non, `to_uninstall` reste vide (on renvoie quand même
+            le décompte `deleted_on_server`, purement informatif).
 
     Returns:
-        DeltaSyncResponse avec unknown_to_server, missing_on_device, already_synced.
+        DeltaSyncResponse avec unknown_to_server, missing_on_device,
+        already_synced, deleted_on_server et to_uninstall.
     """
     device_hashes = {entry.hash for entry in device_fonts}
 
-    # Récupérer toutes les fonts actives du serveur
+    # Toutes les fonts du serveur, supprimées comprises (cf. docstring).
     result = await db.execute(
         select(
             Font.id,
@@ -38,36 +63,51 @@ async def compute_delta(
             Font.file_format,
             Font.family_name,
             Font.file_size,
-        ).where(Font.deleted_at.is_(None))
+            Font.deleted_at,
+            Font.deleted_reason,
+        )
     )
-    server_fonts = result.all()
-    server_hash_map: dict[str, tuple] = {row.file_hash: row for row in server_fonts}
-    server_hashes = set(server_hash_map.keys())
+    active_map: dict[str, Any] = {}
+    deleted_map: dict[str, Any] = {}
+    for row in result.all():
+        if row.deleted_at is None:
+            active_map[row.file_hash] = row
+        else:
+            deleted_map[row.file_hash] = row
 
-    # Fonts sur le device mais pas sur le serveur → à pusher
-    unknown_to_server = list(device_hashes - server_hashes)
+    active_hashes = set(active_map)
+    known_hashes = active_hashes | set(deleted_map)
+
+    # Fonts sur le device et inconnues du serveur → à pusher. « Inconnue » se
+    # mesure sur *tout* ce que le serveur connaît, tombes comprises.
+    unknown_to_server = list(device_hashes - known_hashes)
 
     # Fonts sur le serveur mais pas sur le device → à puller
-    missing_hashes = server_hashes - device_hashes
-    missing_on_device = [
-        FontRef(
-            id=server_hash_map[h].id,
-            file_hash=h,
-            original_filename=server_hash_map[h].original_filename,
-            file_format=server_hash_map[h].file_format,
-            family_name=server_hash_map[h].family_name,
-            file_size=server_hash_map[h].file_size,
-        )
-        for h in missing_hashes
-    ]
+    missing_on_device = [_to_ref(active_map[h]) for h in active_hashes - device_hashes]
 
     # Fonts en commun → simple comptage (aucune écriture)
-    already_synced = len(device_hashes & server_hashes)
+    already_synced = len(device_hashes & active_hashes)
+
+    # Fonts que le device détient encore alors qu'elles sont tombées. Une
+    # quarantaine en attente de confirmation n'en fait jamais partie : tant que
+    # l'utilisateur n'a pas tranché, personne ne perd son fichier.
+    deleted_here = [deleted_map[h] for h in device_hashes & set(deleted_map)]
+    to_uninstall = (
+        [
+            _to_ref(row)
+            for row in deleted_here
+            if row.deleted_reason in PROPAGATING_DELETION_REASONS
+        ]
+        if propagate_deletions
+        else []
+    )
 
     return DeltaSyncResponse(
         unknown_to_server=unknown_to_server,
         missing_on_device=missing_on_device,
         already_synced=already_synced,
+        deleted_on_server=len(deleted_here),
+        to_uninstall=to_uninstall,
     )
 
 

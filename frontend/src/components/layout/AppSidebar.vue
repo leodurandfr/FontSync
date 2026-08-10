@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { PanelLeftClose, Settings, Upload } from "lucide-vue-next";
+import { PanelLeftClose, Settings, Trash2, Upload } from "lucide-vue-next";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Panel } from "@/components/ui/panel";
 import SidebarNavButton from "./SidebarNavButton.vue";
@@ -33,6 +33,7 @@ const CATEGORIES = [
 ] as const;
 
 const onSettings = computed(() => route.path.startsWith("/settings"));
+const onTrash = computed(() => route.path.startsWith("/trash"));
 
 function selectAll() {
   filtersStore.classification = undefined;
@@ -162,6 +163,22 @@ function startResize(e: PointerEvent) {
           :active="filtersStore.classification === cat"
           @click="selectCategory(cat)"
         />
+
+        <SectionLabel class="px-2 pb-1.5 pt-4">{{
+          t("sidebar.manage")
+        }}</SectionLabel>
+        <RouterLink
+          to="/trash"
+          class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+          :class="
+            onTrash
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          "
+        >
+          <Trash2 class="size-3.5" :stroke-width="1.5" />
+          <span class="truncate text-[11px]">{{ t("sidebar.trash") }}</span>
+        </RouterLink>
       </nav>
 
       <!-- Footer -->

@@ -2,9 +2,15 @@
 
 Couvrent le scan dossiers (`discover_via_directories`) — filtrage par extension,
 patterns d'exclusion, déduplication des chemins, dossier inexistant ignoré,
-récursion — ainsi que la logique de bascule de `discover_fonts` (Core Text puis
-repli dossiers) et le repli silencieux de `discover_via_core_text` quand pyobjc
-n'est pas disponible.
+récursion — ainsi que l'**union** opérée par `discover_fonts` (disque + Core
+Text) et le repli silencieux de `discover_via_core_text` quand pyobjc n'est pas
+disponible.
+
+L'union est la propriété critique : ce que l'agent déclare vaut désormais
+« voici ce que cette machine possède », et le serveur en déduit les
+suppressions. Une police présente sur le disque mais absente de l'index de macOS
+— l'index se fige, cf. `agent.font_registry` — serait alors vue comme supprimée
+et effacée de toutes les machines.
 """
 
 from __future__ import annotations
@@ -100,7 +106,7 @@ def test_directories_expands_user(
 def test_discover_fonts_falls_back_to_directories(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Core Text vide → repli sur le scan dossiers."""
+    """Core Text vide → le disque suffit."""
     _touch(tmp_path / "Inter.ttf")
     monkeypatch.setattr(discovery, "discover_via_core_text", lambda: [])
 
@@ -109,17 +115,63 @@ def test_discover_fonts_falls_back_to_directories(
     assert [f.filename for f in fonts] == ["Inter.ttf"]
 
 
-def test_discover_fonts_prefers_core_text_when_available(
+def test_discover_fonts_keeps_disk_font_missing_from_core_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Core Text non vide → le scan dossiers n'est pas exécuté."""
+    """Le fichier sur disque est déclaré même si l'index de macOS l'a perdu.
+
+    C'est l'état dégradé que couvre `agent.font_registry` : l'index se fige et
+    Core Text ne voit plus une police pourtant bien présente. S'en remettre à
+    lui seul reviendrait à déclarer cette police disparue — donc à la faire
+    supprimer de toutes les machines.
+    """
     _touch(tmp_path / "OnDisk.ttf")
     ct_result = [DiscoveredFont(path=Path("/Library/Fonts/X.ttf"), filename="X.ttf")]
     monkeypatch.setattr(discovery, "discover_via_core_text", lambda: ct_result)
 
     fonts = discover_fonts([str(tmp_path)])
 
-    assert fonts == ct_result  # le dossier n'a pas été scanné
+    assert sorted(f.filename for f in fonts) == ["OnDisk.ttf", "X.ttf"]
+
+
+def test_discover_fonts_does_not_duplicate_shared_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une police vue par les deux sources n'est déclarée qu'une fois."""
+    path = _touch(tmp_path / "Inter.ttf")
+    monkeypatch.setattr(
+        discovery,
+        "discover_via_core_text",
+        lambda: [DiscoveredFont(path=path, filename="Inter.ttf")],
+    )
+
+    fonts = discover_fonts([str(tmp_path)])
+
+    assert [f.filename for f in fonts] == ["Inter.ttf"]
+
+
+def test_discover_fonts_applies_ignore_patterns_to_core_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ce qui est exclu l'est quelle que soit la source qui l'a trouvé.
+
+    Sinon la liste déclarée dépendrait de l'état de l'index : une police
+    ignorée y entrerait ou non selon que Core Text l'a vue, et son
+    apparition/disparition serait lue comme un ajout ou une suppression.
+    """
+    monkeypatch.setattr(
+        discovery,
+        "discover_via_core_text",
+        lambda: [
+            DiscoveredFont(
+                path=Path("/Library/Fonts/SystemX.ttf"), filename="SystemX.ttf"
+            )
+        ],
+    )
+
+    fonts = discover_fonts([str(tmp_path)], ["System*"])
+
+    assert fonts == []
 
 
 def test_discover_fonts_forced_directories_skips_core_text(

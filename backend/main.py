@@ -9,9 +9,10 @@
 # You should have received a copy of the license with this program (see LICENSE),
 # or at <https://www.gnu.org/licenses/>.
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
@@ -19,21 +20,35 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
+from backend.database import async_session
 from backend.routers import agent_events, devices, font_families, fonts, stats, sync, ws
+from backend.services.storage import get_storage_backend
+from backend.services.trash import run_purge_loop
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Au boot : résoudre le token d'instance (le génère + loggue si absent).
+    """Au boot : résoudre le token d'instance, armer la purge de corbeille.
 
-    Garantit que le token est visible dans les logs du conteneur dès le
-    démarrage (P1.1), sans attendre la première requête.
+    Le token est résolu (et généré + loggué s'il est absent) dès le démarrage
+    (P1.1), sans attendre la première requête.
+
+    La purge automatique de la corbeille ne tourne que si une rétention est
+    configurée — désactivée par défaut : rien ne supprime de fichier tout seul
+    sans qu'on l'ait demandé.
     """
     get_server_token()
     logger.info("Auth par token activée sur /api/* (token d'instance résolu).")
-    yield
+
+    purge_task = asyncio.create_task(run_purge_loop(async_session, get_storage_backend))
+    try:
+        yield
+    finally:
+        purge_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await purge_task
 
 
 app = FastAPI(title="FontSync", version="0.1.0", lifespan=lifespan)
