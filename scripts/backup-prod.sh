@@ -37,7 +37,10 @@ set -euo pipefail
 # --- Config (surchargeable par variables d'env) ---
 OUT_DIR="${OUT_DIR:-/volume1/docker/fontsync/backups}"
 CONTAINER="${CONTAINER:-}"          # sinon : découverte par nom (voir plus bas)
-CONTAINER_MATCH="${CONTAINER_MATCH:-fontsync}"
+# Ancré. `--filter name=` est une correspondance de SOUS-CHAÎNE : sans les
+# ancres, « fontsync » attrape aussi `fontsync-watchtower` et `ts-fontsync`
+# (le sidecar Tailscale), et le script refuse de choisir. Mesuré sur le NAS.
+CONTAINER_MATCH="${CONTAINER_MATCH:-^fontsync\$}"
 KEEP="${KEEP:-14}"                  # instantanés de base conservés
 DB_ONLY=0
 
@@ -77,7 +80,9 @@ docker info >/dev/null 2>&1 || die \
 if [[ -z "$CONTAINER" ]]; then
   mapfile -t found < <(docker ps --filter "name=$CONTAINER_MATCH" --format '{{.Names}}')
   (( ${#found[@]} == 1 )) || die \
-    "${#found[@]} conteneur(s) correspondent à « $CONTAINER_MATCH » : ${found[*]:-aucun}. Précisez CONTAINER=…"
+    "${#found[@]} conteneur(s) correspondent à « $CONTAINER_MATCH » : ${found[*]:-aucun}.
+        Relancez en nommant celui du serveur FontSync, p. ex. :
+          sudo CONTAINER=fontsync bash $0 ${*:-}"
   CONTAINER="${found[0]}"
 fi
 log "conteneur : $CONTAINER"
