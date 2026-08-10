@@ -617,7 +617,11 @@ async def get_font_device_status(
     )
     device_fonts = {df.device_id: df for df in df_result.scalars().all()}
 
-    online_ids = set(ws_manager.connected_agents)
+    # Présence = une connexion SSE `listen` ouverte. `connected_agents` est le
+    # registre du canal WebSocket agent, que plus aucun agent n'ouvre depuis la
+    # refonte stateless : il est vide en permanence, donc tout appareil était
+    # annoncé hors ligne et le bouton « Installer » grisé pour toujours.
+    online_ids = set(ws_manager.connected_sse_devices)
 
     statuses = []
     for device in devices:
