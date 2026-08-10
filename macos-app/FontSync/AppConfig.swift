@@ -31,6 +31,23 @@ struct AppConfig {
         return home.appendingPathComponent("config.yaml")
     }
 
+    /// Dossier où l'agent installe les fonts, en respectant `FONTSYNC_FONTS_DIR`
+    /// comme l'agent (`agent/paths.py: fonts_dir`).
+    ///
+    /// Purement informatif côté app : ce n'est **pas** un réglage. Sur macOS,
+    /// seuls `~/Library/Fonts` et `/Library/Fonts` sont des emplacements
+    /// d'activation ; l'agent tourne en LaunchAgent utilisateur et n'écrit donc
+    /// que dans le premier. La variable d'environnement n'existe que pour
+    /// simuler plusieurs machines sur un seul Mac en développement.
+    static var fontsDirectoryURL: URL {
+        let env = ProcessInfo.processInfo.environment
+        if let override = env["FONTSYNC_FONTS_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Fonts")
+    }
+
     /// Lit la config depuis le disque. Renvoie une config vide si le fichier est
     /// absent ou illisible (premier lancement avant configuration).
     static func load() -> AppConfig {

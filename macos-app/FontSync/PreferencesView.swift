@@ -3,6 +3,7 @@
 //
 // This file is part of FontSync, a self-hosted font manager.
 
+import AppKit
 import SwiftUI
 
 /// Fenêtre de préférences (P3.3 + P3.4).
@@ -12,7 +13,9 @@ import SwiftUI
 ///   (`GET /api/stats`) avant/après enregistrement.
 /// - **Agent (P3.4)** : installe/désinstalle les LaunchAgents via le venv
 ///   embarqué (`AgentController` → `fontsync-agent setup/teardown`), et reflète
-///   l'état launchd.
+///   l'état launchd. Le dossier d'installation y est affiché en **lecture
+///   seule** : ce n'est pas un choix (cf. `AppConfig.fontsDirectoryURL`), mais
+///   l'utilisateur doit pouvoir savoir où atterrissent ses polices.
 struct PreferencesView: View {
     @ObservedObject var model: AppModel
 
@@ -53,6 +56,24 @@ struct PreferencesView: View {
 
             Section("Agent") {
                 LabeledContent("État") { Text(agentStatusLabel) }
+
+                LabeledContent("Dossier d'installation") {
+                    HStack(spacing: 8) {
+                        Text(fontsDirectoryLabel)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        Button("Afficher") { revealFontsDirectory() }
+                            .buttonStyle(.link)
+                            .disabled(!fontsDirectoryExists)
+                    }
+                }
+                .help(
+                    "Emplacement d'installation par défaut de macOS, celui de "
+                        + "Livre de polices. Les polices installées pour tous les "
+                        + "utilisateurs (/Library/Fonts) sont lues mais jamais modifiées."
+                )
 
                 if !model.agentAvailable {
                     Text(
@@ -95,6 +116,19 @@ struct PreferencesView: View {
         let config = AppConfig.load()
         urlString = config.serverURL?.absoluteString ?? ""
         token = config.token ?? ""
+    }
+
+    /// Chemin d'installation, abrégé avec `~` comme le Finder l'affiche.
+    private var fontsDirectoryLabel: String {
+        (AppConfig.fontsDirectoryURL.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private var fontsDirectoryExists: Bool {
+        FileManager.default.fileExists(atPath: AppConfig.fontsDirectoryURL.path)
+    }
+
+    private func revealFontsDirectory() {
+        NSWorkspace.shared.open(AppConfig.fontsDirectoryURL)
     }
 
     private var agentStatusLabel: String {
