@@ -99,7 +99,7 @@ fontsync/
 │   │   └── pages/
 │   └── ...
 ├── tests/
-│   ├── fixtures/              # Fichiers fonts de test (TTF libres de droits)
+│   ├── fixtures/              # Polices commerciales, NON committées (.gitignore) — optionnelles
 │   ├── backend/
 │   └── agent/
 └── scripts/
@@ -110,7 +110,7 @@ fontsync/
 - **Refonte + publication terminées : `0.0.1` est livrée** (self-hosted v1 publiable — SQLite, agent stateless + SSE, auth par token, image Docker NAS, app Mac menu bar Swift/SwiftUI signée/notarisée). Plus de « plan actif » : l'architecture livrée est documentée dans `ARCHITECTURE.md`, la **vision long terme** (dual-mode self-host/cloud, cross-platform, multi-utilisateurs) vit dans `ROADMAP.md` — orientante, **non-actionable**. *(Les plans historiques `PLAN.md`/`PLAN-PUBLICATION.md` ont été retirés ; récupérables via l'historique git.)*
 - **Ne pas implémenter de fonctionnalités du `ROADMAP.md` (long terme) sans demande explicite.** Le prochain palier (0.1.0) regroupe les ajustements UI/serveur décidés au coup par coup.
 - **Le serveur (NAS, toujours allumé) est la source de vérité.** L'agent est **stateless** : chaque `sync` repart de l'état réel du disque, jamais d'un état mémoire mutable. Le push réactif serveur→agent est un simple signal SSE « re-sync » (sans payload exploité).
-- **Toujours tester avec de vraies fonts.** Des fichiers TTF de test sont dans `tests/fixtures/`.
+- **Toujours tester avec de vraies fonts** — mais **générées**, pas committées : `build_ttf()` (dans `tests/backend/conftest.py`) construit à la volée de vraies TTF parsables par fontTools, aux métadonnées choisies (poids, chasse, italique, monospace, axes variables). C'est ce qui garde la suite exécutable sur un clone neuf. Le dossier `tests/fixtures/` ne contient que des **polices commerciales non committées** : les rares tests qui s'en servent doivent `pytest.skip` proprement en leur absence, jamais échouer.
 - **Robustesse du parsing fonttools** : toujours wrapper dans try/except. Une font malformée doit être stockée avec des métadonnées partielles, jamais rejetée.
 - **Auth = token partagé d'instance** (`FONTSYNC_TOKEN`), vérifié sur tout `/api/*` + SSE + WS (header `Authorization: Bearer` ; query `?token=` accepté pour le WS navigateur uniquement, **URL-encodé** car un token base64 contient des `+`). **Pas de comptes utilisateurs** — ça reste mode cloud / multi-utilisateurs (long terme).
 - **Rien ne s'efface sans un oui explicite.** L'agent ne désinstalle que si `propagate_deletions` est activé sur l'appareil (défaut `false`), réglage volontairement distinct d'`auto_push`/`auto_pull` — ces deux mots ne promettent qu'envoyer et installer. Côté serveur, une suppression est une **intention** portée par `deleted_reason` : elle survit aux syncs (plus de résurrection au push) et la police reste récupérable en corbeille. Vider la corbeille retire le fichier mais **conserve l'empreinte**. Une disparition massive sur une machine est mise en quarantaine sans être propagée tant que l'utilisateur n'a pas confirmé. Détail complet : `ARCHITECTURE.md` §4.4 et §6.6.
@@ -125,8 +125,8 @@ docker compose up -d
 # Lancer les migrations
 docker compose exec fontsync alembic upgrade head
 
-# Lancer les tests backend
-docker compose exec fontsync pytest tests/backend/ -v
+# Lancer les tests — en local, pas dans le conteneur : `.dockerignore` exclut `tests/`
+pytest tests/ -q
 
 # Frontend dev
 cd frontend && npm run dev

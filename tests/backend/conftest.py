@@ -53,12 +53,18 @@ def build_ttf(
     italic: bool = False,
     monospace: bool = False,
     extra_codepoints: list[int] | None = None,
+    variable_axes: list[tuple[str, float, float, float]] | None = None,
 ) -> bytes:
     """Construit une vraie font TTF en mémoire et retourne ses octets.
 
     Chaque appel produit un fichier valide (magic ``\\x00\\x01\\x00\\x00``) avec
     des métadonnées parsables. Faire varier ``family``/``subfamily`` change le
     contenu binaire, donc le hash SHA-256 → deux fonts distinctes.
+
+    Args:
+        variable_axes: si fourni, ajoute une table ``fvar`` et rend la font
+            variable. Chaque entrée est un tuple ``(tag, min, default, max)``,
+            par exemple ``[("wght", 100, 400, 900)]``.
     """
     codepoints = sorted(set(_LATIN_CODEPOINTS + (extra_codepoints or [])))
     glyph_names = [".notdef"] + [f"g{cp:04X}" for cp in codepoints]
@@ -93,6 +99,17 @@ def build_ttf(
         sTypoLineGap=0,
     )
     fb.setupPost(isFixedPitch=1 if monospace else 0)
+
+    # `fvar` est ce que l'analyzer regarde pour décider `is_variable` : sa seule
+    # présence suffit, les axes en fournissent le détail.
+    if variable_axes:
+        fb.setupFvar(
+            axes=[
+                (tag, minimum, default, maximum, f"Axis {tag}")
+                for tag, minimum, default, maximum in variable_axes
+            ],
+            instances=[],
+        )
 
     buffer = io.BytesIO()
     fb.save(buffer)

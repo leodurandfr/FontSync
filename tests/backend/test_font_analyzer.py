@@ -1,24 +1,47 @@
-"""Tests pour le service font_analyzer."""
+"""Tests pour le service font_analyzer.
+
+Les fonts sont **générées** par `build_ttf` (cf. `conftest.py`) plutôt que lues
+dans `tests/fixtures/`. Ce dossier ne contient que des polices commerciales
+volontairement non committées (cf. `.gitignore`) : s'en remettre à lui rendait
+ces tests inexécutables partout — clone neuf, image Docker (qui exclut `tests/`)
+et CI. Générer donne des fichiers TTF réels, parsables par fontTools, aux
+métadonnées choisies : on teste l'analyseur, pas la présence d'un fichier.
+"""
 
 import tempfile
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 from backend.services.font_analyzer import analyze
+from tests.backend.conftest import build_ttf
 
-FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+
+@pytest.fixture
+def make_font(tmp_path: Path):
+    """Écrit une font générée sur disque et retourne son chemin.
+
+    `analyze` prend un chemin : il lui faut un vrai fichier, pas des octets.
+    """
+
+    def _make(filename: str = "TestSans-Regular.ttf", **kwargs) -> Path:
+        path = tmp_path / filename
+        path.write_bytes(build_ttf(**kwargs))
+        return path
+
+    return _make
 
 
-# --- Tests sur une font régulière (OTF sans-serif) ---
+# --- Tests sur une font régulière (sans-serif, poids 400) ---
 
 
 class TestRegularFont:
-    """Tests avec SuisseIntl-Regular.otf."""
+    """Tests avec une sans-serif Regular générée."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "SuisseIntl-Regular.otf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(make_font(family="Test Sans", subfamily="Regular"))
 
     def test_family_name(self) -> None:
         assert self.metadata.get("family_name") is not None
@@ -74,28 +97,29 @@ class TestRegularFont:
             assert all(p.isdigit() for p in parts)
 
     def test_classification_sans_serif(self) -> None:
-        # Suisse Intl est une sans-serif
-        classification = self.metadata.get("classification")
-        assert classification is not None
-        assert classification in (
-            "sans-serif",
-            "serif",
-            "monospace",
-            "display",
-            "handwriting",
-            "symbol",
-        )
+        # Panose est neutre sur une font générée : c'est l'heuristique de nom
+        # qui tranche, et « Test Sans » doit donner sans-serif.
+        assert self.metadata.get("classification") == "sans-serif"
 
 
 # --- Tests sur une font italic ---
 
 
 class TestItalicFont:
-    """Tests avec SuisseIntlCond-BoldItalic.otf."""
+    """Tests avec une condensée Bold Italic générée."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "SuisseIntlCond-BoldItalic.otf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(
+            make_font(
+                filename="TestSansCond-BoldItalic.ttf",
+                family="Test Sans Cond",
+                subfamily="Bold Italic",
+                weight_class=700,
+                width_class=3,
+                italic=True,
+            )
+        )
 
     def test_is_italic(self) -> None:
         assert self.metadata.get("is_italic") is True
@@ -110,11 +134,17 @@ class TestItalicFont:
 
 
 class TestMonospaceFont:
-    """Tests avec SuisseIntlMono-Regular.otf."""
+    """Tests avec une monospace générée (`post.isFixedPitch`)."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "SuisseIntlMono-Regular.otf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(
+            make_font(
+                filename="TestMono-Regular.ttf",
+                family="Test Mono",
+                monospace=True,
+            )
+        )
 
     def test_classification_monospace(self) -> None:
         classification = self.metadata.get("classification")
@@ -125,11 +155,17 @@ class TestMonospaceFont:
 
 
 class TestVariableFont:
-    """Tests avec TTHovesProVariable.ttf."""
+    """Tests avec une font variable générée (axes wght + wdth)."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "TTHovesProVariable.ttf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(
+            make_font(
+                filename="TestSansVariable.ttf",
+                family="Test Sans Variable",
+                variable_axes=[("wght", 100, 400, 900), ("wdth", 75, 100, 125)],
+            )
+        )
 
     def test_is_variable(self) -> None:
         assert self.metadata["is_variable"] is True
@@ -153,19 +189,30 @@ class TestVariableFont:
     def test_has_weight_axis(self) -> None:
         axes = self.metadata["variable_axes"]
         tags = [a["tag"] for a in axes]
-        # TT Hoves Pro Variable devrait avoir au moins l'axe wght
         assert "wght" in tags
 
+    def test_axis_bounds_preserved(self) -> None:
+        """Les bornes déclarées ressortent telles quelles, sans réordonnancement."""
+        wght = next(a for a in self.metadata["variable_axes"] if a["tag"] == "wght")
+        assert (wght["min"], wght["default"], wght["max"]) == (100, 400, 900)
 
-# --- Tests sur un font TTF standard ---
+
+# --- Tests sur un font TTF standard (Bold, non variable) ---
 
 
 class TestTTFFont:
-    """Tests avec TTHovesPro-Bd.ttf (Bold)."""
+    """Tests avec une Bold statique générée."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "TTHovesPro-Bd.ttf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(
+            make_font(
+                filename="TestSans-Bold.ttf",
+                family="Test Sans",
+                subfamily="Bold",
+                weight_class=700,
+            )
+        )
 
     def test_family_name(self) -> None:
         assert self.metadata.get("family_name") is not None
@@ -186,11 +233,18 @@ class TestTTFFont:
 
 
 class TestThinFont:
-    """Tests avec SuisseIntl-Thin.otf."""
+    """Tests avec une Thin générée (poids 100)."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        self.metadata = analyze(FIXTURES / "SuisseIntl-Thin.otf")
+    def setup(self, make_font) -> None:
+        self.metadata = analyze(
+            make_font(
+                filename="TestSans-Thin.ttf",
+                family="Test Sans",
+                subfamily="Thin",
+                weight_class=100,
+            )
+        )
 
     def test_weight_class_thin(self) -> None:
         wc = self.metadata.get("weight_class")
@@ -220,6 +274,19 @@ class TestRobustness:
             result = analyze(f.name)
         assert isinstance(result, dict)
 
+    def test_truncated_font(self) -> None:
+        """Une font tronquée est une font malformée, pas un crash.
+
+        Cas plus vicieux que du bruit : l'en-tête est valide, fontTools s'engage
+        dans le parsing puis bute. La règle du projet est qu'on ressort des
+        métadonnées partielles, jamais une exception.
+        """
+        with tempfile.NamedTemporaryFile(suffix=".ttf", delete=False) as f:
+            f.write(build_ttf()[:200])
+            f.flush()
+            result = analyze(f.name)
+        assert isinstance(result, dict)
+
     def test_return_type_is_always_dict(self) -> None:
         """Quel que soit l'input, analyze() retourne un dict."""
         for path in ["/dev/null", "/tmp/fake.otf"]:
@@ -233,7 +300,7 @@ class TestRobustness:
 class TestFieldCompleteness:
     """Vérifie que toutes les clés attendues sont présentes pour une font valide."""
 
-    EXPECTED_KEYS = {
+    EXPECTED_KEYS: ClassVar[set[str]] = {
         "family_name",
         "subfamily_name",
         "full_name",
@@ -248,12 +315,14 @@ class TestFieldCompleteness:
         "supported_scripts",
     }
 
-    def test_regular_font_has_all_core_fields(self) -> None:
-        metadata = analyze(FIXTURES / "SuisseIntl-Regular.otf")
+    def test_regular_font_has_all_core_fields(self, make_font) -> None:
+        metadata = analyze(make_font())
         missing = self.EXPECTED_KEYS - set(metadata.keys())
         assert not missing, f"Champs manquants : {missing}"
 
-    def test_ttf_font_has_all_core_fields(self) -> None:
-        metadata = analyze(FIXTURES / "TTHovesPro-Bd.ttf")
+    def test_ttf_font_has_all_core_fields(self, make_font) -> None:
+        metadata = analyze(
+            make_font(filename="TestSans-Bold.ttf", subfamily="Bold", weight_class=700)
+        )
         missing = self.EXPECTED_KEYS - set(metadata.keys())
         assert not missing, f"Champs manquants : {missing}"
