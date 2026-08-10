@@ -19,14 +19,18 @@
 #     `--delete`) : un vidage de corbeille en prod ne doit pas se propager à la
 #     sauvegarde, c'est tout l'intérêt d'en avoir une.
 #
-# Usage, SUR le NAS :
-#   sudo /volume1/docker/fontsync/backup-prod.sh
-#   sudo /volume1/docker/fontsync/backup-prod.sh --db-only
+# Déposer le script, puis l'exécuter EN ROOT sur le NAS :
 #
-# Usage, DEPUIS le Mac (sans rien installer sur le NAS) :
-#   ssh -p 93 Leo@192.168.1.140 'sudo bash -s' < scripts/backup-prod.sh
+#   scp -P 93 scripts/backup-prod.sh Leo@192.168.1.140:/volume1/docker/fontsync/
+#   ssh -p 93 Leo@192.168.1.140
+#   sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 #
-# Installation du cron (une fois, sur le NAS) — cf. le bas de ce fichier.
+# Ne PAS tenter `ssh … 'sudo bash -s' < ce-fichier` : `sudo` demande un mot de
+# passe sur ce NAS (vérifié), et avec le script sur l'entrée standard il n'y a
+# pas de terminal pour le saisir — au mieux ça échoue, au pire sudo lit la
+# première ligne du script comme mot de passe. Il faut que le fichier soit posé.
+#
+# Installation de la tâche planifiée (une fois) — cf. le bas de ce fichier.
 
 set -euo pipefail
 
@@ -48,7 +52,21 @@ done
 log() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] ERREUR : %s\n' "$*" >&2; exit 1; }
 
+# DSM n'expose pas /usr/local/bin aux shells non interactifs — le PATH d'un
+# `ssh … 'commande'` se limite à /usr/bin:/bin:/usr/sbin:/sbin — et c'est
+# précisément là que ContainerManager pose le binaire docker (vérifié sur le
+# NAS : /usr/local/bin/docker → /var/packages/ContainerManager/…). Le PATH du
+# cron DSM, lui, l'inclut déjà : cette ligne ne sert qu'au lancement manuel.
+PATH="$PATH:/usr/local/bin:/usr/local/sbin"
+
 command -v docker >/dev/null || die "docker introuvable — ce script tourne sur le NAS."
+
+# Joignabilité du démon, testée AVANT la découverte du conteneur. Sans ce test,
+# un `docker ps` refusé faute de droits rend une liste vide, et le script
+# annonce « aucun conteneur ne correspond » — un diagnostic faux qui envoie
+# chercher le problème du mauvais côté.
+docker info >/dev/null 2>&1 || die \
+  "démon Docker injoignable — ce script s'exécute en root (sudo bash <chemin>)."
 
 # --- Le conteneur ---
 #
@@ -146,20 +164,24 @@ rsync -a --stats "$BLOB_SRC/" "$OUT_DIR/fonts/" | tail -n 4
 
 log "terminé."
 
-# --- Cron, sur le NAS (une fois) ---
+# --- Planification, sur le NAS (une fois) ---
 #
-#   scp -P 93 scripts/backup-prod.sh Leo@192.168.1.140:/volume1/docker/fontsync/
-#   ssh -p 93 Leo@192.168.1.140 'sudo chmod +x /volume1/docker/fontsync/backup-prod.sh'
+# **Par DSM → Panneau de configuration → Planificateur de tâches**, en tâche
+# planifiée « Script défini par l'utilisateur », utilisateur **root**. Deux
+# tâches :
 #
-# Puis, en root (`sudo crontab -e`, ou DSM → Planificateur de tâches, qui
-# survit mieux aux mises à jour de DSM) :
+#   quotidienne  03:00  bash /volume1/docker/fontsync/backup-prod.sh --db-only
+#   hebdomadaire 04:00  bash /volume1/docker/fontsync/backup-prod.sh
 #
-#   0 3 * * *  /volume1/docker/fontsync/backup-prod.sh --db-only >> /volume1/docker/fontsync/backups/backup.log 2>&1
-#   0 4 * * 0  /volume1/docker/fontsync/backup-prod.sh          >> /volume1/docker/fontsync/backups/backup.log 2>&1
+# Quotidien pour la base (quelques Mo, c'est elle qui porte l'état), hebdomadaire
+# pour le miroir des polices (write-once : rien ne se perd entre deux passes,
+# seules les nouveautés arrivent).
 #
-# Quotidien pour la base (quelques Mo, c'est elle qui porte l'état), et
-# hebdomadaire pour le miroir des polices (write-once : rien ne se perd entre
-# deux passes, seules les nouveautés arrivent).
+# **Pas d'édition à la main de `/etc/crontab`.** DSM y matérialise ses propres
+# tâches (`synoschedtask --run id=…`, vérifié sur ce NAS) et réécrit le fichier :
+# une ligne ajoutée à la main disparaît sans bruit à la prochaine modification
+# depuis l'interface ou à une mise à jour de DSM. Une sauvegarde qui cesse
+# silencieusement est pire que pas de sauvegarde — on croit avoir un filet.
 #
 # Restauration : `docker compose down`, puis poser le `.db` choisi à la place de
 # `fontsync.db` dans le volume — en SUPPRIMANT d'abord `fontsync.db-wal` et

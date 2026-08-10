@@ -179,9 +179,15 @@ a timestamped snapshot of the database (rotated, `KEEP=14` by default) and an
 incremental rsync mirror of the font blobs.
 
 ```bash
-# From this Mac, without installing anything on the NAS:
-ssh -p 93 Leo@192.168.1.140 'sudo bash -s' < scripts/backup-prod.sh
+scp -P 93 scripts/backup-prod.sh Leo@192.168.1.140:/volume1/docker/fontsync/
+ssh -p 93 Leo@192.168.1.140
+sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 ```
+
+The file has to be *placed* on the NAS, not piped: `sudo` asks for a password
+there, and with the script on standard input there is no terminal left to type it
+on. Docker also lives in `/usr/local/bin`, which DSM leaves out of the PATH of a
+non-interactive SSH shell — the script puts it back itself.
 
 The database goes through `sqlite3.Connection.backup` **inside the container**,
 never through a file copy: the database runs in WAL mode, so copying the `.db`
@@ -190,9 +196,14 @@ beside it. The copy is checked with `PRAGMA integrity_check` before it leaves th
 container. The blob mirror never deletes (`rsync` without `--delete`): emptying
 the trash in production must not propagate to the backup.
 
-The script's footer carries the cron entries to install on the NAS (daily for the
+The script's footer carries the two scheduled tasks to create (daily for the
 database, weekly for the blobs) and the restore procedure — including the part
 that is easy to get wrong: **delete `fontsync.db-wal` and `fontsync.db-shm`
 before putting a snapshot back**, and keep the agents off while auditing the
 trash, since an older database re-activates fonts deleted since and `auto_pull`
 would reinstall them.
+
+Schedule it through **DSM → Task Scheduler**, as root, not by hand-editing
+`/etc/crontab`: DSM materialises its own tasks into that file and rewrites it, so
+a hand-added line disappears silently. A backup that quietly stops is worse than
+no backup — you think you have a net.
