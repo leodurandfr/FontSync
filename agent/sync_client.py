@@ -137,8 +137,13 @@ class SyncClient:
 
         POST /api/devices/register
         Retourne la réponse complète du serveur (avec l'id du device).
+
+        Le `device_id` persisté est envoyé dès qu'on en a un : c'est lui, et non
+        le hostname, qui identifie la machine. macOS change de hostname selon le
+        réseau (`.local`, `.home`) et l'upsert par hostname créait une ligne par
+        variante — jusqu'à trois pour un même Mac.
         """
-        payload = {
+        payload: dict[str, Any] = {
             "name": self.config.get_device_name(),
             "hostname": self.config.get_hostname(),
             "os": "macos",
@@ -148,6 +153,8 @@ class SyncClient:
             "auto_pull": self.config.auto_pull,
             "auto_push": self.config.auto_push,
         }
+        if self.config.device_id:
+            payload["device_id"] = self.config.device_id
 
         resp = self._send(
             lambda: self._client.post("/api/devices/register", json=payload),

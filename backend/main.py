@@ -21,7 +21,16 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
 from backend.database import async_session
-from backend.routers import agent_events, devices, font_families, fonts, stats, sync, ws
+from backend.routers import (
+    agent_events,
+    devices,
+    font_families,
+    fonts,
+    stats,
+    sync,
+    system,
+    ws,
+)
 from backend.services.storage import get_storage_backend
 from backend.services.trash import run_purge_loop
 
@@ -63,6 +72,7 @@ app.include_router(devices.router, dependencies=[Depends(require_token)])
 app.include_router(sync.router, dependencies=[Depends(require_token)])
 app.include_router(font_families.router, dependencies=[Depends(require_token)])
 app.include_router(stats.router, dependencies=[Depends(require_token)])
+app.include_router(system.router, dependencies=[Depends(require_token)])
 app.include_router(agent_events.router, dependencies=[Depends(require_token_stream)])
 app.include_router(ws.router)
 

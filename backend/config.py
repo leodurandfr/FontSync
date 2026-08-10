@@ -40,6 +40,19 @@ class Settings(BaseSettings):
     # pourcentage, et la fonctionnalité paraîtrait cassée.
     deletion_propagation_min_fonts: int = 3
 
+    # ---------- Version et mise à jour ----------
+
+    # Version de l'image, injectée au build (cf. Dockerfile `ARG`). Vide en
+    # développement — l'interface affiche alors « dev », ce qui est la vérité.
+    fontsync_version: str = ""
+
+    # Mise à jour à la demande depuis l'interface. FontSync ne touche **jamais**
+    # au socket Docker : il délègue à un conteneur Watchtower voisin, qui seul
+    # détient ce privilège. Sans ces deux valeurs, le bouton est simplement
+    # absent de l'interface (l'endpoint répond 503).
+    watchtower_url: str = ""
+    watchtower_token: str = ""
+
     # S3 settings (utilisés si storage_backend == "s3")
     s3_endpoint: str = ""
     s3_bucket: str = ""

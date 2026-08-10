@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   ArrowLeft,
@@ -7,6 +7,8 @@ import {
   Download,
   Check,
   KeyRound,
+  Loader2,
+  RefreshCw,
   Sun,
   Moon,
   Monitor,
@@ -23,6 +25,7 @@ import { useWsStore } from "@/stores/ws";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme, type Theme } from "@/composables/useTheme";
 import { useLocale } from "@/composables/useLocale";
+import { useServerUpdate } from "@/composables/useServerUpdate";
 import type { Locale } from "@/i18n";
 import { storeToRefs } from "pinia";
 
@@ -35,6 +38,17 @@ const authStore = useAuthStore();
 
 const { theme, setTheme } = useTheme();
 const { locale, setLocale } = useLocale();
+
+const {
+  info,
+  state: updateState,
+  error: updateError,
+  alreadyUpToDate,
+  fetchInfo,
+  update,
+} = useServerUpdate();
+
+onMounted(fetchInfo);
 
 const themeOptions = computed<
   { value: Theme; label: string; icon: typeof Sun }[]
@@ -211,6 +225,73 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
               t("settings.websocket")
             }}</SectionLabel>
             <Badge :variant="wsStatusVariant">{{ wsStatusLabel }}</Badge>
+          </div>
+
+          <!-- Version et mise à jour. La mise à jour recrée le conteneur qui
+               sert cette page : l'attente est normale, on l'annonce. -->
+          <div>
+            <SectionLabel as="p" class="mb-1.5">{{
+              t("settings.version")
+            }}</SectionLabel>
+            <div class="flex flex-wrap items-center gap-3">
+              <code
+                class="rounded-lg border border-separator bg-muted/50 px-3 py-2 font-mono text-[13px]"
+              >
+                {{ info?.version ?? "…" }}
+              </code>
+              <Button
+                v-if="info?.updateAvailable"
+                variant="outline"
+                :disabled="
+                  updateState === 'requesting' || updateState === 'restarting'
+                "
+                @click="update()"
+              >
+                <Loader2
+                  v-if="
+                    updateState === 'requesting' || updateState === 'restarting'
+                  "
+                  class="mr-2 h-4 w-4 animate-spin"
+                />
+                <RefreshCw v-else class="mr-2 h-4 w-4" />
+                {{ t("settings.updateServer") }}
+              </Button>
+            </div>
+
+            <p
+              v-if="updateState === 'restarting'"
+              class="mt-2 text-[13px] text-muted-foreground"
+            >
+              {{ t("settings.updateRestarting") }}
+            </p>
+            <p
+              v-else-if="updateState === 'done' && alreadyUpToDate"
+              class="mt-2 text-[13px] text-muted-foreground"
+            >
+              {{ t("settings.updateAlreadyCurrent") }}
+            </p>
+            <p
+              v-else-if="updateState === 'done'"
+              class="mt-2 text-[13px] text-muted-foreground"
+            >
+              {{ t("settings.updateDone", { version: info?.version ?? "" }) }}
+            </p>
+            <p
+              v-else-if="updateState === 'error'"
+              class="mt-2 text-[13px] text-destructive"
+            >
+              {{
+                updateError === "timeout"
+                  ? t("settings.updateTimeout")
+                  : updateError
+              }}
+            </p>
+            <p
+              v-else-if="info && !info.updateAvailable"
+              class="mt-2 text-[13px] text-muted-foreground"
+            >
+              {{ t("settings.updateNotConfigured") }}
+            </p>
           </div>
         </Panel>
       </section>

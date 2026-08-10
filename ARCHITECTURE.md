@@ -433,10 +433,22 @@ Two agent-side properties are load-bearing here (cf. §6.6).
 
 | Method | Endpoint | Description |
 |---------|----------|-------------|
-| `POST` | `/api/devices/register` | Register a device |
+| `POST` | `/api/devices/register` | Register a device — keyed on `device_id`, hostname only as a fallback |
 | `GET` | `/api/devices` | List the devices |
 | `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`, `propagate_deletions`…) |
+| `POST` | `/api/devices/{id}/merge` | Absorb duplicate devices, keeping their font registry |
 | `DELETE` | `/api/devices/{id}` | Delete (its `device_fonts` rows go with it; the library does not) |
+
+> **Identity is the `device_id`, not the hostname.** macOS changes its hostname
+> with the network (`.local` under Bonjour, `.home` under DHCP), and an upsert
+> keyed on hostname created one row per variant — three for a single Mac mini in
+> production. The agent has persisted its `device_id` since its first
+> registration; it now sends it, and the server prefers it. A `device_id` the
+> server does not know falls back to the hostname, so a wiped database does not
+> lock the agent out. `/merge` repairs pre-existing duplicates: it reassigns
+> `device_fonts` before deleting, because a survivor with a partial registry
+> makes local-deletion detection blind to those fonts, permanently — a font
+> already in sync never goes through a transfer that would recreate the row.
 | `POST` | `/api/devices/{id}/rescan` | Force a re-scan (SSE signal → agent) |
 | `POST` | `/api/sync/delta` | Delta sync: local hashes → differences, plus `to_uninstall` |
 | `POST` | `/api/sync/push` | Push font(s) to the server |
@@ -460,6 +472,30 @@ Two agent-side properties are load-bearing here (cf. §6.6).
 | Method | Endpoint | Description |
 |---------|----------|-------------|
 | `GET` | `/api/stats` | Global stats |
+
+#### System (version & update)
+
+| Method | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/system/info` | Running version, and whether self-update is set up |
+| `POST` | `/api/system/update` | Ask Watchtower to pull the image and recreate the container |
+
+> FontSync **never** mounts the Docker socket. A container cannot replace itself
+> without access to the daemon, and granting that to an app guarded by a single
+> shared token would hand over root-equivalent control of the NAS. The privilege
+> stays with a neighbouring **Watchtower** (`--http-api-update`, no periodic
+> polling, `--label-enable`), reachable only over the compose network.
+>
+> Consequence to accept: `POST /api/system/update` may never return — Watchtower
+> recreates the container that is answering. That is the success case. The
+> frontend therefore waits for `/health` to come back rather than for the
+> response, then re-reads the version to say whether anything actually changed.
+> Without `WATCHTOWER_URL`/`WATCHTOWER_TOKEN`, the endpoint answers `503` and the
+> button is absent from the interface.
+>
+> The version comes from the `FONTSYNC_VERSION` build arg (CI: semver tag or
+> branch name, plus the short SHA). A build without it reports `dev`, which is
+> the truth.
 
 #### Families (delivered)
 

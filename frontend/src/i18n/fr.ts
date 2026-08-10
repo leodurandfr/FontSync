@@ -127,6 +127,18 @@ const fr: typeof en = {
     wsConnected: "Connecté",
     wsConnecting: "Connexion...",
     wsDisconnected: "Déconnecté",
+    version: "Version",
+    updateServer: "Mettre à jour",
+    // La mise à jour recrée le conteneur qui sert cette page. L'attente est
+    // normale et doit être annoncée, sinon elle passe pour un plantage.
+    updateRestarting:
+      "Le serveur est en cours de remplacement. Cette page se reconnecte toute seule — comptez jusqu'à une minute.",
+    updateDone: "Serveur mis à jour — version {version}.",
+    updateAlreadyCurrent: "Déjà sur la dernière image publiée.",
+    updateTimeout:
+      "Le serveur n'est pas encore revenu. Il démarre peut-être encore : rechargez dans un instant, ou vérifiez le conteneur sur votre NAS.",
+    updateNotConfigured:
+      "La mise à jour depuis l'interface n'est pas configurée sur ce serveur. Ajoutez le service watchtower du compose de déploiement, ou mettez à jour à la main.",
     accessToken: "Token d'accès",
     tokenDesc:
       "Le token d'instance ({code}) protège l'accès à cette bibliothèque. Il est mémorisé dans ce navigateur. Changez-le pour saisir un autre token ou vous déconnecter de cette instance.",

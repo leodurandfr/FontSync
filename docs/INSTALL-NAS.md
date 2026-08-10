@@ -17,12 +17,17 @@ separately (see [`../README.md`](../README.md) → "Install the agent").
 - A NAS with Docker (Synology **Container Manager**, QNAP **Container Station**)
   or a host with `docker` + `docker compose`.
 - The `8080` port free on the NAS (adjustable).
-- An **instance token** (shared secret). Generate it:
+- Two secrets. Generate each with:
 
   ```bash
   openssl rand -base64 32
   # or: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
   ```
+
+  - `FONTSYNC_TOKEN` — the **instance token**, which protects the whole API.
+  - `WATCHTOWER_TOKEN` — used only by the **Update** button in the interface
+    (§4). Never leaves the NAS. If you would rather update by hand, delete the
+    `watchtower` service from the compose file and this one becomes pointless.
 
 The image is published on **GitHub Container Registry**:
 `ghcr.io/leodurandfr/fontsync:latest` (or a version tag, e.g. `:1.0.0`).
@@ -40,6 +45,7 @@ This is the simplest and most reproducible method, including on Synology whose
 
    ```dotenv
    FONTSYNC_TOKEN=paste-the-generated-token-here
+   WATCHTOWER_TOKEN=paste-the-second-one-here
    ```
 
 4. Start it:
@@ -73,6 +79,9 @@ This is the simplest and most reproducible method, including on Synology whose
 | `DATABASE_URL`      | SQLite URL (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
 | `STORAGE_BACKEND`   | Storage backend                                    | `filesystem`                                  |
 | `FONT_STORAGE_PATH` | Font files folder                                  | `/fonts`                                       |
+| `TRASH_RETENTION_DAYS` | Auto-empty the trash after N days. `0` = never (default) | `0`                                     |
+| `WATCHTOWER_TOKEN`  | Shared secret for the update button (see §4)       | output of `openssl rand -base64 32`           |
+| `WATCHTOWER_URL`    | Where the update request goes; already set by the compose file | `http://watchtower:8080`          |
 
 > If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
 > startup and **logs** it (never an open server by default). The example
@@ -91,6 +100,8 @@ means backing up FontSync (see §5).
 
 ## 4. Updates
 
+### By hand
+
 ```bash
 docker compose -f docker-compose.nas.yml pull
 docker compose -f docker-compose.nas.yml up -d
@@ -102,6 +113,37 @@ idempotent — no effect if the schema is already up to date.
 
 > Pin a version tag (`:1.0.0`) rather than `:latest` if you want to
 > control when updates happen.
+
+### From the web interface
+
+**Settings → Server** shows the running version and, when it is set up, an
+**Update** button — nothing to do beyond the `WATCHTOWER_TOKEN` from §1.
+
+The button reaches a **Watchtower** container included in the example compose
+file. FontSync itself never touches the Docker socket: a container cannot
+replace itself without access to the Docker daemon, and giving FontSync that
+access would hand root-equivalent control of the NAS to an application
+protected by a single shared token. Watchtower holds that privilege, and only
+it. Its API is not published on the LAN — it is reachable only from FontSync,
+over the compose network.
+
+Watchtower runs with `--http-api-update` and **without** periodic polling: it
+does nothing on its own, and nothing updates behind your back. `--label-enable`
+restricts it to containers carrying
+`com.centurylinklabs.watchtower.enable=true` — installing FontSync does not
+make Watchtower the manager of everything else running on your NAS.
+
+Two things to expect:
+
+- **The page waits, then reconnects.** The update recreates the very container
+  serving the interface. The request may die without a reply; that is the
+  success case, not a failure. The interface waits for `/health` to come back.
+- **Nothing happens if the image has not changed.** The interface then says the
+  server is already on the latest published image.
+
+Prefer to keep updates manual? Delete the `watchtower` service and the two
+`WATCHTOWER_*` lines from the compose file. The button disappears; the version
+is still shown.
 
 ---
 

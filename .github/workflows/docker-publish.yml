@@ -52,6 +52,15 @@ jobs:
           flavor: |
             latest=auto
 
+      # Version affichée dans l'interface (Réglages → Serveur). `metadata-action`
+      # donne la version sémantique pour un tag et le nom de branche pour un
+      # dispatch ; le SHA court la complète pour que deux builds successifs de
+      # `main` ne se confondent pas — sans quoi le bouton « Mettre à jour » ne
+      # permettrait pas de vérifier que la mise à jour a bien eu lieu.
+      - name: Version de build
+        id: version
+        run: echo "value=${{ steps.meta.outputs.version }}+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Build & push (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v6
         with:
@@ -61,5 +70,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            FONTSYNC_VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

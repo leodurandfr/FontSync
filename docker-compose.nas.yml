@@ -28,6 +28,19 @@ services:
       DATABASE_URL: sqlite+aiosqlite:////data/fontsync.db
       STORAGE_BACKEND: filesystem
       FONT_STORAGE_PATH: /fonts
+      # Mise à jour depuis l'interface (Réglages → Serveur). FontSync ne monte
+      # pas le socket Docker : il demande le travail à Watchtower ci-dessous,
+      # sur le réseau interne du compose. Retirez ces deux lignes (et le service
+      # watchtower) pour un déploiement où la mise à jour reste manuelle : le
+      # bouton disparaît alors de l'interface.
+      WATCHTOWER_URL: http://watchtower:8080
+      WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}
+    labels:
+      # Watchtower tourne en `--label-enable` : il ne surveille que ce qui porte
+      # ce label. Installer FontSync ne fait donc pas de lui le gestionnaire de
+      # tout ce qui tourne sur le NAS. (Le label est déjà dans l'image ; on le
+      # répète ici pour que ce soit lisible sans inspecter l'image.)
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - db:/data             # base SQLite : fontsync.db (+ -wal, -shm)
       - fonts:/fonts         # fichiers de polices stockés
@@ -41,6 +54,33 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # Metteur à jour. C'est le seul conteneur à monter le socket Docker : donner
+  # ce privilège à FontSync reviendrait à donner l'équivalent du root sur le NAS
+  # à une application protégée par un simple token partagé.
+  #
+  # `--http-api-update` sans `--http-api-periodic-polls` : Watchtower ne fait
+  # **rien** de lui-même, il attend qu'on le lui demande. Rien ne se met à jour
+  # dans votre dos, et le NAS n'interroge pas ghcr en permanence.
+  #
+  # Facultatif : supprimez ce service si vous préférez mettre à jour à la main
+  # (`docker compose pull && docker compose up -d`). Le bouton disparaît alors
+  # de l'interface, qui continue d'afficher la version installée.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: fontsync-watchtower
+    restart: unless-stopped
+    environment:
+      # Même secret que WATCHTOWER_TOKEN côté fontsync (fichier .env).
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN:?Définissez WATCHTOWER_TOKEN (ex. dans le fichier .env)}
+    command:
+      - --http-api-update      # n'agit que sur demande HTTP
+      - --label-enable         # et seulement sur les conteneurs étiquetés
+      - --cleanup              # retire l'ancienne image après remplacement
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Aucun port publié : l'API n'est joignable que depuis le réseau du compose,
+    # donc depuis FontSync — jamais depuis le LAN.
 
 volumes:
   db:

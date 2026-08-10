@@ -125,6 +125,18 @@ export default {
     wsConnected: "Connected",
     wsConnecting: "Connecting…",
     wsDisconnected: "Disconnected",
+    version: "Version",
+    updateServer: "Update server",
+    // The update recreates the very container serving this page. The wait is
+    // normal and has to be said, or it reads as a crash.
+    updateRestarting:
+      "The server is being replaced. This page reconnects on its own — it can take a minute.",
+    updateDone: "Server updated — now running {version}.",
+    updateAlreadyCurrent: "Already on the latest published image.",
+    updateTimeout:
+      "The server has not come back yet. It may still be starting; reload in a moment, or check the container on your NAS.",
+    updateNotConfigured:
+      "Updating from here is not set up on this server. Add the watchtower service from the deployment compose file, or update manually.",
     accessToken: "Access token",
     tokenDesc:
       "The instance token ({code}) protects access to this library. It is stored in this browser. Change it to enter another token or sign out of this instance.",

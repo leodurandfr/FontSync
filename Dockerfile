@@ -17,6 +17,18 @@ LABEL org.opencontainers.image.title="FontSync" \
       org.opencontainers.image.source="https://github.com/leodurandfr/FontSync" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
+# Version affichée dans l'interface (Réglages → Serveur). Injectée par la CI
+# depuis le tag ou le nom de branche ; « dev » pour un build local, ce qui est
+# la vérité — l'interface ne prétend pas connaître une version qu'on ne lui a
+# pas donnée.
+ARG FONTSYNC_VERSION=dev
+ENV FONTSYNC_VERSION=${FONTSYNC_VERSION}
+
+# Watchtower ne surveille que les conteneurs portant ce label (`--label-enable`),
+# de sorte qu'installer FontSync ne fasse pas de Watchtower le gestionnaire de
+# tout ce qui tourne sur le NAS.
+LABEL com.centurylinklabs.watchtower.enable="true"
+
 WORKDIR /app
 
 # Dépendances Python (couche cachée séparément du code applicatif)

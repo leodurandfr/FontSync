@@ -11,6 +11,11 @@ from backend.schemas.base import CamelModel
 class DeviceRegister(CamelModel):
     """Schéma d'enregistrement d'un device."""
 
+    device_id: uuid.UUID | None = None
+    """Identité persistée par l'agent depuis son premier enregistrement. Elle
+    prime sur le hostname, qui change avec le réseau sous macOS et créait une
+    ligne par variante. Absente au tout premier `register`."""
+
     name: str = Field(..., max_length=200)
     hostname: str = Field(..., max_length=200)
     os: str = Field(..., max_length=50)
@@ -35,6 +40,24 @@ class DeviceUpdate(CamelModel):
     # ne se l'attribue jamais à l'enregistrement.
     propagate_deletions: bool | None = None
     sync_status: str | None = Field(None, pattern=r"^(idle|scanning|syncing|error)$")
+
+
+class DeviceMerge(CamelModel):
+    """Fusion d'appareils en double dans un seul."""
+
+    source_device_ids: list[uuid.UUID] = Field(..., min_length=1)
+    """Appareils à absorber puis supprimer. Leurs polices sont réaffectées à la
+    cible : c'est tout l'intérêt de fusionner plutôt que de supprimer."""
+
+
+class DeviceMergeResponse(CamelModel):
+    """Bilan d'une fusion."""
+
+    device: "DeviceResponse"
+    fonts_moved: int
+    """Associations réaffectées à la cible (celles qu'elle avait déjà sont
+    simplement retirées du doublon, pas comptées)."""
+    devices_removed: int
 
 
 class DeviceResponse(CamelModel):
@@ -63,3 +86,6 @@ class DeviceResponse(CamelModel):
         "alias_generator": CamelModel.model_config["alias_generator"],
         "populate_by_name": True,
     }
+
+
+DeviceMergeResponse.model_rebuild()

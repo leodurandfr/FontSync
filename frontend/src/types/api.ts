@@ -115,6 +115,16 @@ export interface Device {
   isOnline?: boolean;
 }
 
+export interface SystemInfo {
+  /** Version de l'image en cours d'exécution ; `dev` hors image publiée. */
+  version: string;
+  /**
+   * Le serveur sait-il se mettre à jour lui-même (Watchtower configuré) ? Si
+   * non, on masque le bouton plutôt que de proposer une action qui échouerait.
+   */
+  updateAvailable: boolean;
+}
+
 export interface Stats {
   totalFonts: number;
   byClassification: { classification: string | null; count: number }[];

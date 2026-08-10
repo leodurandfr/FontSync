@@ -9,3 +9,5 @@ python-multipart==0.0.20
 websockets==14.1
 pydantic-settings==2.7.1
 aiofiles==25.1.0
+# Appel sortant vers l'API de Watchtower (mise à jour depuis l'interface).
+httpx==0.28.1
