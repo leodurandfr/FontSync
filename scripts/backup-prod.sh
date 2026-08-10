@@ -208,6 +208,19 @@ log "terminé."
 # depuis l'interface ou à une mise à jour de DSM. Une sauvegarde qui cesse
 # silencieusement est pire que pas de sauvegarde — on croit avoir un filet.
 #
+# --- Inspecter les sauvegardes ---
+#
+# `$OUT_DIR` est root-only : `rsync -a` préserve les permissions du volume
+# Docker, root-only lui aussi. C'est le bon défaut pour une copie intégrale de
+# la bibliothèque, mais il faut sudo pour la relire :
+#
+#   sudo bash -c 'B=/volume1/docker/fontsync/backups
+#     echo "blobs : $(find $B/fonts -type f | wc -l)"; du -sh $B/fonts; ls -lh $B/*.db'
+#
+# Le compte des blobs doit valoir le nombre de polices NON purgées
+# (`SELECT COUNT(*) FROM fonts WHERE purged_at IS NULL`) : une police vidée de
+# la corbeille a perdu son fichier, seule son empreinte subsiste en base.
+#
 # Restauration : `docker compose down`, puis poser le `.db` choisi à la place de
 # `fontsync.db` dans le volume — en SUPPRIMANT d'abord `fontsync.db-wal` et
 # `fontsync.db-shm`, sinon des frames étrangères se rejouent par-dessus.
