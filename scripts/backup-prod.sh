@@ -154,13 +154,33 @@ fi
 
 command -v rsync >/dev/null || die "rsync introuvable — relancez avec --db-only."
 
-# Le point de montage hôte du volume monté sur /data/fonts. Le demander à Docker
-# plutôt que le coder en dur : le nom du volume dépend du compose de prod.
-BLOB_SRC="$(docker inspect -f \
-  '{{range .Mounts}}{{if eq .Destination "/data/fonts"}}{{.Source}}{{end}}{{end}}' \
-  "$CONTAINER")"
+# Où le serveur écrit-il réellement les polices ? On le lui DEMANDE, on ne le
+# suppose pas : le compose de prod monte `fonts:/fonts`, celui du dépôt
+# `font_data:/data/fonts`. Un chemin codé en dur ne sauvegarde rien sur l'un des
+# deux — et une sauvegarde qui ne sauvegarde rien ne le dit pas d'elle-même.
+read -r STORAGE_BACKEND FONT_PATH < <(docker exec -i "$CONTAINER" python -c \
+  'from backend.config import settings; print(settings.storage_backend, settings.font_storage_path)')
+
+[[ "$STORAGE_BACKEND" == "filesystem" ]] || die \
+  "stockage « $STORAGE_BACKEND » : aucun blob local à miroiter, utilisez --db-only."
+
+# Le montage hôte qui CONTIENT ce chemin. On retient la destination la plus
+# longue qui en soit un préfixe : `/fonts` et `/data/fonts` se résolvent de la
+# même façon, et un sous-dossier d'un volume monté plus haut aussi.
+BLOB_SRC=""
+deepest=""
+while IFS=$'\t' read -r dest src; do
+  [[ -z "$dest" ]] && continue
+  if [[ "$FONT_PATH" == "$dest" || "$FONT_PATH" == "$dest"/* ]] \
+     && (( ${#dest} > ${#deepest} )); then
+    deepest="$dest"
+    BLOB_SRC="$src${FONT_PATH#"$dest"}"
+  fi
+done < <(docker inspect -f '{{range .Mounts}}{{.Destination}}{{"\t"}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER")
+
 [[ -n "$BLOB_SRC" && -d "$BLOB_SRC" ]] || die \
-  "point de montage de /data/fonts introuvable (« $BLOB_SRC »)."
+  "aucun montage ne contient $FONT_PATH. Montages du conteneur : $(docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$CONTAINER")"
+log "polices : $FONT_PATH dans le conteneur (montage $deepest) → $BLOB_SRC sur l'hôte"
 
 log "miroir des polices : $BLOB_SRC → $OUT_DIR/fonts/"
 mkdir -p "$OUT_DIR/fonts"
