@@ -15,6 +15,8 @@ export default {
     library: "Library",
     allFonts: "All fonts",
     categories: "Categories",
+    manage: "Manage",
+    trash: "Trash",
     upload: "Upload",
     settings: "Settings",
     collapse: "Collapse",
@@ -152,7 +154,43 @@ export default {
     autoPushDesc: "Sends new fonts to the server",
     autoPull: "Auto pull",
     autoPullDesc: "Installs server fonts on this device",
+    // Deliberately worded as a two-way exchange, and kept apart from push/pull:
+    // this is the only setting that can make a file disappear.
+    propagateDeletions: "Propagate deletions",
+    propagateDeletionsDesc:
+      "Fonts deleted here move to the trash on the server, and fonts deleted on the server are uninstalled here. Off by default — nothing is erased without this.",
+    delete: "Remove device",
+    deleteConfirm:
+      "Remove “{name}”? Your fonts stay on the server. What is lost is the record of which fonts this machine held — the basis for detecting local deletions.",
     watchedFolders: "Watched folders",
+  },
+  trash: {
+    title: "Trash",
+    subtitle:
+      "Deleted fonts stay here until you restore them or empty the trash.",
+    deletedFonts: "Deleted fonts",
+    none: "The trash is empty.",
+    restore: "Restore",
+    empty: "Empty trash",
+    deletedOn: "Deleted {date}",
+    // Emptying keeps the row on purpose. Say so plainly: it looks like a
+    // half-measure until you know why.
+    emptyExplainer:
+      "Emptying removes the files from storage but keeps each font's fingerprint. That fingerprint is what makes a deletion stick — without it, the font would come back the next time a machine that still has the file syncs.",
+    purged: "File removed",
+    purgedHint:
+      "The file was removed from storage. Re-import it to bring this font back.",
+    restoreAutoPullNote:
+      "Restoring puts the font back in the library. These devices have auto pull off and will not reinstall it: {devices}.",
+    pendingTitle:
+      "{n} deletion awaiting review | {n} deletions awaiting review",
+    pendingDesc:
+      "A device reported more disappearances at once than the safety threshold allows. They are out of the library and recoverable, but no other machine will uninstall them until you confirm.",
+    confirmPending: "Confirm and propagate",
+    reasons: {
+      quarantine: "Deleted on a device",
+      quarantine_pending: "Awaiting review",
+    },
   },
   upload: {
     trigger: "Upload",
@@ -176,5 +214,12 @@ export default {
     notInstalledSingle: "Not installed",
     notInstalledMulti: "Not installed",
     installedOn: "Installed on {date}",
+    // Normally the font shows up within seconds; if macOS's index has gone
+    // stale, the agent has it rebuilt and that takes longer. The message covers
+    // both cases without promising a delay that usually doesn't happen — and
+    // without letting the wait read as a failure.
+    indexing: "Installing",
+    indexingHint:
+      "The file is copied. If it doesn't show up right away, macOS is rebuilding its font index — allow up to a minute.",
   },
 };

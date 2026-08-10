@@ -17,6 +17,8 @@ const fr: typeof en = {
     library: "Bibliothèque",
     allFonts: "Toutes les polices",
     categories: "Catégories",
+    manage: "Gestion",
+    trash: "Corbeille",
     upload: "Uploader",
     settings: "Paramètres",
     collapse: "Replier",
@@ -154,7 +156,43 @@ const fr: typeof en = {
     autoPushDesc: "Envoie les nouvelles polices au serveur",
     autoPull: "Pull automatique",
     autoPullDesc: "Installe les polices du serveur sur cet appareil",
+    // Formulé comme un échange dans les deux sens, et gardé à part de
+    // push/pull : c'est le seul réglage qui puisse faire disparaître un fichier.
+    propagateDeletions: "Propager les suppressions",
+    propagateDeletionsDesc:
+      "Les polices supprimées ici passent à la corbeille du serveur, et les polices supprimées du serveur sont désinstallées ici. Désactivé par défaut — rien ne s'efface sans ça.",
+    delete: "Retirer l'appareil",
+    deleteConfirm:
+      "Retirer « {name} » ? Vos polices restent sur le serveur. Ce qui est perdu, c'est la trace des polices que cette machine détenait — la base de la détection des suppressions locales.",
     watchedFolders: "Dossiers surveillés",
+  },
+  trash: {
+    title: "Corbeille",
+    subtitle:
+      "Les polices supprimées restent ici jusqu'à ce que vous les restauriez ou vidiez la corbeille.",
+    deletedFonts: "Polices supprimées",
+    none: "La corbeille est vide.",
+    restore: "Restaurer",
+    empty: "Vider la corbeille",
+    deletedOn: "Supprimée le {date}",
+    // Vider garde la ligne, à dessein. Le dire franchement : ça ressemble à une
+    // demi-mesure tant qu'on n'en connaît pas la raison.
+    emptyExplainer:
+      "Vider retire les fichiers du stockage mais conserve l'empreinte de chaque police. C'est cette empreinte qui rend une suppression durable : sans elle, la police reviendrait au premier sync d'une machine qui détient encore le fichier.",
+    purged: "Fichier retiré",
+    purgedHint:
+      "Le fichier a été retiré du stockage. Ré-importez-le pour retrouver cette police.",
+    restoreAutoPullNote:
+      "Restaurer remet la police dans la bibliothèque. Ces appareils ont le pull automatique désactivé et ne la réinstalleront pas : {devices}.",
+    pendingTitle:
+      "{n} suppression en attente d'arbitrage | {n} suppressions en attente d'arbitrage",
+    pendingDesc:
+      "Un appareil a signalé d'un coup plus de disparitions que le seuil de sécurité n'en autorise. Elles sont hors de la bibliothèque et récupérables, mais aucune autre machine ne les désinstallera tant que vous n'aurez pas confirmé.",
+    confirmPending: "Confirmer et propager",
+    reasons: {
+      quarantine: "Supprimée sur un appareil",
+      quarantine_pending: "En attente d'arbitrage",
+    },
   },
   upload: {
     trigger: "Uploader",
@@ -177,6 +215,13 @@ const fr: typeof en = {
     notInstalledSingle: "Non installée",
     notInstalledMulti: "Non installées",
     installedOn: "Installée le {date}",
+    // En régime normal la police apparaît en quelques secondes ; si l'index de
+    // macOS s'est figé, l'agent le fait reconstruire et ça prend plus longtemps.
+    // Le message couvre les deux cas sans promettre un délai qui n'a pas lieu
+    // d'être — et sans laisser l'attente passer pour un échec.
+    indexing: "Installation en cours",
+    indexingHint:
+      "Le fichier est copié. Si elle n'apparaît pas tout de suite, macOS reconstruit son index de polices — comptez jusqu'à une minute.",
   },
 };
 

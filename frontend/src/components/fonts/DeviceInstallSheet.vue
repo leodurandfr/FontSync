@@ -39,6 +39,9 @@ const { dateLocale } = useLocale();
 const deviceStatuses = ref<DeviceStatus[]>([]);
 const devicesLoading = ref(false);
 const actionInProgress = ref<Set<string>>(new Set());
+// Appareils dont l'installation a été demandée et dont macOS n'a pas encore fini
+// de reconstruire son index (cf. `pendingDelays`).
+const reindexing = ref<Set<string>>(new Set());
 
 const isMultiFont = computed(() => props.fontIds.length > 1);
 
@@ -67,6 +70,21 @@ async function fetchDeviceStatuses() {
   }
 }
 
+// Rythme de rafraîchissement du statut après une demande d'installation, en ms.
+// L'installation n'est pas instantanée et ce n'est pas un défaut : le fichier
+// est copié en quelques secondes, mais macOS 14+ ne le prend en compte qu'après
+// avoir reconstruit son index de polices — quelques dizaines de secondes sur une
+// grosse bibliothèque. Sans ces relances (et sans le message qui les accompagne),
+// l'appareil reste affiché « non installée » et l'utilisateur conclut à un échec.
+const pendingDelays = [3_000, 10_000, 25_000, 45_000, 75_000];
+
+function markReindexing(deviceId: string, active: boolean) {
+  const next = new Set(reindexing.value);
+  if (active) next.add(deviceId);
+  else next.delete(deviceId);
+  reindexing.value = next;
+}
+
 // Stop-gap B1 : le modèle de sync est un *miroir* (l'appareil pulle les fonts du
 // serveur selon `auto_pull`). « Installer » ne pousse donc pas une commande
 // ciblée : il déclenche un re-sync de l'appareil. La désinstallation et
@@ -79,10 +97,22 @@ async function handleInstall(deviceId: string) {
     await apiFetch(`/api/fonts/${props.fontIds[0]}/install/${deviceId}`, {
       method: "POST",
     });
-    // L'installation réelle suit le re-sync de l'agent → on rafraîchit le statut.
-    setTimeout(() => fetchDeviceStatuses(), 2000);
+    markReindexing(deviceId, true);
+    // On relance le statut jusqu'à ce que la réindexation ait abouti ; le dernier
+    // passage lève l'indicateur, que la font soit apparue ou non (au-delà, c'est
+    // un vrai problème et non plus un simple délai).
+    pendingDelays.forEach((delay, i) => {
+      setTimeout(async () => {
+        await fetchDeviceStatuses();
+        const done =
+          i === pendingDelays.length - 1 ||
+          deviceStatuses.value.find((s) => s.deviceId === deviceId)?.installed;
+        if (done) markReindexing(deviceId, false);
+      }, delay);
+    });
   } catch (e) {
     console.error("Install error:", e);
+    markReindexing(deviceId, false);
   } finally {
     const next = new Set(actionInProgress.value);
     next.delete(deviceId);
@@ -174,9 +204,11 @@ async function handleInstall(deviceId: string) {
                   {{
                     status.installed
                       ? t("deviceInstall.present")
-                      : isMultiFont
-                        ? t("deviceInstall.notInstalledMulti")
-                        : t("deviceInstall.notInstalledSingle")
+                      : reindexing.has(status.deviceId)
+                        ? t("deviceInstall.indexing")
+                        : isMultiFont
+                          ? t("deviceInstall.notInstalledMulti")
+                          : t("deviceInstall.notInstalledSingle")
                   }}
                 </p>
                 <p
@@ -189,10 +221,21 @@ async function handleInstall(deviceId: string) {
                     })
                   }}
                 </p>
+                <!-- macOS 14+ n'indexe pas immédiatement : le dire, sinon l'attente
+                     normale passe pour un échec. -->
+                <p
+                  v-else-if="reindexing.has(status.deviceId)"
+                  class="text-xs text-muted-foreground"
+                >
+                  {{ t("deviceInstall.indexingHint") }}
+                </p>
               </div>
               <div class="flex items-center gap-2">
                 <Loader2
-                  v-if="actionInProgress.has(status.deviceId)"
+                  v-if="
+                    actionInProgress.has(status.deviceId) ||
+                    reindexing.has(status.deviceId)
+                  "
                   class="h-4 w-4 animate-spin text-muted-foreground"
                 />
                 <Badge v-if="status.installed" variant="secondary">{{
@@ -203,7 +246,9 @@ async function handleInstall(deviceId: string) {
                   size="sm"
                   variant="outline"
                   :disabled="
-                    !status.isOnline || actionInProgress.has(status.deviceId)
+                    !status.isOnline ||
+                    actionInProgress.has(status.deviceId) ||
+                    reindexing.has(status.deviceId)
                   "
                   @click="handleInstall(status.deviceId)"
                 >
