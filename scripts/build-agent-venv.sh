@@ -52,7 +52,14 @@ build_one() {
   #    parte du bon interpréteur (et pas de l'arm64 hôte).
   uv python install "cpython-$PYVER-macos-$archtag" >/dev/null
   local base
-  base="$(uv python find "cpython-$PYVER-macos-$archtag")"  # .../bin/python3.12
+  # `--managed-python` est OBLIGATOIRE ici : lancé depuis la racine du dépôt
+  # (REPO_ROOT), `uv python find` sans ce drapeau découvre et préfère le
+  # `.venv` du projet (résolu jusqu'à un éventuel Python framework système,
+  # ex. `/Library/Frameworks/Python.framework/…`) plutôt que le CPython
+  # standalone tout juste téléchargé. Ce Python-là n'est PAS relocatable :
+  # embarqué tel quel, il échoue la vérification de l'étape 5 (symlink
+  # absolu, rejeté par codesign) — ou pire, passerait avec le mauvais patch.
+  base="$(uv python find --managed-python "cpython-$PYVER-macos-$archtag")"  # .../bin/python3.12
   # `pwd -P` (physique) est CRUCIAL : uv expose la racine via un alias non-versionné
   # (cpython-3.12-… → cpython-3.12.9-…) qui est lui-même un symlink. Sans -P, `base`
   # reste ce lien et `cp -R` (BSD, défaut -P) recopierait LE LIEN absolu dans le

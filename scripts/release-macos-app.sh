@@ -43,6 +43,20 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_
 
 step() { printf '\n\033[1;34m▶ %s\033[0m\n' "$1"; }
 
+# Résout `DEVELOPER_ID_APP` (nom affiché) en empreinte SHA-1 une fois pour
+# toutes : `codesign --sign` peut échouer à retrouver une identité par son nom
+# dès qu'il contient un caractère accentué (constaté avec « Léo », alors même
+# que les octets UTF-8 du nom sont identiques à ceux affichés par
+# `security find-identity`) — la même identité passée à `xcodebuild` via
+# `CODE_SIGN_IDENTITY` fonctionne, lui, sans problème. Le SHA-1 est sans
+# ambiguïté dans les deux cas ; on l'utilise partout pour rester cohérent.
+SIGN_ID="$(security find-identity -v -p codesigning \
+  | grep -F "$DEVELOPER_ID_APP" | head -1 | awk '{print $2}')"
+[[ -n "$SIGN_ID" ]] || {
+  echo "Identité introuvable dans le Trousseau : $DEVELOPER_ID_APP" >&2
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 step "1/8 Agent Python embarqué ($ARCH)"
 "$REPO_ROOT/scripts/build-agent-venv.sh" --out "$BUILD_DIR/agent-venv" --arch "$ARCH"
@@ -59,7 +73,7 @@ xcodebuild \
   MARKETING_VERSION="$VERSION" \
   CURRENT_PROJECT_VERSION="$BUILD" \
   CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY="$DEVELOPER_ID_APP" \
+  CODE_SIGN_IDENTITY="$SIGN_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
   build
@@ -78,7 +92,7 @@ cp -R "$BUILD_DIR/agent-venv" "$RES_VENV"
 step "4/8 Signature inside-out (Hardened Runtime + horodatage)"
 PY_ENTS="$APP_DIR/PythonAgent.entitlements"
 APP_ENTS="$APP_DIR/FontSync.entitlements"
-sign() { codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_APP" "$@"; }
+sign() { codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$@"; }
 
 # 4a. Toutes les bibliothèques natives de l'agent (.so / .dylib), du plus profond
 #     au moins profond. find depuis le dossier (chemins relatifs) = fiable.
