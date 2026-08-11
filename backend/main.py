@@ -31,6 +31,7 @@ from backend.routers import (
     system,
     ws,
 )
+from backend.services.backup import run_blob_backup_loop, run_database_backup_loop
 from backend.services.storage import get_storage_backend
 from backend.services.trash import run_purge_loop
 
@@ -47,17 +48,26 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     La purge automatique de la corbeille ne tourne que si une rétention est
     configurée — désactivée par défaut : rien ne supprime de fichier tout seul
     sans qu'on l'ait demandé.
+
+    La sauvegarde automatique (base + polices) ne tourne que si `BACKUP_DIR`
+    est configuré — désactivée par défaut, cf. `backend.services.backup`.
     """
     get_server_token()
     logger.info("Auth par token activée sur /api/* (token d'instance résolu).")
 
-    purge_task = asyncio.create_task(run_purge_loop(async_session, get_storage_backend))
+    background_tasks = [
+        asyncio.create_task(run_purge_loop(async_session, get_storage_backend)),
+        asyncio.create_task(run_database_backup_loop()),
+        asyncio.create_task(run_blob_backup_loop()),
+    ]
     try:
         yield
     finally:
-        purge_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await purge_task
+        for task in background_tasks:
+            task.cancel()
+        for task in background_tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(title="FontSync", version="0.1.0", lifespan=lifespan)

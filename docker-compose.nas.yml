@@ -35,6 +35,11 @@ services:
       # bouton disparaît alors de l'interface.
       WATCHTOWER_URL: http://watchtower:8080
       WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}
+      # Sauvegarde automatique : instantané quotidien de la base + miroir
+      # hebdomadaire des polices, écrits dans le volume `backups` ci-dessous.
+      # Vide → désactivée ; ce compose l'active par défaut. Détail : §5 de
+      # docs/INSTALL-NAS.md.
+      BACKUP_DIR: /backups
     labels:
       # Watchtower tourne en `--label-enable` : il ne surveille que ce qui porte
       # ce label. Installer FontSync ne fait donc pas de lui le gestionnaire de
@@ -44,6 +49,7 @@ services:
     volumes:
       - db:/data             # base SQLite : fontsync.db (+ -wal, -shm)
       - fonts:/fonts         # fichiers de polices stockés
+      - backups:/backups     # sauvegarde automatique (instantanés + miroir)
     healthcheck:
       test:
         - CMD
@@ -85,3 +91,4 @@ services:
 volumes:
   db:
   fonts:
+  backups:

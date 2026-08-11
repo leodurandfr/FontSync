@@ -15,7 +15,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 
 | Lot | État | Migration | Vérif. de sortie |
 |---|---|---|---|
-| **L0 — Hygiène** | **en cours** (démarré le 10 août 2026) | — | `pytest tests/ -q` vert ; corbeille affichée à 0 ligne ; `scripts/backup-prod.sh` écrit **et installé sur le NAS** |
+| **L0 — Hygiène** | **code+déploiement terminés, bloque sur la révocation du token (reportée, cf. ci-dessous)** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
 | **L1 — Inventaire miroir** | à faire | M1 | `DeletionDetection.total == 0` aux **deux** premiers deltas de chaque machine (§4.3) ; registre passé de 8 215 à ~10 400 |
 | **L2 — Booléen de confirmation** | à faire | M2 | requête de cohérence §5.1 = 0 |
 | **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
@@ -24,6 +24,52 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 
 **Prérequis bloquants de L1, à finir en L0 :** la sauvegarde automatique (§5.3) et la
 révocation du token d'instance (§11).
+
+**Ce qui reste sur L0, et pourquoi ça bloque ici.** Le code des dix lignes de §8/L0 est
+livré et vérifié (tests + build verts, revérifié le 10 août 2026 dans cette session).
+
+**Révision du mécanisme de sauvegarde (10 août 2026).** `scripts/backup-prod.sh` +
+Planificateur de tâches DSM a été écarté comme mécanisme **d'automatisation** : trop
+Synology-spécifique pour une app qui doit tourner sur n'importe quel hôte Docker chez
+d'autres utilisateurs (cf. brief long terme, `ROADMAP.md`). La sauvegarde automatique
+vit désormais **dans le backend** (`backend/services/backup.py`, activée par
+`BACKUP_DIR`) : instantané quotidien de la base + miroir hebdomadaire des polices,
+depuis le process qui sert déjà la base — zéro `docker exec`, zéro tâche planifiée
+externe, zéro clic DSM. `docker-compose.nas.yml` l'active par défaut (volume `backups`
++ `BACKUP_DIR=/backups`). `scripts/backup-prod.sh` reste comme outil manuel ponctuel
+(§11, docs/INSTALL-NAS.md §5). Code livré et testé (7 tests, `tests/backend/
+test_backup.py`) dans cette session.
+
+**Déploiement du 11 août 2026, sur le NAS réel (`100.104.232.79:93` en Tailscale,
+relayé commande par commande — pas d'accès direct depuis cette session).** Le code
+n'a pas été transféré par `scp`/`rsync` : les deux protocoles échouent sur ce NAS pour
+le compte `Leo` (`scp` : chroot SFTP qui ne voit pas `/volume1/docker/…` ; `rsync` :
+même symptôme sur le sous-processus `rsync --server`, cause exacte non creusée). Seul
+un exec SSH simple passe — `tar czf - … | ssh … 'tar xzf - -C …'` a fonctionné et reste
+la méthode à réutiliser pour un prochain transfert de code vers ce NAS.
+
+**Point d'attention trouvé en cours de route : le compose déployé sur ce NAS diverge
+du template du repo** — `image: …:main` (pas `:latest`, suivi manuellement) et port
+hôte `8070` (pas `8080`, ciblé par un sidecar Tailscale Serve `ts-fontsync`). Un
+écrasement naïf du fichier aurait cassé l'accès réseau et la mécanique de mise à jour.
+La fusion a gardé la prod telle quelle et n'a ajouté que les 3 lignes de sauvegarde
+(`BACKUP_DIR`, montage, volume). **Toujours diffé `docker-compose.nas.yml` contre
+la version en place sur ce NAS avant d'écraser — ne jamais partir du seul template.**
+
+Vérifié en production après déploiement :
+- `sudo docker exec fontsync ls /backups` → instantané `fontsync-20260811-071911.db`
+  (19 865 600 octets, `PRAGMA integrity_check` → `ok`) ;
+- miroir des polices : `5180` fichiers dans `/backups/fonts` — le total exact ;
+- `GET /api/fonts/trash?per_page=1` → `{"total": 0, ...}` — corbeille vide en prod.
+
+Sauvegarde manuelle (`scripts/backup-prod.sh`) testée avec succès dans la foulée :
+base (19 Mo, intègre) et miroir (5180 fichiers, 1,5 Go) dans
+`/volume1/docker/fontsync/backups/`.
+
+**Reste, et volontairement reporté par décision utilisateur (11 août 2026) :**
+révoquer `FONTSYNC_TOKEN` (fuité le 10 août) et ré-appairer les deux Macs (§11). C'est
+le seul prérequis bloquant de L1 qui n'est pas encore levé — **ne pas démarrer L1 avant
+que ce soit fait.**
 
 ---
 

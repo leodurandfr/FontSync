@@ -2,6 +2,13 @@
 #
 # Sauvegarde de la PROD (à exécuter SUR le NAS, en root).
 #
+# La sauvegarde automatique de référence vit désormais DANS le backend
+# (`backend/services/backup.py`, activée par `BACKUP_DIR`) : instantané
+# quotidien + miroir hebdomadaire, sans tâche planifiée externe, portable sur
+# n'importe quel hôte Docker. Ce script reste utile pour une sauvegarde
+# manuelle ponctuelle — avant une opération risquée, ou pour exporter une
+# copie hors du volume Docker vers un stockage externe.
+#
 # Pourquoi ce script existe : la base tourne en `journal_mode=WAL`. Copier le
 # seul fichier `.db` produit une sauvegarde **invalide** — les dernières
 # transactions vivent dans le `-wal` qui l'accompagne, et un `.db` restauré
@@ -189,7 +196,12 @@ rsync -a --stats "$BLOB_SRC/" "$OUT_DIR/fonts/" | tail -n 4
 
 log "terminé."
 
-# --- Planification, sur le NAS (une fois) ---
+# --- Planification, sur le NAS (une fois) — OPTIONNEL désormais ---
+#
+# Si `BACKUP_DIR` est configuré côté backend, la sauvegarde tourne déjà toute
+# seule (voir l'en-tête de ce fichier) : ce qui suit ne sert plus qu'à
+# planifier CE script en plus, p. ex. pour un export périodique vers un
+# emplacement hors du volume Docker.
 #
 # **Par DSM → Panneau de configuration → Planificateur de tâches**, en tâche
 # planifiée « Script défini par l'utilisateur », utilisateur **root**. Deux

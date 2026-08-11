@@ -82,6 +82,7 @@ This is the simplest and most reproducible method, including on Synology whose
 | `TRASH_RETENTION_DAYS` | Auto-empty the trash after N days. `0` = never (default) | `0`                                     |
 | `WATCHTOWER_TOKEN`  | Shared secret for the update button (see §4)       | output of `openssl rand -base64 32`           |
 | `WATCHTOWER_URL`    | Where the update request goes; already set by the compose file | `http://watchtower:8080`          |
+| `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |
 
 > If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
 > startup and **logs** it (never an open server by default). The example
@@ -92,9 +93,10 @@ This is the simplest and most reproducible method, including on Synology whose
 |---------|-----------|-------------------------------------------------|
 | `db`    | `/data`   | SQLite database: `fontsync.db` (+ `-wal`, `-shm`)  |
 | `fonts` | `/fonts`  | Font files (organized by hash prefix) |
+| `backups` | `/backups` | Automatic backups (§5) — only used if `BACKUP_DIR` is set |
 
-These **two** volumes make up the entire state of the server: backing them up
-means backing up FontSync (see §5).
+The **`db`** and **`fonts`** volumes make up the entire state of the server:
+backing them up means backing up FontSync (see §5, and `backups` if enabled).
 
 ---
 
@@ -152,6 +154,28 @@ is still shown.
 The complete state fits in the **two volumes**: `db` (the database) and `fonts` (the
 files). The database is in **WAL** mode: writes may reside in the
 `-wal` file not yet merged. A **consistent** copy is therefore required.
+
+### Automatic (built in, on by default in the example compose)
+
+`docker-compose.nas.yml` sets `BACKUP_DIR=/backups`, mounted on a third
+volume (`backups`). With it set, the server itself takes care of backups —
+no cron job, no NAS Task Scheduler, no `docker exec` from the host:
+
+- a **daily** consistent snapshot of the database (same `sqlite3.backup()`
+  API as below, run from inside the process — nothing to merge, nothing to
+  stop), rotated to the last 14;
+- a **weekly** incremental mirror of the fonts folder (write-once files,
+  copies only what's new after the first pass).
+
+Leave `BACKUP_DIR` empty to disable it — a snapshot written without a
+mounted volume would just vanish on the next container recreation, silently.
+Inspect what's there with `docker compose -f docker-compose.nas.yml exec
+fontsync ls -la /backups /backups/fonts`.
+
+This is enough on its own. The two methods below are for a **one-off**
+manual copy (e.g. right before a risky operation, or to export a copy to
+external storage) — `scripts/backup-prod.sh` in the repo does the same thing
+as Method B, callable straight from the NAS shell.
 
 ### Method A — cold backup (the safest)
 

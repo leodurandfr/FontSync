@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     # pourcentage, et la fonctionnalité paraîtrait cassée.
     deletion_propagation_min_fonts: int = 3
 
+    # ---------- Sauvegarde automatique ----------
+
+    # Répertoire de sauvegarde, monté en volume par l'hôte. Vide (défaut) =
+    # sauvegarde désactivée : un instantané écrit dans la couche éphémère du
+    # conteneur, sans volume monté, disparaîtrait au prochain redémarrage sans
+    # que personne ne le remarque — mieux vaut l'absence visible d'un filet.
+    # Reprend la mécanique de `scripts/backup-prod.sh` (même méthode de copie,
+    # même politique write-once sur les polices) depuis le process qui sert
+    # déjà la base, sans `docker exec` ni tâche planifiée externe — portable
+    # sur n'importe quel hôte Docker, pas seulement un NAS Synology.
+    backup_dir: str = ""
+
     # ---------- Version et mise à jour ----------
 
     # Version de l'image, injectée au build (cf. Dockerfile `ARG`). Vide en
