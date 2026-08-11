@@ -1,7 +1,7 @@
 """Gestionnaire des canaux temps réel.
 
 Maintient :
-- les connexions WebSocket des clients frontend et des agents (legacy) ;
+- les connexions WebSocket des clients frontend ;
 - les abonnements SSE des agents (process `listen`), à qui on pousse un simple
   signal « re-sync » quand une font devient disponible.
 
@@ -19,11 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketManager:
-    """Gère les connexions WebSocket des clients/agents et les abonnements SSE."""
+    """Gère les connexions WebSocket des clients et les abonnements SSE."""
 
     def __init__(self) -> None:
         self._clients: list[WebSocket] = []
-        self._agents: dict[str, WebSocket] = {}
         # Abonnements SSE par device_id : une queue par connexion `listen`.
         self._sse_subscribers: dict[str, set[asyncio.Queue[str]]] = {}
         self._lock = asyncio.Lock()
@@ -34,41 +33,11 @@ class WebSocketManager:
         self._clients.append(websocket)
         logger.info("Client WebSocket connecté (%d actifs)", len(self._clients))
 
-    async def connect_agent(self, websocket: WebSocket, device_id: str) -> None:
-        """Accepte et enregistre une connexion agent identifiée par device_id.
-
-        À la reconnexion d'un device déjà connu, l'ancien socket est évincé
-        (fermé) pour éviter une connexion fantôme côté serveur.
-        """
-        await websocket.accept()
-        old = self._agents.get(device_id)
-        if old is not None and old is not websocket:
-            try:
-                await old.close()
-            except Exception:
-                pass
-            logger.info("Ancien socket agent évincé: %s", device_id)
-        self._agents[device_id] = websocket
-        logger.info(
-            "Agent WebSocket connecté: %s (%d actifs)", device_id, len(self._agents)
-        )
-
     def disconnect(self, websocket: WebSocket) -> None:
-        """Déconnecte un client ou agent."""
+        """Déconnecte un client."""
         if websocket in self._clients:
             self._clients.remove(websocket)
             logger.info("Client WebSocket déconnecté (%d actifs)", len(self._clients))
-            return
-
-        for device_id, ws in list(self._agents.items()):
-            if ws is websocket:
-                del self._agents[device_id]
-                logger.info(
-                    "Agent WebSocket déconnecté: %s (%d actifs)",
-                    device_id,
-                    len(self._agents),
-                )
-                return
 
     async def broadcast_to_clients(self, message: dict[str, Any]) -> None:
         """Envoie un message JSON à tous les clients frontend connectés."""
@@ -81,31 +50,6 @@ class WebSocketManager:
                     stale.append(ws)
             for ws in stale:
                 self.disconnect(ws)
-
-    async def broadcast_to_agents(self, message: dict[str, Any]) -> None:
-        """Envoie un message JSON à tous les agents connectés (WebSocket)."""
-        async with self._lock:
-            stale: list[str] = []
-            for device_id, ws in self._agents.items():
-                try:
-                    await ws.send_json(message)
-                except Exception:
-                    stale.append(device_id)
-            for device_id in stale:
-                del self._agents[device_id]
-
-    async def send_to_agent(self, device_id: str, message: dict[str, Any]) -> bool:
-        """Envoie un message à un agent spécifique. Retourne False si non connecté."""
-        async with self._lock:
-            ws = self._agents.get(device_id)
-            if ws is None:
-                return False
-            try:
-                await ws.send_json(message)
-                return True
-            except Exception:
-                del self._agents[device_id]
-                return False
 
     # ---------- Canal SSE (process `listen` des agents) ----------
 
@@ -155,14 +99,6 @@ class WebSocketManager:
     @property
     def client_count(self) -> int:
         return len(self._clients)
-
-    @property
-    def agent_count(self) -> int:
-        return len(self._agents)
-
-    @property
-    def connected_agents(self) -> list[str]:
-        return list(self._agents.keys())
 
     @property
     def connected_sse_devices(self) -> list[str]:

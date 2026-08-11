@@ -17,7 +17,6 @@ class DeviceFont(Base):
         Uuid(), ForeignKey("fonts.id"), primary_key=True
     )
     local_path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    activated: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Ce détenteur peut-il alimenter la bibliothèque synchronisée ? `False` pour
     # une police scannée hors de `scan.ingest_directories` (ex. `/Library/Fonts`,
     # dossier tous-utilisateurs jamais nettoyé par l'agent) : elle reste visible

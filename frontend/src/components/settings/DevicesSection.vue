@@ -190,23 +190,6 @@ function formatRelativeTime(dateStr: string | null): string {
                 class="h-4 w-4 animate-spin text-muted-foreground"
               />
               <Button
-                v-if="
-                  device.syncStatus === 'scanning' ||
-                  device.syncStatus === 'syncing'
-                "
-                variant="outline"
-                size="sm"
-                disabled
-              >
-                <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                {{
-                  device.syncStatus === "scanning"
-                    ? t("devices.scanning")
-                    : t("devices.syncing")
-                }}
-              </Button>
-              <Button
-                v-else
                 variant="outline"
                 size="sm"
                 :disabled="!devicesStore.isOnline(device.id)"

@@ -159,11 +159,14 @@ async def merge_devices(
 ) -> DeviceMergeResponse:
     """Absorbe des appareils en double dans celui-ci, puis les supprime.
 
-    Fusionner plutôt que supprimer, parce que le registre `device_fonts` est
-    réparti entre les doublons. Supprimer les lignes en trop laisserait la
-    survivante avec un registre partiel : la détection des suppressions locales
-    serait aveugle sur ces polices-là, et le resterait — une police déjà
-    synchronisée ne repasse jamais par un transfert qui recréerait l'association.
+    Sert à consolider des doublons apparus avant le rattachement par
+    `device_id` persistant (`register_device`) : plusieurs lignes `devices`
+    pour une seule machine physique, chacune avec son propre registre
+    `device_fonts`. Le soft delete et la réconciliation
+    (`services/inventory.py`) protègent déjà les pierres tombales détenues par
+    un appareil non fusionné — fusionner ne change donc rien à la sûreté de la
+    récolte, seulement au compte « installée sur N machines » et à la clarté
+    de la liste des appareils.
 
     Les associations que la cible possède déjà sont retirées du doublon sans
     être recréées (la clé primaire est le couple appareil/police).
@@ -196,7 +199,6 @@ async def merge_devices(
                         device_id=target.id,
                         font_id=row.font_id,
                         local_path=row.local_path,
-                        activated=row.activated,
                         installed_at=row.installed_at,
                     )
                 )

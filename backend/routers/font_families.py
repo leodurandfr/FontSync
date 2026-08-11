@@ -254,12 +254,12 @@ async def regroup_fonts(
     await db.commit()
 
     regroup_stats = RegroupStats(**stats)
-    event = {
-        "type": "families.regrouped",
-        "data": regroup_stats.model_dump(by_alias=True),
-    }
-    await ws_manager.broadcast_to_clients(event)
-    await ws_manager.broadcast_to_agents(event)
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "families.regrouped",
+            "data": regroup_stats.model_dump(by_alias=True),
+        }
+    )
 
     return regroup_stats
 

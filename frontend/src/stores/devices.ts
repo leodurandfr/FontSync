@@ -46,13 +46,6 @@ export const useDevicesStore = defineStore('devices', () => {
     onlineDeviceIds.value = next
   }
 
-  function updateDeviceFields(deviceId: string, fields: Record<string, unknown>) {
-    const device = devices.value.find((d) => d.id === deviceId)
-    if (device && fields.syncStatus !== undefined) {
-      device.syncStatus = fields.syncStatus as Device['syncStatus']
-    }
-  }
-
   // Retirer un appareil n'ampute pas la bibliothèque : le serveur reste la
   // source de vérité. Ce qui part avec lui, c'est la trace des polices qu'il
   // détenait — la base de la détection des suppressions locales.
@@ -88,7 +81,6 @@ export const useDevicesStore = defineStore('devices', () => {
     fetchDevices,
     setDeviceOnline,
     setDeviceOffline,
-    updateDeviceFields,
     updateDevice,
     deleteDevice,
   }

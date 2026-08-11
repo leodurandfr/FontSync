@@ -224,17 +224,6 @@ def test_ws_client_accepts_cookie() -> None:
         ws.close()
 
 
-def test_ws_agent_rejected_without_token() -> None:
-    # `/ws/agent` (legacy) applique la même barrière de token que `/ws/client`.
-    # Le chemin « accepté » est couvert par les tests `/ws/client` (même
-    # `verify_websocket_token`) : ici on ne fait pas le handshake complet, dont
-    # le `disconnect` toucherait la vraie DB en parsant un device_id non-UUID.
-    client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws/agent/dev-1"):
-            pass
-
-
 # ---- Token généré quand FONTSYNC_TOKEN est absent ----
 
 

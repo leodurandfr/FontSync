@@ -38,7 +38,6 @@ async def _add_font(
         original_filename=original_filename,
         file_size=1000,
         file_format="ttf",
-        storage_path=f"fonts/{uuid.uuid4().hex}.ttf",
         source="upload",
         family_name=family_name,
         full_name=full_name,

@@ -29,10 +29,6 @@ export const useTrashStore = defineStore("trash", () => {
   const isEmpty = computed(
     () => initialized.value && items.value.length === 0 && !loading.value,
   );
-  /** Polices dont la suppression attend un arbitrage (détection au-delà du seuil). */
-  const pending = computed(() =>
-    items.value.filter((f) => f.deletedReason === "quarantine_pending"),
-  );
 
   async function fetchTrash() {
     loading.value = true;
@@ -95,7 +91,6 @@ export const useTrashStore = defineStore("trash", () => {
     error,
     initialized,
     isEmpty,
-    pending,
     fetchTrash,
     restore,
     purge,

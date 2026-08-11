@@ -4,7 +4,6 @@ export interface Font {
   originalFilename: string;
   fileSize: number;
   fileFormat: string;
-  storagePath: string;
   familyName: string | null;
   subfamilyName: string | null;
   fullName: string | null;
@@ -34,7 +33,11 @@ export interface Font {
   updatedAt: string;
   /** Pierre tombale — nul pour une police de la bibliothèque. */
   deletedAt?: string | null;
-  deletedReason?: DeletionReason | null;
+  /**
+   * Le verrou de propagation : `false` tant qu'une suppression détectée
+   * au-delà du seuil de quarantaine attend un arbitrage (`/trash/confirm`).
+   */
+  deletionConfirmed: boolean;
   /**
    * Fichier retiré du stockage lors d'un vidage de corbeille. L'empreinte, elle,
    * est conservée : c'est ce qui empêche la police de revenir au push suivant.
@@ -43,13 +46,6 @@ export interface Font {
    */
   purgedAt?: string | null;
 }
-
-/**
- * `quarantine_pending` : disparition détectée **au-delà du seuil**. La police est
- * en corbeille mais sa suppression n'est propagée à aucune machine tant que
- * l'utilisateur n'a pas tranché.
- */
-export type DeletionReason = "manual" | "quarantine" | "quarantine_pending";
 
 export interface FontListResponse {
   items: Font[];
@@ -148,8 +144,6 @@ export interface Device {
   osVersion: string | null;
   agentVersion: string | null;
   lastSeenAt: string | null;
-  lastSyncAt: string | null;
-  syncStatus: "idle" | "scanning" | "syncing" | "error";
   fontDirectories: string[] | null;
   autoPull: boolean;
   autoPush: boolean;
@@ -245,7 +239,6 @@ export type WsEventType =
   | "font.updated"
   | "device.connected"
   | "device.disconnected"
-  | "device.updated"
   | "sync.progress"
   | "sync.completed"
   | "family.created"

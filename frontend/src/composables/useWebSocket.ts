@@ -55,14 +55,6 @@ function dispatch(message: WsMessage) {
         devicesStore.setDeviceOffline(message.data.deviceId);
       }
       break;
-    case "device.updated":
-      if (typeof message.data.deviceId === "string") {
-        devicesStore.updateDeviceFields(
-          message.data.deviceId,
-          message.data as Record<string, unknown>,
-        );
-      }
-      break;
     case "family.created":
       familiesStore.addFamily(message.data as unknown as FontFamily);
       break;

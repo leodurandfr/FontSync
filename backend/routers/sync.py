@@ -173,10 +173,9 @@ async def push_font(
         # Refus : ni association device ↔ font (l'appareil n'a pas à figurer
         # comme détenteur d'une police hors bibliothèque), ni notification.
         logger.info(
-            "Push refusé pour %s (font supprimée le %s, motif %s)",
+            "Push refusé pour %s (font supprimée le %s)",
             filename,
             font.deleted_at,
-            font.deleted_reason,
         )
         return PushResponse(
             font_id=font.id,
@@ -209,14 +208,6 @@ async def push_font(
         await ws_manager.broadcast_to_clients(
             {
                 "type": "font.added",
-                "data": font_data,
-            }
-        )
-        # Notifier les autres agents qu'une nouvelle font est disponible
-        # (legacy WebSocket conservé tant que l'agent n'est pas migré).
-        await ws_manager.broadcast_to_agents(
-            {
-                "type": "font.available",
                 "data": font_data,
             }
         )

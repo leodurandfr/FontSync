@@ -15,8 +15,6 @@ class Device(UUIDPrimaryKey, Base):
     os_version: Mapped[str | None] = mapped_column(String(100))
     agent_version: Mapped[str | None] = mapped_column(String(20))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sync_status: Mapped[str] = mapped_column(String(20), default="idle")
     # Dernier delta CRÉDIBLE traité (déclaration non vide, non suspecte). Sert de
     # borne à la récolte de pierres tombales : `last_seen_at` ne peut pas jouer ce
     # rôle, il est posé par le register HTTP — donc avant le delta — et déplacé

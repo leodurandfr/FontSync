@@ -22,7 +22,6 @@ interface DeviceStatus {
   hostname: string;
   isOnline: boolean;
   installed: boolean;
-  activated: boolean;
   localPath: string | null;
   installedAt: string | null;
 }

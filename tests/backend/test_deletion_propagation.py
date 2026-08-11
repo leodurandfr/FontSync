@@ -24,12 +24,7 @@ from sqlalchemy import func, select
 from backend.config import settings
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
-from backend.models.font import (
-    DELETION_MANUAL,
-    DELETION_PENDING,
-    DELETION_QUARANTINE,
-    Font,
-)
+from backend.models.font import Font
 from backend.routers.fonts import delete_font, restore_font
 from backend.routers.sync import delta_sync
 from backend.schemas.sync import DeltaSyncRequest, DeviceFontEntry
@@ -124,7 +119,6 @@ async def test_deleted_font_is_not_offered_for_push(db, storage, font_factory) -
     """
     font = await _make_font(db, storage, font_factory, "Gone")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
@@ -146,7 +140,6 @@ async def test_agent_push_does_not_revive_a_deleted_font(
     data = font_factory(family="Phoenix")
     font, _ = await import_font("phoenix.ttf", data, storage, db)
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
@@ -169,14 +162,12 @@ async def test_web_upload_still_revives(db, storage, font_factory) -> None:
     data = font_factory(family="Revive")
     font, _ = await import_font("revive.ttf", data, storage, db)
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
     revived, is_duplicate = await import_font("revive.ttf", data, storage, db)
 
     assert revived.deleted_at is None
-    assert revived.deleted_reason is None
     # Pas un doublon inerte : la police vient de rentrer dans la bibliothèque,
     # l'interface et les agents doivent l'apprendre.
     assert is_duplicate is False
@@ -245,7 +236,7 @@ async def test_trash_lists_deleted_fonts(api_client: AsyncClient, font_factory) 
     body = resp.json()
     assert body["total"] == 1
     assert body["items"][0]["id"] == font["id"]
-    assert body["items"][0]["deletedReason"] == DELETION_MANUAL
+    assert body["items"][0]["deletionConfirmed"] is True
     assert body["pendingConfirmation"] == 0
 
 
@@ -361,7 +352,6 @@ async def test_purging_an_active_font_is_refused(
 async def test_purge_is_idempotent(db, storage, font_factory) -> None:
     font = await _make_font(db, storage, font_factory, "Twice")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
@@ -374,7 +364,6 @@ async def test_auto_purge_is_off_by_default(db, storage, font_factory) -> None:
     """Rien ne supprime de fichier tout seul sans qu'on l'ait demandé."""
     font = await _make_font(db, storage, font_factory, "Old")
     font.deleted_at = datetime.now(timezone.utc) - timedelta(days=365)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
@@ -389,10 +378,8 @@ async def test_auto_purge_respects_retention(db, storage, font_factory) -> None:
     recent = await _make_font(db, storage, font_factory, "Fresh")
     now = datetime.now(timezone.utc)
     old.deleted_at = now - timedelta(days=40)
-    old.deleted_reason = DELETION_MANUAL
     old.deletion_confirmed = True
     recent.deleted_at = now - timedelta(days=2)
-    recent.deleted_reason = DELETION_MANUAL
     recent.deletion_confirmed = True
     await db.commit()
 
@@ -418,7 +405,7 @@ async def test_disappeared_font_is_quarantined(db, storage, font_factory) -> Non
     detection = await detect_local_deletions(device.id, {other.file_hash}, db)
 
     assert [f.id for f in detection.quarantined] == [font.id]
-    assert font.deleted_reason == DELETION_QUARANTINE
+    assert font.deletion_confirmed is True
     assert other.deleted_at is None
 
 
@@ -508,7 +495,7 @@ async def test_mass_disappearance_quarantines_without_propagating(
 
     assert detection.quarantined == []
     assert len(detection.pending) == 6
-    assert all(f.deleted_reason == DELETION_PENDING for f in fonts)
+    assert all(f.deletion_confirmed is False for f in fonts)
 
 
 @pytest.mark.asyncio
@@ -516,7 +503,6 @@ async def test_pending_quarantine_is_not_propagated(db, storage, font_factory) -
     """Une quarantaine en attente n'apparaît pas dans `to_uninstall`."""
     font = await _make_font(db, storage, font_factory, "Held")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_PENDING
     font.deletion_confirmed = False
     await db.commit()
 
@@ -537,7 +523,6 @@ async def test_to_uninstall_requires_the_device_setting(
     """Sans le réglage, la machine apprend la suppression mais n'efface rien."""
     font = await _make_font(db, storage, font_factory, "Told")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
     entries = [DeviceFontEntry(hash=font.file_hash, filename="Told.ttf")]
@@ -606,7 +591,7 @@ async def test_delta_quarantines_then_asks_other_device_to_uninstall(
 
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
     assert trash["total"] == 1
-    assert trash["items"][0]["deletedReason"] == DELETION_QUARANTINE
+    assert trash["items"][0]["deletionConfirmed"] is True
 
 
 @pytest.mark.asyncio
@@ -857,7 +842,6 @@ async def test_empty_declaration_skips_reconciliation(
     device = await _make_device(db)
     tomb = await _make_font(db, storage, font_factory, "Guarded")
     tomb.deleted_at = datetime.now(timezone.utc)
-    tomb.deleted_reason = DELETION_MANUAL
     tomb.deletion_confirmed = True
     await register_device_font(device.id, tomb.id, "Guarded.ttf", db)
     await db.commit()
@@ -1061,13 +1045,13 @@ async def test_confirming_pending_spares_the_living_library(
     assert resp.status_code == 200, resp.text
     assert resp.json()["confirmed"] == 2
 
-    # La police vivante n'a pas bougé — ni son état, ni le motif que `confirm`
-    # écrit. C'est le canari du jour où le verrou deviendra un booléen partagé
-    # par toute la bibliothèque : une clause oubliée se verrait ici.
+    # La police vivante n'a pas bougé — ni son état, ni le verrou que `confirm`
+    # écrit. C'est le canari du jour où une clause oubliée porterait sur toute
+    # la bibliothèque au lieu des seules quarantaines : elle se verrait ici.
     still = await api_client.get(f"/api/fonts/{alive['fontId']}", headers=AUTH_HEADERS)
     assert still.status_code == 200, still.text
     assert still.json()["deletedAt"] is None
-    assert still.json()["deletedReason"] is None
+    assert still.json()["deletionConfirmed"] is False
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
     assert listing.json()["total"] == 1
 
@@ -1180,9 +1164,9 @@ async def test_auto_purge_spares_unconfirmed_deletions(
     held = await _make_font(db, storage, font_factory, "Held")
     manual = await _make_font(db, storage, font_factory, "Manual")
     old = datetime.now(timezone.utc) - timedelta(days=40)
-    held.deleted_at, held.deleted_reason = old, DELETION_PENDING
+    held.deleted_at = old
     held.deletion_confirmed = False
-    manual.deleted_at, manual.deleted_reason = old, DELETION_MANUAL
+    manual.deleted_at = old
     manual.deletion_confirmed = True
     await db.commit()
 

@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.models.device_font import DeviceFont
-from backend.models.font import DELETION_PENDING, DELETION_QUARANTINE, Font
+from backend.models.font import Font
 
 logger = logging.getLogger(__name__)
 
@@ -123,12 +123,10 @@ async def detect_local_deletions(
     # Garde-fou 3 : au-delà du seuil, on quarantine sans propager.
     limit = propagation_limit(len(declared_hashes))
     propagates = len(disappeared) <= limit
-    reason = DELETION_QUARANTINE if propagates else DELETION_PENDING
 
     now = datetime.now(timezone.utc)
     for font in disappeared:
         font.deleted_at = now
-        font.deleted_reason = reason
         font.deletion_confirmed = propagates
         font.updated_at = now
 

@@ -30,7 +30,6 @@ class FontResponse(CamelModel):
     original_filename: str
     file_size: int
     file_format: str
-    storage_path: str
 
     # Métadonnées name table
     family_name: str | None = None
@@ -79,9 +78,9 @@ class FontResponse(CamelModel):
 
     # Pierre tombale — nuls pour une police de la bibliothèque.
     deleted_at: datetime | None = None
-    deleted_reason: str | None = None
-    """`manual`, `quarantine`, ou `quarantine_pending` (suppression détectée
-    au-delà du seuil : en corbeille, mais non propagée sans confirmation)."""
+    deletion_confirmed: bool = False
+    """Le verrou de propagation : `False` tant qu'une suppression détectée
+    au-delà du seuil de quarantaine attend un arbitrage (cf. `/trash/confirm`)."""
     purged_at: datetime | None = None
     """Fichier retiré du stockage. La police n'est plus restaurable telle
     quelle ; seule son empreinte subsiste, pour que la suppression tienne."""
@@ -101,7 +100,6 @@ class FontDeviceStatus(CamelModel):
     hostname: str
     is_online: bool = False
     installed: bool
-    activated: bool = False
     local_path: str | None = None
     installed_at: datetime | None = None
 

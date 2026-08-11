@@ -162,8 +162,6 @@ const fr: typeof en = {
     minutesAgo: "Il y a {n} min",
     hoursAgo: "Il y a {n} h",
     daysAgo: "Il y a {n} j",
-    scanning: "Scan en cours…",
-    syncing: "Synchronisation…",
     rescan: "Re-scan",
     autoPush: "Push automatique",
     autoPushDesc: "Envoie les nouvelles polices au serveur",
@@ -231,10 +229,7 @@ const fr: typeof en = {
     pendingDesc:
       "Un appareil a signalé d'un coup plus de disparitions que le seuil de sécurité n'en autorise. Elles sont hors de la bibliothèque et récupérables, mais aucune autre machine ne les désinstallera tant que vous n'aurez pas confirmé.",
     confirmPending: "Confirmer et propager",
-    reasons: {
-      quarantine: "Supprimée sur un appareil",
-      quarantine_pending: "En attente d'arbitrage",
-    },
+    awaitingArbitration: "En attente d'arbitrage",
   },
   upload: {
     trigger: "Uploader",

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend.models.device import Device
-from backend.models.font import DELETION_MANUAL, DELETION_PENDING, Font
+from backend.models.font import Font
 from backend.services.font_importer import import_font
 from backend.services.harvest import harvest_tombstones
 from backend.services.sync_manager import register_device_font
@@ -37,7 +37,6 @@ async def _make_tombstone(
 ) -> Font:
     font = await _make_font(db, storage, font_factory, family)
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL if confirmed else DELETION_PENDING
     font.deletion_confirmed = confirmed
     font.purged_at = datetime.now(timezone.utc)
     return font
@@ -102,7 +101,6 @@ async def test_not_yet_purged_blocks_the_count(db, storage, font_factory) -> Non
     device = await _make_device(db)
     font = await _make_font(db, storage, font_factory, "StillStored")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     # `purged_at` volontairement absent.
     device.last_declaration_at = font.deleted_at + timedelta(seconds=1)

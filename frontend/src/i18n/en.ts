@@ -160,8 +160,6 @@ export default {
     minutesAgo: "{n} min ago",
     hoursAgo: "{n} h ago",
     daysAgo: "{n} d ago",
-    scanning: "Scanning…",
-    syncing: "Syncing…",
     rescan: "Re-scan",
     autoPush: "Auto push",
     autoPushDesc: "Sends new fonts to the server",
@@ -227,10 +225,7 @@ export default {
     pendingDesc:
       "A device reported more disappearances at once than the safety threshold allows. They are out of the library and recoverable, but no other machine will uninstall them until you confirm.",
     confirmPending: "Confirm and propagate",
-    reasons: {
-      quarantine: "Deleted on a device",
-      quarantine_pending: "Awaiting review",
-    },
+    awaitingArbitration: "Awaiting review",
   },
   upload: {
     trigger: "Upload",

@@ -88,13 +88,11 @@ async def test_no_unsupported_field_attribute_warning(client: AsyncClient) -> No
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         # Endpoint avec body (DeviceUpdate) + response_model (DeviceResponse).
-        patch = await client.patch(
-            f"/api/devices/{device_id}", json={"syncStatus": "idle"}
-        )
+        patch = await client.patch(f"/api/devices/{device_id}", json={"name": "Mac 2"})
 
     assert patch.status_code == 200
     # L'alias camelCase fonctionne toujours (entrée ET sortie).
-    assert patch.json()["syncStatus"] == "idle"
+    assert patch.json()["name"] == "Mac 2"
 
     offenders = [
         str(w.message)

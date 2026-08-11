@@ -16,8 +16,6 @@ from backend.database import get_db
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import (
-    DELETION_MANUAL,
-    DELETION_QUARANTINE,
     Font,
     deletion_confirmed_clause,
     deletion_unconfirmed_clause,
@@ -107,11 +105,9 @@ async def upload_fonts(
             }
         )
 
-    # Propagation réactive vers les agents : un signal SSE « re-sync ». Le canal
-    # WS legacy (`broadcast_to_agents`) est mort depuis la bascule de l'agent en
-    # SSE — d'où l'absence de propagation après upload (B2). Comme `/sync/push`
-    # et `/restore`, on signale les process `listen` ; un seul signal suffit,
-    # l'agent re-synchronise et pulle toutes les nouvelles fonts.
+    # Propagation réactive vers les agents : un signal SSE « re-sync », comme
+    # `/sync/push` et `/restore`. Un seul signal suffit, l'agent re-synchronise
+    # et pulle toutes les nouvelles fonts.
     if imported:
         await ws_manager.broadcast_sync()
 
@@ -448,7 +444,6 @@ async def confirm_pending_deletions(
     )
     fonts = list(result.scalars().all())
     for font in fonts:
-        font.deleted_reason = DELETION_QUARANTINE
         font.deletion_confirmed = True
     await db.commit()
 
@@ -619,10 +614,6 @@ async def get_font_device_status(
     )
     device_fonts = {df.device_id: df for df in df_result.scalars().all()}
 
-    # Présence = une connexion SSE `listen` ouverte. `connected_agents` est le
-    # registre du canal WebSocket agent, que plus aucun agent n'ouvre depuis la
-    # refonte stateless : il est vide en permanence, donc tout appareil était
-    # annoncé hors ligne et le bouton « Installer » grisé pour toujours.
     online_ids = set(ws_manager.connected_sse_devices)
 
     statuses = []
@@ -635,7 +626,6 @@ async def get_font_device_status(
                 hostname=device.hostname,
                 is_online=str(device.id) in online_ids,
                 installed=df is not None,
-                activated=df.activated if df else False,
                 local_path=df.local_path if df else None,
                 installed_at=df.installed_at if df else None,
             )
@@ -734,7 +724,6 @@ async def delete_font(
     """
     font = await _get_font_or_404(font_id, db)
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     font.updated_at = datetime.now(timezone.utc)
     # Les associations « cet appareil détient cette police » tombent avec elle.
@@ -813,7 +802,6 @@ async def restore_font(
             ),
         )
     font.deleted_at = None
-    font.deleted_reason = None
     font.deletion_confirmed = False
     font.updated_at = datetime.now(timezone.utc)
     # Comme `delete_font` à la suppression : remettre l'inventaire de cette

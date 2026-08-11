@@ -52,7 +52,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
-from backend.models.font import DELETION_MANUAL, Font
+from backend.models.font import Font
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,6 @@ async def resolve_duplicate_faces(
     for group in groups:
         for font in group.redundant:
             font.deleted_at = now
-            font.deleted_reason = DELETION_MANUAL
             font.deletion_confirmed = True
             font.updated_at = now
             trashed.append(font)

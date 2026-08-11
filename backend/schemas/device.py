@@ -39,7 +39,6 @@ class DeviceUpdate(CamelModel):
     # une trahison de leur nom. Piloté depuis le frontend uniquement — l'agent
     # ne se l'attribue jamais à l'enregistrement.
     propagate_deletions: bool | None = None
-    sync_status: str | None = Field(None, pattern=r"^(idle|scanning|syncing|error)$")
 
 
 class DeviceMerge(CamelModel):
@@ -70,8 +69,6 @@ class DeviceResponse(CamelModel):
     os_version: str | None = None
     agent_version: str | None = None
     last_seen_at: datetime | None = None
-    last_sync_at: datetime | None = None
-    sync_status: str
     font_directories: list[str] | None = None
     auto_pull: bool
     auto_push: bool

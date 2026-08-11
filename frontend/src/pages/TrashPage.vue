@@ -219,17 +219,8 @@ async function emptyTrash() {
               </div>
 
               <div class="flex shrink-0 items-center gap-2">
-                <Badge
-                  v-if="font.deletedReason === 'quarantine_pending'"
-                  variant="secondary"
-                >
-                  {{ t("trash.reasons.quarantine_pending") }}
-                </Badge>
-                <Badge
-                  v-else-if="font.deletedReason === 'quarantine'"
-                  variant="secondary"
-                >
-                  {{ t("trash.reasons.quarantine") }}
+                <Badge v-if="!font.deletionConfirmed" variant="secondary">
+                  {{ t("trash.awaitingArbitration") }}
                 </Badge>
 
                 <Loader2

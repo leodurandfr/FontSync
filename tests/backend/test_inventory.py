@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
-from backend.models.font import DELETION_MANUAL, Font
+from backend.models.font import Font
 from backend.schemas.sync import DeviceFontEntry
 from backend.services.deletion_propagation import detect_local_deletions
 from backend.services.font_importer import import_font
@@ -86,7 +86,6 @@ async def test_declared_tombstone_gets_its_association(
     device = await _make_device(db)
     font = await _make_font(db, storage, font_factory, "Tombstone")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deleted_reason = DELETION_MANUAL
     font.deletion_confirmed = True
     await db.commit()
 
@@ -118,7 +117,6 @@ async def test_undeclared_tombstone_loses_its_association(
     await register_device_font(device.id, gone.id, "Gone.ttf", db)
     await register_device_font(device.id, kept.id, "Kept.ttf", db)
     gone.deleted_at = datetime.now(timezone.utc)
-    gone.deleted_reason = DELETION_MANUAL
     gone.deletion_confirmed = True
     await db.commit()
 
@@ -243,7 +241,6 @@ async def test_reconciliation_and_detection_are_commutative(
         disappearing = await _make_font(db, storage, font_factory, f"Vanish-{order}")
         tombstone = await _make_font(db, storage, font_factory, f"Tomb-{order}")
         tombstone.deleted_at = datetime.now(timezone.utc)
-        tombstone.deleted_reason = DELETION_MANUAL
         tombstone.deletion_confirmed = True
         kept = await _make_font(db, storage, font_factory, f"Kept-{order}")
         await register_device_font(device.id, disappearing.id, "Vanish.ttf", db)

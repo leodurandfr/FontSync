@@ -109,12 +109,11 @@ async def _restore_purged_file(
     Vider la corbeille supprime le fichier mais garde la ligne (l'empreinte doit
     survivre au fichier). Un ré-upload du même contenu est donc le seul moment
     où le stockage peut être reconstitué : sans ça, la police reviendrait dans
-    la bibliothèque avec un `storage_path` qui ne pointe sur rien.
+    la bibliothèque sans fichier au chemin dérivé (`services/storage.py`).
     """
     if font.purged_at is None:
         return
-    font.storage_path = await storage.store(font.file_hash, file_data, font.file_format)
-    await db.flush()
+    await storage.store(font.file_hash, file_data, font.file_format)
     logger.info("Fichier restauré au stockage pour la font %s", font.id)
 
 
@@ -133,7 +132,6 @@ async def _revive_if_deleted(font: Font, db: AsyncSession) -> bool:
     if font.deleted_at is None:
         return False
     font.deleted_at = None
-    font.deleted_reason = None
     font.deletion_confirmed = False
     font.purged_at = None
     # Comme `delete_font`/`resolve_duplicate_faces` à la suppression : remettre
@@ -218,7 +216,7 @@ async def import_font(
     # 5. Stockage. Le chemin est déterministe (dérivé du hash) : ré-écrire le
     #    même contenu est idempotent. En cas de doublon concurrent, le fichier
     #    appartient légitimement à la font existante (même hash → même chemin).
-    storage_path = await storage.store(file_hash, file_data, extension)
+    await storage.store(file_hash, file_data, extension)
 
     # 6. Parsing via font_analyzer (nécessite un fichier temporaire)
     metadata: dict = {}
@@ -238,7 +236,6 @@ async def import_font(
         original_filename=filename,
         file_size=len(file_data),
         file_format=extension,
-        storage_path=storage_path,
         source=source,
         # Métadonnées parsées
         family_name=metadata.get("family_name"),

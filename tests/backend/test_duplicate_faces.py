@@ -51,7 +51,6 @@ def _font(
         original_filename=f"{family}-{subfamily}.{fmt}",
         file_size=size,
         file_format=fmt,
-        storage_path="/dev/null",
         source="local_scan",
         family_name=family,
         subfamily_name=subfamily,
@@ -313,7 +312,7 @@ async def test_resolving_trashes_the_redundant_and_keeps_the_keeper(
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
     assert [f["id"] for f in trash["items"]] == [dropped["imported"][0]["id"]]
     # Une résolution est un geste de l'utilisateur, pas une observation d'agent.
-    assert trash["items"][0]["deletedReason"] == "manual"
+    assert trash["items"][0]["deletionConfirmed"] is True
 
     # Et le recensement est retombé à zéro.
     again = await api_client.get("/api/fonts/duplicates", headers=AUTH_HEADERS)
