@@ -20,7 +20,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
 | **L4 — Nettoyage** | **terminé** | M3 (`1e9d0c4f6b21`) | `npm run build` **vert** ; M3 chronométrée sur copie réelle (~1 s, 6 205 fonts/11 384 device_fonts) puis rejouée sur le NAS : `alembic_version` à jour, colonnes absentes, `PRAGMA integrity_check`/`foreign_key_check` propres, comptage non-NULL identique avant/après ; 2 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
-| **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
+| **L5 — Récolte + affichage dérivé** | **code livré, testé localement — PAS déployé** | — (`tombstone_harvest_enabled` reste `False` par défaut) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; **point de non-retour données** — ne pas activer en prod sans avoir relu §5.3 et sans confirmation explicite |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
 
@@ -403,6 +403,56 @@ Séquence exécutée, dans l'ordre d'§5.2 :
 **L4 est terminé et vérifié en production sur les deux machines.** Prochain lot : **L5 — Récolte +
 affichage dérivé** (point de non-retour données, cf. §5.3) — ne pas l'entamer sans relire §3.4 (les
 neuf garde-fous) et sans confirmation explicite, comme pour tout geste destructeur de ce chantier.
+
+**L5, code livré (11 août 2026), dans cette session — confirmation explicite de l'utilisateur obtenue
+avant de commencer, comme l'exigeait ce même paragraphe.** Décision : coder et tester **localement
+uniquement**, sans toucher au NAS ni aux deux Macs ; l'activation réelle (`tombstone_harvest_enabled`
+en prod, §5.2/§8) reste un geste distinct, à confirmer séparément le jour où on la déclenche.
+
+- `backend/config.py` : trois réglages, tous à leur défaut le plus conservateur —
+  `tombstone_harvest_enabled` (`False`, fail-safe), `tombstone_harvest_grace_hours` (`24`, G8),
+  `tombstone_harvest_max_per_pass` (`5`, G9 — démarre bas, à remonter à 200 à la main après le premier
+  cycle réel vérifié, cf. §8).
+- **Faille trouvée et corrigée en cours de route, hors du périmètre nominal de ce lot mais bloquante
+  pour lui** : `services/inventory.py` (livré en L1) ne remettait jamais `harvest_candidate_since` à
+  `NULL` sur une arrivée — son commentaire d'origine disait explicitement « non applicable tant que la
+  colonne n'existe pas », vrai en L1, **resté faux depuis M2 (L2)** sans que personne ne revienne le
+  corriger. Sans ce correctif, l'invariant central de §3.1 (« toute arrivée sur une tombe remet la
+  candidature à zéro ») n'aurait jamais tenu, et G8 — le garde-fou que le plan qualifie lui-même de
+  « le plus important » — n'aurait rien protégé du tout. Corrigé : la boucle d'arrivées de
+  `reconcile_inventory` pose `font.harvest_candidate_since = None` dès qu'une association se recrée sur
+  une police tombée.
+- `backend/services/harvest.py` réécrit : `harvest_tombstones` reste l'aperçu INERTE de L1 tant que le
+  flag est éteint (comportement identique, vérifié par les 6 tests L1/L2 existants restés inchangés),
+  et bascule sur les deux phases de §3.4 une fois activé — `_open_candidacies` (G1-G7, ne fait
+  qu'horodater), `_harvest_ready_candidates` (G8/G9, seule fonction qui supprime), `_delete_fonts`
+  (ordre exact du §3.4 : `font_family_members` → `device_fonts` → `fonts` → recalage `style_count` →
+  familles auto-groupées vides). `PRAGMA foreign_keys=ON` actif en test (`conftest.py`, comme en prod,
+  `database.py:19`) : un mauvais ordre de suppression aurait fait échouer les tests par une
+  `IntegrityError`, pas seulement par une assertion.
+- Affichage dérivé : `FontResponse.installed_on` (nombre d'appareils vivants détenteurs) et
+  `FontListResponse.device_count` (dénominateur), branchés sur `GET /api/fonts/{id}` et
+  `GET /api/fonts`. Rendu sur `FontDetailPage.vue` — le libellé du bouton `DeviceInstallSheet` devient
+  `fonts.installedOnCount` (« Installée sur N de vos M machines ») une fois `useDevicesStore` chargée,
+  au lieu du libellé générique. **Pas branché sur la grille de bibliothèque** (`FontFamilyGroup.vue` /
+  `FontStyleRow.vue`) : cette vue consomme `/api/font-families` (`FamilyMemberResponse`), hors du
+  périmètre explicite de §6 pour ce lot (qui ne cite que `Font`/`FontListResponse`) — laissé pour un
+  lot dédié si le besoin se confirme.
+- Tests (§7.4, items 22-31) : 10 nouveaux dans `tests/backend/test_harvest.py` — un par garde-fou
+  (G3, G4, G5, G6 et son pendant non-ingestible, G7, G8 délai non écoulé, G9 plafond sur deux passes),
+  **plus l'item 30 explicitement désigné « le plus important »** (un détenteur ingestible qui omet une
+  déclaration puis la reprend n'est jamais récolté, même candidature ouverte et délai nominalement
+  écoulé — c'est ce test qui aurait détecté la faille de `reconcile_inventory` ci-dessus s'il avait
+  existé avant), et le nettoyage de familles (item 31). **Suite complète : 365 passed, 3 skipped**
+  (+10 vs les 355 de L4). `ruff check`/`format` sans régression sur le code touché (vérifié par
+  `git stash` : les seules alertes pré-existantes, `RUF012`/`UP017`/`B008`, inchangées en nombre).
+  `npm run build` (`vue-tsc -b && vite build`) et `npx prettier --check` **verts**.
+- **Non fait, volontairement** : aucun déploiement, aucune migration (L5 n'en a pas), le flag reste
+  `False` — l'état de production est **identique à L4**. Activer `tombstone_harvest_enabled` sur le
+  NAS reste un geste séparé, à ne déclencher qu'avec `max_per_pass=5`, une vérification à la main que
+  les identifiants loggés ne correspondent à aucun fichier encore présent dans un dossier ingestible
+  sur l'une des deux machines, puis une remontée à 200 (§8) — **et une confirmation explicite
+  renouvelée**, ce paragraphe n'en tient pas lieu.
 
 ---
 
