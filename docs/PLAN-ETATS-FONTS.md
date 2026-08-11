@@ -19,7 +19,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
-| **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
+| **L4 — Nettoyage** | code livré, **pas encore déployé** | M3 | `npm run build` **vert** ; `PRAGMA foreign_key_check` **vide** (vérifié sur base jetable, cf. ci-dessous) — **pas encore rejoué sur la prod** |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
@@ -295,6 +295,82 @@ supprimé) — il avait déjà perdu ces copies par un autre biais.
 (le `.dmg` local a suffi au déploiement manuel ; publier reste à faire avant toute mise à jour
 Sparkle future, en respectant `--latest` différé — cf. clé privée manquante ci-dessus). Prochain
 lot : **L4 — Nettoyage** (M3, la seule migration qui recrée des tables).
+
+**L4, code livré (11 août 2026), dans cette session — pas déployé.** Tout §8/L4 est en place côté
+code, testé localement ; **le déploiement (rituel d'arrêt, NAS, redémarrage des agents) n'a pas été
+tenté dans cette session** — M3 recrée trois tables et arrête les agents sur les deux Macs, un geste
+qui mérite sa propre confirmation explicite plutôt qu'un enchaînement automatique après L3.
+
+- Migration `1e9d0c4f6b21` (`drop_dead_columns`, revises `9c1e4f2b7a03`) : retire `fonts.deleted_reason`,
+  `fonts.storage_path`, `devices.sync_status`, `devices.last_sync_at`, `device_fonts.activated` — la
+  seule révision du chantier à recréer des tables (`batch_alter_table` + `drop_column` sous SQLite).
+  `PRAGMA foreign_keys` reste OFF pendant l'exécution (posture par défaut d'Alembic hors du listener
+  de `backend/database.py`), vérification d'intégrité **après**, par `foreign_key_check`. Vérifiée sur
+  base jetable (aller-retour `upgrade head` → `downgrade -1` → `upgrade head`) : les 5 colonnes
+  disparaissent puis se reconstruisent à l'identique (`storage_path` recalculé par la même formule que
+  `services/storage.py`, `deleted_reason` reconstruit fidèle au verrou `deletion_confirmed`, `sync_status`/
+  `last_sync_at`/`activated` aux valeurs par défaut observées en prod), `PRAGMA integrity_check` → `ok`,
+  `foreign_key_check` → vide aux trois étapes. **Pas encore rejouée sur les données réelles du NAS.**
+- `backend/routers/ws.py` : `/ws/agent/{device_id}` supprimé en entier (52 lignes), avec le registre
+  agent de `ws_manager.py` (`connect_agent`, `broadcast_to_agents`, `send_to_agent`, `agent_count`,
+  `connected_agents`) et ses deux appelants orphelins (`routers/sync.py` après un push,
+  `routers/font_families.py` après un regroupement). `ws.py:36` ne lit plus que
+  `connected_sse_devices` — le seul registre de présence vivant depuis la bascule SSE de la refonte.
+- Colonnes retirées des modèles (`Font.storage_path`/`.deleted_reason`, `Device.sync_status`/
+  `.last_sync_at`, `DeviceFont.activated`) et des schémas Pydantic. `FontResponse` gagne
+  `deletion_confirmed` (exposé pour la première fois : le frontend en a besoin pour piloter le badge
+  « en attente d'arbitrage » sans le motif texte). Les constantes `DELETION_MANUAL`/`DELETION_QUARANTINE`/
+  `DELETION_PENDING`/`PROPAGATING_DELETION_REASONS` (`models/font.py`) sont retirées avec leur dernier
+  lecteur — le verrou est un booléen lu à un seul endroit depuis M2, ces motifs texte ne décidaient plus
+  rien. Six écrivains simplifiés en conséquence (`routers/fonts.py` ×3, `services/duplicate_faces.py`,
+  `services/deletion_propagation.py`, `services/font_importer.py` ×2) : ne posent plus que
+  `deletion_confirmed`. `services/font_importer.py` appelle toujours `storage.store(...)` (le fichier est
+  bien écrit) mais n'assigne plus son retour à un champ qui n'existe plus.
+- `routers/devices.py` (`merge_devices`) : ne recopie plus `activated` ; docstring corrigée — sa
+  justification d'origine (« une police déjà synchronisée ne repasse jamais par un transfert qui
+  recréerait l'association ») ne tient plus depuis la réconciliation de L1, qui reconstruit justement
+  `device_fonts` à chaque delta. Fusionner reste utile pour le compte « installée sur N machines » et la
+  lisibilité de la liste d'appareils, pas pour la sûreté de la récolte (déjà couverte par le soft delete).
+- Frontend : `types/api.ts` perd `storagePath`, `DeletionReason`, `lastSyncAt`/`syncStatus`,
+  l'événement WS `device.updated` ; gagne `Font.deletionConfirmed`. `stores/trash.ts` perd le computed
+  `pending` (mort — aucun composant ne le consommait). `stores/devices.ts` perd `updateDeviceFields`
+  (plus d'émetteur). `useWebSocket.ts` perd le `case "device.updated"`. `DevicesSection.vue` : bouton
+  scanning/syncing retiré, ne garde que « Rescan ». `TrashPage.vue` : le badge par police passe de deux
+  variantes (`quarantine`/`quarantine_pending`, dérivées du motif texte) à une seule — visible quand
+  `!deletionConfirmed` — puisque `manual` et `quarantine` sont désormais indistinguables (les deux
+  confirment). `DeviceInstallSheet.vue` perd `activated` de son interface locale (jamais lu). i18n
+  fr/en : `devices.scanning`/`.syncing` retirés, `trash.reasons.{quarantine,quarantine_pending}`
+  fondus en une clé plate `trash.awaitingArbitration`.
+- Tests : `test_deletion_propagation.py`, `test_harvest.py`, `test_inventory.py`,
+  `test_duplicate_faces.py`, `test_family_grouper.py` — décor `.deleted_reason = DELETION_*` retiré
+  (le booléen `.deletion_confirmed` déjà posé à côté suffisait partout), assertions API/ORM sur
+  `deletedReason`/`deleted_reason` reportées sur `deletionConfirmed`. `test_auth.py` perd
+  `test_ws_agent_rejected_without_token` (l'endpoint n'existe plus). `test_camel_alias_warning.py`
+  troque `syncStatus` contre `name` comme véhicule du PATCH (le sujet du test — l'absence de
+  `UnsupportedFieldAttributeWarning` — était indépendant du champ choisi). `test_migrations.py`
+  (structurel, §7.5) valide M3 sans modification : il compare génériquement `alembic upgrade head` à
+  `Base.metadata.create_all`. **Suite complète : 355 passed, 3 skipped** (−1 vs les 356 de L3 — le test
+  `/ws/agent` retiré ; aucune régression), `ruff check`/`ruff format` et `npx prettier --check` sans
+  régression sur le code touché (les seules alertes restantes — `UP017`, `SIM117` — sont pré-existantes,
+  vérifié par `git stash`). `npm run build` (`vue-tsc -b && vite build`) **vert**.
+- **Gap documenté, non traité dans ce lot** : `components/settings/DevicesSection.vue:304-321`
+  (libellé « Dossiers surveillés ») était annoncé pour L3 en §6 mais n'a jamais été exécuté — et ne
+  peut pas l'être en un simple remplacement de texte. Distinguer « surveillé » de « ingéré » côté UI
+  suppose que le serveur connaisse `scan.ingest_directories` de l'agent, or `DeviceRegister` ne
+  transporte que `font_directories` (les dossiers surveillés) : `ingest_directories` reste une donnée
+  strictement locale à l'agent depuis L3 (`agent/config.py`), jamais envoyée. Tant que ce plomberie
+  agent→serveur n'existe pas, le libellé continue d'afficher `/Library/Fonts` sans distinction — faux
+  au sens de §2.3, mais pas un problème que ce lot peut corriger sans élargir son scope à un nouveau
+  champ API. À reprendre dans un lot dédié (hors L4/L5).
+
+**Reste à faire pour clore L4** : déploiement en production — rituel d'arrêt sur les deux Macs,
+sauvegarde fraîche vérifiée, `git push` + build image, puis sur le NAS `docker compose pull` + `up -d`
+(l'entrypoint applique `9c1e4f2b7a03 → 1e9d0c4f6b21`), vérification structurelle (`alembic_version`,
+colonnes absentes, `integrity_check`/`foreign_key_check`), relance des agents, `npm run build` déployé
+côté frontend. **Chronométrer M3 sur une copie de la base réelle avant de la poser sur le NAS** (§5.4) :
+c'est la seule migration du chantier qui recrée des tables, et le volume réel (6 205 lignes `fonts`,
+11 384 `device_fonts`) n'a pas été mesuré ici. Prochain lot après déploiement : **L5 — Récolte +
+affichage dérivé** (point de non-retour données, cf. §5.3).
 
 ---
 
