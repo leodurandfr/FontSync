@@ -16,7 +16,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | Lot | État | Migration | Vérif. de sortie |
 |---|---|---|---|
 | **L0 — Hygiène** | **terminé** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
-| **L1 — Inventaire miroir** | **code livré, non déployé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` aux **deux** premiers deltas de chaque machine (§4.3) ; registre passé de 8 215 à ~10 400 — **pas encore mesuré, le déploiement n'a pas eu lieu** |
+| **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
 | **L2 — Booléen de confirmation** | à faire | M2 | requête de cohérence §5.1 = 0 |
 | **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
 | **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
@@ -94,12 +94,39 @@ prérequis ne bloque L1.**
   restauration doublé de la variante à redéclaration). **Suite complète : 348 passed, 3 skipped**
   (+19 vs le 329 de L0), `ruff format`/`ruff check` sans régression sur le code touché.
 
-**Ce qui reste avant de cocher L1 « terminé » : le déploiement et sa vérification sur les deux Macs
-réels**, selon l'ordre d'§5.2 (serveur avant agent — mais ici l'agent ne change pas encore, L1 est
-un no-op côté agent puisque `ingestible` n'existe pas avant L3) et le rituel d'arrêt qui précède, puis
-les critères de sortie du tableau ci-dessus (§4.3 : deux premiers deltas à `DeletionDetection.total ==
-0`, registre observé entre 8 215 et ~10 400). **Cette session n'a pas d'accès direct au NAS ni aux deux
-Macs** — comme pour la sauvegarde (ci-dessus), ce sera une session relayée commande par commande.
+**Déploiement L1 du 11 août 2026, dans cette session.** Contrairement aux paliers précédents, cette
+session tournait *sur* le MacBook lui-même (`hostname` = MacBook-Pro-de-Leo, `device_id` agent
+`aef3f593…` — confirmé identique à celui du plan) : accès direct à l'une des deux machines. L'accès
+NAS et Mac mini restait nul en début de session ; l'utilisateur a autorisé la clé publique de la
+session sur les deux (`~/.ssh/authorized_keys`), puis un `sudoers.d/fontsync-deploy` scopé à la
+seule commande `/usr/local/bin/docker` en `NOPASSWD` sur le NAS (`docker.sock` est `root:root`,
+aucun groupe `docker` sur ce Synology) — **à révoquer** (`sudo rm /etc/sudoers.d/fontsync-deploy`)
+une fois le chantier terminé, ce n'est pas un accès permanent voulu.
+
+Séquence exécutée, dans l'ordre d'§5.2 :
+1. Rituel d'arrêt sur les deux Macs (`launchctl bootout` de `com.fontsync.sync`/`.listen` + fermeture
+   de l'app) — MacBook piloté directement, Mac mini relayé commande par commande.
+2. `git push origin main` (`7832e30`), puis `gh workflow run docker-publish.yml --ref main` — build
+   multi-arch en 4 min 44, image `ghcr.io/leodurandfr/fontsync:main` à jour.
+3. Sur le NAS : sauvegarde automatique déjà fraîche du jour (07:19, vérifiée avant d'agir — pas de
+   sauvegarde manuelle supplémentaire pour ne pas élargir le scope sudo à `backup-prod.sh`, qui
+   exige root sur tout le script et pas seulement `docker`), puis `docker compose pull fontsync` +
+   `up -d fontsync`. L'entrypoint a appliqué `b7c31a4d90e2 → 6adf18c939c6` avant de redémarrer
+   uvicorn — logs propres, `healthy` en ~50 s.
+4. Vérification structurelle (`sqlite3` absent de l'image, requêtes faites en `python3 -c` depuis le
+   conteneur) : `alembic_version = 6adf18c939c6`, les 3 colonnes/l'index présents,
+   `PRAGMA integrity_check` → `ok`, `foreign_key_check` → vide.
+5. Relance des agents sur les deux Macs. **Critères de sortie du tableau atteints** : deux deltas par
+   machine, **zéro** ligne `WARNING`/quarantine/detection dans les logs serveur sur toute la fenêtre
+   (`DeletionDetection.total == 0` aux quatre deltas). Registre `device_fonts` : **8 215 → 11 384**
+   (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés le 10 août, écart expliqué par un
+   dédup par hash réel plus généreux que l'estimation sur l'instantané (pas une anomalie : comptes
+   par device cohérents avec les tailles déclarées après dédup dans les logs). `last_declaration_at`
+   posé sur les deux appareils (précondition de G7 pour une future récolte). Le mini a aussi loggé un
+   aperçu de récolte **INERTE** (4 pierres tombales candidates, aucune suppression — attendu tant que
+   le flag L5 est éteint).
+
+**L1 est terminé et vérifié en production.** Prochain lot : **L2 — booléen de confirmation** (M2).
 
 ---
 
