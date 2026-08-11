@@ -8,10 +8,11 @@ import logging
 import tempfile
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.device_font import DeviceFont
 from backend.models.font import Font
 from backend.services import font_analyzer
 from backend.services.family_grouper import group_font
@@ -134,6 +135,13 @@ async def _revive_if_deleted(font: Font, db: AsyncSession) -> bool:
     font.deleted_at = None
     font.deleted_reason = None
     font.purged_at = None
+    # Comme `delete_font`/`resolve_duplicate_faces` à la suppression : remettre
+    # l'inventaire de cette police à zéro. Sans ça, un appareil qui l'a
+    # désinstallée après la suppression reste associé ; au premier sync suivant
+    # ce réveil, la police est de nouveau active mais toujours « détenue » par
+    # un appareil qui ne la déclare plus — elle repartirait en quarantaine, une
+    # boucle qu'aucun réveil ne casse.
+    await db.execute(delete(DeviceFont).where(DeviceFont.font_id == font.id))
     await db.commit()
     await db.refresh(font)
     try:

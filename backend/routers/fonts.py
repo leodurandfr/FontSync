@@ -607,8 +607,10 @@ async def get_font_device_status(
     """Retourne le statut d'installation de cette font sur chaque appareil."""
     await _get_font_or_404(font_id, db)
 
-    # Tous les devices
-    devices_result = await db.execute(select(Device).order_by(Device.name))
+    # Tous les devices, hors soft-supprimés (sortis de l'UI)
+    devices_result = await db.execute(
+        select(Device).where(Device.deleted_at.is_(None)).order_by(Device.name)
+    )
     devices = devices_result.scalars().all()
 
     # Associations device_fonts pour cette font
@@ -643,8 +645,10 @@ async def get_font_device_status(
 
 
 async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
-    """Récupère un device par ID ou lève 404."""
-    result = await db.execute(select(Device).where(Device.id == device_id))
+    """Récupère un device par ID ou lève 404. Invisible si soft-supprimé."""
+    result = await db.execute(
+        select(Device).where(Device.id == device_id, Device.deleted_at.is_(None))
+    )
     device = result.scalar_one_or_none()
     if device is None:
         raise HTTPException(status_code=404, detail="Device non trouvé.")
@@ -810,6 +814,13 @@ async def restore_font(
     font.deleted_at = None
     font.deleted_reason = None
     font.updated_at = datetime.now(timezone.utc)
+    # Comme `delete_font` à la suppression : remettre l'inventaire de cette
+    # police à zéro. La réconciliation (`services/inventory.py`) peut avoir
+    # recréé des associations pendant que la police était en corbeille (elle
+    # protège les tombes que les machines détiennent encore) ; les garder ferait
+    # re-quarantiner la police au premier sync suivant chez un appareil qui l'a
+    # désinstallée entre-temps — une boucle qu'aucune restauration ne casse.
+    await db.execute(delete(DeviceFont).where(DeviceFont.font_id == font.id))
     await db.commit()
     await db.refresh(font)
     response = FontResponse.model_validate(font)

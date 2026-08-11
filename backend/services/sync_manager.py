@@ -53,6 +53,12 @@ async def compute_delta(
         already_synced, deleted_on_server et to_uninstall.
     """
     device_hashes = {entry.hash for entry in device_fonts}
+    # `ingestible` n'agit QUE sur ce qui serait proposé au push. Ni sur
+    # `already_synced`, ni sur `missing_on_device`, ni sur la détection de
+    # suppressions : restreindre `device_hashes` lui-même referait passer
+    # chaque police non ingestible pour « absente », donc la ferait ressortir
+    # de la corbeille au premier delta suivant.
+    ingestible_hashes = {entry.hash for entry in device_fonts if entry.ingestible}
 
     # Toutes les fonts du serveur, supprimées comprises (cf. docstring).
     result = await db.execute(
@@ -79,8 +85,11 @@ async def compute_delta(
     known_hashes = active_hashes | set(deleted_map)
 
     # Fonts sur le device et inconnues du serveur → à pusher. « Inconnue » se
-    # mesure sur *tout* ce que le serveur connaît, tombes comprises.
-    unknown_to_server = list(device_hashes - known_hashes)
+    # mesure sur *tout* ce que le serveur connaît, tombes comprises. Seul le
+    # sous-ensemble ingestible est proposé : une police hors périmètre
+    # d'ingestion (`/Library/Fonts`) reste déclarée (elle protège les tombes
+    # qu'elle détient) sans jamais être offerte au push.
+    unknown_to_server = list(ingestible_hashes - known_hashes)
 
     # Fonts sur le serveur mais pas sur le device → à puller
     missing_on_device = [_to_ref(active_map[h]) for h in active_hashes - device_hashes]

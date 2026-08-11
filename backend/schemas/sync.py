@@ -13,6 +13,14 @@ class DeviceFontEntry(CamelModel):
     hash: str = Field(..., min_length=64, max_length=64)
     filename: str
     local_path: str | None = None
+    ingestible: bool = True
+    """Ce détenteur peut-il alimenter la bibliothèque synchronisée ?
+
+    Défaut `True` — rétrocompatibilité stricte dans les deux sens : un agent
+    ancien qui ne l'envoie pas est traité comme entièrement ingestible (aucune
+    police ne se voit bloquée à tort), un agent neuf face à un serveur ancien
+    voit le champ simplement ignoré (`CamelModel` n'impose pas `extra='forbid'`).
+    """
 
 
 class DeltaSyncRequest(CamelModel):

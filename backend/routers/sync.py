@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
@@ -19,6 +20,8 @@ from backend.services.deletion_propagation import (
     detect_local_deletions,
 )
 from backend.services.font_importer import FontImportError, import_font
+from backend.services.harvest import harvest_tombstones
+from backend.services.inventory import reconcile_inventory
 from backend.services.storage import StorageBackend, get_storage_backend
 from backend.services.sync_manager import compute_delta, register_device_font
 from backend.services.ws_manager import ws_manager
@@ -41,7 +44,11 @@ def get_storage() -> StorageBackend:
 
 
 async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
-    result = await db.execute(select(Device).where(Device.id == device_id))
+    # Un appareil soft-supprimé (`deleted_at`) est invisible ici comme partout
+    # ailleurs : seul `/api/devices/register` sait le ranimer.
+    result = await db.execute(
+        select(Device).where(Device.id == device_id, Device.deleted_at.is_(None))
+    )
     device = result.scalar_one_or_none()
     if device is None:
         raise HTTPException(status_code=404, detail="Device non trouvé.")
@@ -55,17 +62,24 @@ async def delta_sync(
 ) -> DeltaSyncResponse:
     """Delta sync : compare les fonts de l'agent avec le serveur.
 
-    L'agent envoie la liste de ses {hash, filename}. Le serveur retourne :
+    L'agent envoie la liste de ses {hash, filename, ingestible}. Le serveur
+    retourne :
     - unknown_to_server : hashes à pusher
     - missing_on_device : fonts à puller
     - already_synced : nombre de fonts en commun
     - deleted_on_server / to_uninstall : polices tombées que l'appareil détient
 
-    C'est **ici**, et non dans `compute_delta`, qu'on interprète les
-    disparitions : la détection écrit (quarantaine, nettoyage du registre) alors
-    que le calcul du delta est en lecture pure — une propriété qu'on préserve.
-    L'ordre compte : détecter d'abord, calculer ensuite, pour que le delta de ce
-    sync-ci voie déjà les quarantaines qu'il vient de poser.
+    Quatre temps, dans cet ordre (cf. `docs/PLAN-ETATS-FONTS.md` §3.2) :
+
+    1. **Détection** — INCHANGÉE. Lit le registre avant toute écriture de ce
+       sync-ci, pour ne juger que sur l'état d'avant.
+    2. **Réconciliation + récolte (aperçu)** — uniquement sur une déclaration
+       crédible (ni vide, ni suspecte) : `device_fonts` devient le miroir de ce
+       que la machine déclare, et `last_declaration_at` avance. La récolte
+       livrée ici ne fait que compter et journaliser (cf. `services/harvest.py`).
+    3. **Commit unique**, puis notification des quarantaines.
+    4. **Delta** — lecture pure, voit ses propres quarantaines et sa propre
+       réconciliation.
 
     La détection tourne pour **tout** appareil, quel que soit
     `propagate_deletions`. Conditionner l'écoute à ce réglage rendait toute
@@ -78,12 +92,20 @@ async def delta_sync(
     par `compute_delta`.
     """
     device = await _get_device_or_404(body.device_id, db)
+    declared = {entry.hash for entry in body.fonts}
 
-    detection = await detect_local_deletions(
-        device.id, {entry.hash for entry in body.fonts}, db
-    )
+    detection = await detect_local_deletions(device.id, declared, db)
+
+    # Écritures d'inventaire : uniquement sur une déclaration CRÉDIBLE. Une
+    # déclaration vide (G1) ou au-delà du seuil de quarantaine (G2, suspecte)
+    # ne permet de rien conclure — ni sur les absences, ni sur les présences.
+    if declared and not detection.pending:
+        await reconcile_inventory(device.id, body.fonts, db)
+        device.last_declaration_at = datetime.now(timezone.utc)
+        await harvest_tombstones(db)
+
+    await db.commit()
     if detection.total:
-        await db.commit()
         await _notify_quarantined(detection, source_device_id=str(device.id))
 
     return await compute_delta(

@@ -15,18 +15,17 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 
 | Lot | État | Migration | Vérif. de sortie |
 |---|---|---|---|
-| **L0 — Hygiène** | **code+déploiement terminés, bloque sur la révocation du token (reportée, cf. ci-dessous)** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
-| **L1 — Inventaire miroir** | à faire | M1 | `DeletionDetection.total == 0` aux **deux** premiers deltas de chaque machine (§4.3) ; registre passé de 8 215 à ~10 400 |
+| **L0 — Hygiène** | **terminé** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
+| **L1 — Inventaire miroir** | **code livré, non déployé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` aux **deux** premiers deltas de chaque machine (§4.3) ; registre passé de 8 215 à ~10 400 — **pas encore mesuré, le déploiement n'a pas eu lieu** |
 | **L2 — Booléen de confirmation** | à faire | M2 | requête de cohérence §5.1 = 0 |
 | **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
 | **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
 
-**Prérequis bloquants de L1, à finir en L0 :** la sauvegarde automatique (§5.3) et la
-révocation du token d'instance (§11).
+**Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
 
-**Ce qui reste sur L0, et pourquoi ça bloque ici.** Le code des dix lignes de §8/L0 est
-livré et vérifié (tests + build verts, revérifié le 10 août 2026 dans cette session).
+**L0 est terminé.** Le code des dix lignes de §8/L0 est livré et vérifié (tests + build
+verts, revérifié le 10 août 2026 dans cette session).
 
 **Révision du mécanisme de sauvegarde (10 août 2026).** `scripts/backup-prod.sh` +
 Planificateur de tâches DSM a été écarté comme mécanisme **d'automatisation** : trop
@@ -66,10 +65,41 @@ Sauvegarde manuelle (`scripts/backup-prod.sh`) testée avec succès dans la foul
 base (19 Mo, intègre) et miroir (5180 fichiers, 1,5 Go) dans
 `/volume1/docker/fontsync/backups/`.
 
-**Reste, et volontairement reporté par décision utilisateur (11 août 2026) :**
-révoquer `FONTSYNC_TOKEN` (fuité le 10 août) et ré-appairer les deux Macs (§11). C'est
-le seul prérequis bloquant de L1 qui n'est pas encore levé — **ne pas démarrer L1 avant
-que ce soit fait.**
+**Décision utilisateur (11 août 2026) : le token qui a fuité le 10 août n'est PAS révoqué,
+volontairement.** `FONTSYNC_TOKEN` reste inchangé pour toute la durée de ce chantier — ce
+n'était pas un prérequis technique de L1 (rien dans le modèle cible n'en dépend), c'était
+une précaution de sécurité indépendante, explicitement écartée pour l'instant. §11 est
+laissé tel quel comme mémo à reprendre plus tard, hors de ce chantier. **Plus aucun
+prérequis ne bloque L1.**
+
+**L1, code livré (11 août 2026), dans cette session.** Tout §8/L1 est en place :
+
+- Migration `6adf18c939c6` (`inventory_mirror`, revises `b7c31a4d90e2`) : `devices.last_declaration_at`,
+  `devices.deleted_at`, `device_fonts.ingestible` (+ `ix_device_fonts_font_id`). Additive pure, vérifiée
+  contre `Base.metadata.create_all` par le test structurel §7.5 (`tests/backend/test_migrations.py`).
+- `backend/services/inventory.py` — `reconcile_inventory` (dédup par hash, arrivées/départs/mises à
+  jour), appelée depuis `backend/routers/sync.py:delta_sync` dans le nouvel ordre de §3.2 (détection →
+  réconciliation + récolte-aperçu → commit unique → notification → delta).
+- `backend/services/harvest.py` — `harvest_tombstones`, livrée **INERTE** : compte et journalise sur
+  G3/G4(proxy `deleted_reason`)/G5/G6/G7, ne supprime jamais rien (G8/G9 attendent M2).
+- Effacement des associations ajouté à `restore_font` (`routers/fonts.py`) et `_revive_if_deleted`
+  (`services/font_importer.py`), comme `delete_font`/`resolve_duplicate_faces` le faisaient déjà —
+  ferme la boucle « restauration → re-quarantaine » que la réconciliation rend possible.
+- Soft delete de `devices` : `delete_device`, `merge_devices` (sources), `list_devices`, les
+  `_get_device_or_404` de `devices.py`/`sync.py`/`fonts.py`, et `register_device` qui ranime.
+- `DeviceFontEntry.ingestible` (défaut `True`) + asymétrie dans `compute_delta` (`sync_manager.py`) :
+  n'agit que sur `unknown_to_server`.
+- Tests : `test_inventory.py` (8), `test_harvest.py` (6), `test_migrations.py` (1, structurel §7.5),
+  plus 6 ajoutés à `test_deletion_propagation.py` (G1/G2 au niveau routeur, soft delete, canari
+  restauration doublé de la variante à redéclaration). **Suite complète : 348 passed, 3 skipped**
+  (+19 vs le 329 de L0), `ruff format`/`ruff check` sans régression sur le code touché.
+
+**Ce qui reste avant de cocher L1 « terminé » : le déploiement et sa vérification sur les deux Macs
+réels**, selon l'ordre d'§5.2 (serveur avant agent — mais ici l'agent ne change pas encore, L1 est
+un no-op côté agent puisque `ingestible` n'existe pas avant L3) et le rituel d'arrêt qui précède, puis
+les critères de sortie du tableau ci-dessus (§4.3 : deux premiers deltas à `DeletionDetection.total ==
+0`, registre observé entre 8 215 et ~10 400). **Cette session n'a pas d'accès direct au NAS ni aux deux
+Macs** — comme pour la sauvegarde (ci-dessus), ce sera une session relayée commande par commande.
 
 ---
 

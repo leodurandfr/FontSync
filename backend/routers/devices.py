@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -27,8 +26,14 @@ router = APIRouter(prefix="/api/devices", tags=["devices"])
 
 
 async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
-    """Récupère un device par ID ou lève 404."""
-    result = await db.execute(select(Device).where(Device.id == device_id))
+    """Récupère un device par ID ou lève 404.
+
+    Un appareil soft-supprimé (`deleted_at`) est invisible ici : seul
+    `register_device` sait le ranimer, sur re-enregistrement de l'agent.
+    """
+    result = await db.execute(
+        select(Device).where(Device.id == device_id, Device.deleted_at.is_(None))
+    )
     device = result.scalar_one_or_none()
     if device is None:
         raise HTTPException(status_code=404, detail="Device non trouvé.")
@@ -78,6 +83,12 @@ async def register_device(
         device = result.scalar_one_or_none()
 
     if device is not None:
+        if device.deleted_at is not None:
+            # Ranimation : l'appareil était sorti de l'UI, il revient. Son
+            # registre `device_fonts` n'a jamais bougé (soft delete), donc rien
+            # à reconstruire — seule la visibilité change.
+            logger.info("Device %s ranimé au ré-enregistrement.", device.id)
+            device.deleted_at = None
         # Le hostname est une donnée mouvante, pas une clé : on le rafraîchit.
         device.hostname = body.hostname
         # Mise à jour du device existant (sans écraser auto_pull/auto_push ni
@@ -111,8 +122,12 @@ async def register_device(
 async def list_devices(
     db: AsyncSession = Depends(get_db),
 ) -> list[DeviceResponse]:
-    """Liste tous les devices enregistrés."""
-    result = await db.execute(select(Device).order_by(Device.created_at.desc()))
+    """Liste tous les devices enregistrés, hors soft-supprimés."""
+    result = await db.execute(
+        select(Device)
+        .where(Device.deleted_at.is_(None))
+        .order_by(Device.created_at.desc())
+    )
     devices = result.scalars().all()
     return [_to_response(d) for d in devices]
 
@@ -188,9 +203,9 @@ async def merge_devices(
                 target_font_ids.add(row.font_id)
                 moved += 1
             await db.delete(row)
-        # Les associations partent avant l'appareil : `PRAGMA foreign_keys=ON`.
-        await db.flush()
-        await db.delete(source)
+        # Soft delete : la source sort de l'UI, sa ligne reste — ranimable par
+        # `register_device` si l'agent se réenregistre par erreur après coup.
+        source.deleted_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(target)
@@ -230,16 +245,17 @@ async def delete_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Supprime un device et ses associations.
+    """Retire un device de l'interface — soft delete.
 
-    Les lignes `device_fonts` sont retirées explicitement : elles portent le
-    device dans leur clé primaire, donc SQLAlchemy ne peut pas les dissocier et
-    la suppression échouait sur la contrainte de clé étrangère (`PRAGMA
-    foreign_keys=ON`) dès que l'appareil avait transféré la moindre police —
-    c'est-à-dire toujours. Les polices, elles, restent : le serveur est la
-    source de vérité, retirer une machine n'ampute pas la bibliothèque.
+    Un hard delete détruisait aussi les associations `device_fonts` de
+    l'appareil (portées dans leur clé primaire). Sous le modèle de récolte des
+    pierres tombales, ce geste **relâchait** la protection au lieu de la
+    resserrer : les fichiers sur la machine ne bougent pas, mais elle cessait
+    d'être comptée comme détentrice — toutes les tombes qu'elle protégeait
+    devenaient candidates d'un coup. Le soft delete garde la ligne et ses
+    associations ; seule la visibilité change. `register_device` la ranime si
+    l'agent se ré-enregistre.
     """
     device = await _get_device_or_404(device_id, db)
-    await db.execute(delete(DeviceFont).where(DeviceFont.device_id == device.id))
-    await db.delete(device)
+    device.deleted_at = datetime.now(timezone.utc)
     await db.commit()

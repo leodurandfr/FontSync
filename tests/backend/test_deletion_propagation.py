@@ -31,7 +31,8 @@ from backend.models.font import (
     Font,
 )
 from backend.routers.fonts import delete_font, restore_font
-from backend.schemas.sync import DeviceFontEntry
+from backend.routers.sync import delta_sync
+from backend.schemas.sync import DeltaSyncRequest, DeviceFontEntry
 from backend.services.deletion_propagation import (
     detect_local_deletions,
     propagation_limit,
@@ -40,7 +41,6 @@ from backend.services.font_importer import import_font
 from backend.services.sync_manager import compute_delta, register_device_font
 from backend.services.trash import purge_expired, purge_font
 from tests.backend.conftest import AUTH_HEADERS
-
 
 # ---------- Helpers API ----------
 
@@ -638,6 +638,50 @@ async def test_restore_after_propagated_delete_does_not_loop(
 
 
 @pytest.mark.asyncio
+async def test_restore_after_propagated_delete_survives_redeclaration(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Variante du canari précédent, celle que la réconciliation (L1) rend possible.
+
+    Ici l'appareil n'a PAS encore désinstallé au moment de la suppression : il
+    redéclare le fichier une dernière fois, la réconciliation lui recrée alors
+    une association SUR LA TOMBE (§3.1 — c'est le geste qui protège son
+    fichier). Il désinstalle *ensuite*, sur la foi de `toUninstall`. Si
+    `restore_font` ne nettoyait pas cette association fraîchement recréée, le
+    sync suivant verrait une police active, associée, non déclarée : re-mise en
+    quarantaine, la boucle qu'aucun clic ne casse.
+    """
+    laptop = await _register_device(api_client, hostname="laptop")
+    await api_client.patch(
+        f"/api/devices/{laptop}",
+        headers=AUTH_HEADERS,
+        json={"propagateDeletions": True},
+    )
+    gone = await _push(
+        api_client, laptop, font_factory(family="StillThere"), "Still.ttf"
+    )
+    kept = await _push(api_client, laptop, font_factory(family="Stay2"), "Stay2.ttf")
+
+    await api_client.delete(f"/api/fonts/{gone['fontId']}", headers=AUTH_HEADERS)
+
+    # L'appareil n'a pas encore réagi : il déclare toujours le fichier tombé.
+    delta = await _delta(api_client, laptop, [gone["fileHash"], kept["fileHash"]])
+    assert [ref["fileHash"] for ref in delta["toUninstall"]] == [gone["fileHash"]]
+
+    resp = await api_client.post(
+        f"/api/fonts/{gone['fontId']}/restore", headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Il applique enfin la désinstallation reçue plus haut : il ne le déclare
+    # plus.
+    delta = await _delta(api_client, laptop, [kept["fileHash"]])
+    assert [ref["fileHash"] for ref in delta["missingOnDevice"]] == [gone["fileHash"]]
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["total"] == 0
+
+
+@pytest.mark.asyncio
 async def test_local_deletion_is_recorded_without_the_setting(
     api_client: AsyncClient, font_factory
 ) -> None:
@@ -757,6 +801,92 @@ async def test_device_with_fonts_can_be_deleted(
     # La bibliothèque n'est pas amputée : le serveur reste la source de vérité.
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
     assert listing.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_device_soft_deletes_it(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Retirer un appareil ne détruit plus la ligne — un hard delete emportait
+    aussi ses associations, ce qui RELÂCHAIT la protection d'une pierre tombale
+    au lieu de la resserrer : les fichiers sur la machine ne bougent pas, mais
+    elle cessait d'être comptée comme détentrice. Le re-enregistrement doit la
+    ranimer, même identifiant, registre intact.
+    """
+    device_id = await _register_device(api_client, hostname="soft-me")
+    await _push(api_client, device_id, font_factory(family="Held2"), "Held2.ttf")
+
+    resp = await api_client.delete(f"/api/devices/{device_id}", headers=AUTH_HEADERS)
+    assert resp.status_code == 204, resp.text
+
+    # Sortie de l'UI...
+    listing = await api_client.get("/api/devices", headers=AUTH_HEADERS)
+    assert listing.json() == []
+
+    # ...mais ranimée par un ré-enregistrement, même identité.
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "Mac de test", "hostname": "soft-me", "os": "macos"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"] == device_id
+    listing = await api_client.get("/api/devices", headers=AUTH_HEADERS)
+    assert [d["id"] for d in listing.json()] == [device_id]
+
+
+@pytest.mark.asyncio
+async def test_empty_declaration_skips_reconciliation(
+    db, storage, font_factory
+) -> None:
+    """G1, côté réconciliation : une déclaration vide ne touche pas le registre.
+
+    Sans ce garde-fou, un dossier démonté ferait lire une déclaration vide
+    comme « départ » de toutes les pierres tombales que l'appareil protège
+    encore.
+    """
+    device = await _make_device(db)
+    tomb = await _make_font(db, storage, font_factory, "Guarded")
+    tomb.deleted_at = datetime.now(timezone.utc)
+    tomb.deleted_reason = DELETION_MANUAL
+    await register_device_font(device.id, tomb.id, "Guarded.ttf", db)
+    await db.commit()
+
+    await delta_sync(DeltaSyncRequest(device_id=device.id, fonts=[]), db)
+
+    assert await _association_count(db, tomb.id) == 1
+    await db.refresh(device)
+    assert device.last_declaration_at is None
+
+
+@pytest.mark.asyncio
+async def test_suspicious_declaration_skips_reconciliation(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G2 : une déclaration au-delà du seuil de quarantaine ne réconcilie rien
+    non plus — tant que rien n'est crédible, on ne conclut ni sur les absences
+    ni sur les présences."""
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
+    device = await _make_device(db)
+    disappearing = await _make_font(db, storage, font_factory, "Disappearing")
+    newcomer = await _make_font(db, storage, font_factory, "Newcomer")
+    await register_device_font(device.id, disappearing.id, "Disappearing.ttf", db)
+    await db.commit()
+
+    await delta_sync(
+        DeltaSyncRequest(
+            device_id=device.id,
+            fonts=[DeviceFontEntry(hash=newcomer.file_hash, filename="Newcomer.ttf")],
+        ),
+        db,
+    )
+
+    # Retenue (pending), pas conclue — et rien d'autre n'a bougé : le nouvel
+    # arrivant n'a pas obtenu d'association.
+    assert await _association_count(db, newcomer.id) == 0
+    await db.refresh(device)
+    assert device.last_declaration_at is None
 
 
 # =====================================================================

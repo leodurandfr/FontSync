@@ -17,6 +17,17 @@ class Device(UUIDPrimaryKey, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_status: Mapped[str] = mapped_column(String(20), default="idle")
+    # Dernier delta CRÉDIBLE traité (déclaration non vide, non suspecte). Sert de
+    # borne à la récolte de pierres tombales : `last_seen_at` ne peut pas jouer ce
+    # rôle, il est posé par le register HTTP — donc avant le delta — et déplacé
+    # par un simple PATCH depuis l'UI.
+    last_declaration_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Soft delete : l'appareil sort de l'UI mais son registre `device_fonts`
+    # reste — il continue de protéger les pierres tombales qu'il détient
+    # (convention `CLAUDE.md`). `register_device` le ranime.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     font_directories: Mapped[dict | None] = mapped_column(JSON)
     auto_pull: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_push: Mapped[bool] = mapped_column(Boolean, default=True)
