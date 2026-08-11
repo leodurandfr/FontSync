@@ -87,6 +87,7 @@ async def test_declared_tombstone_gets_its_association(
     font = await _make_font(db, storage, font_factory, "Tombstone")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     stats = await reconcile_inventory(
@@ -118,6 +119,7 @@ async def test_undeclared_tombstone_loses_its_association(
     await register_device_font(device.id, kept.id, "Kept.ttf", db)
     gone.deleted_at = datetime.now(timezone.utc)
     gone.deleted_reason = DELETION_MANUAL
+    gone.deletion_confirmed = True
     await db.commit()
 
     stats = await reconcile_inventory(
@@ -242,6 +244,7 @@ async def test_reconciliation_and_detection_are_commutative(
         tombstone = await _make_font(db, storage, font_factory, f"Tomb-{order}")
         tombstone.deleted_at = datetime.now(timezone.utc)
         tombstone.deleted_reason = DELETION_MANUAL
+        tombstone.deletion_confirmed = True
         kept = await _make_font(db, storage, font_factory, f"Kept-{order}")
         await register_device_font(device.id, disappearing.id, "Vanish.ttf", db)
         await register_device_font(device.id, kept.id, "Kept.ttf", db)

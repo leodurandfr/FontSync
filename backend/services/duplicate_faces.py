@@ -273,6 +273,7 @@ async def resolve_duplicate_faces(
         for font in group.redundant:
             font.deleted_at = now
             font.deleted_reason = DELETION_MANUAL
+            font.deletion_confirmed = True
             font.updated_at = now
             trashed.append(font)
 

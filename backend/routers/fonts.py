@@ -17,7 +17,6 @@ from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import (
     DELETION_MANUAL,
-    DELETION_PENDING,
     DELETION_QUARANTINE,
     Font,
     deletion_confirmed_clause,
@@ -357,7 +356,7 @@ async def list_trash(
         .where(
             Font.deleted_at.is_not(None),
             Font.purged_at.is_(None),
-            Font.deleted_reason == DELETION_PENDING,
+            deletion_unconfirmed_clause(),
         )
     )
 
@@ -437,19 +436,20 @@ async def confirm_pending_deletions(
     suspension — c'est la seule action de tout ce module qui peut faire
     disparaître un fichier ailleurs, d'où le geste explicite.
     """
-    # `deleted_at IS NOT NULL` n'est pas redondant. Le motif est aujourd'hui le
-    # seul filtre, et il le restera d'autant moins que le verrou deviendra un
-    # booléen partagé par toutes les polices vivantes : sans cette clause, un
-    # clic sur « Confirmer et propager » porterait sur la bibliothèque entière.
+    # `deleted_at IS NOT NULL` n'est pas redondant : `deletion_confirmed` vaut
+    # `False` par défaut sur toute la bibliothèque vivante, pas seulement sur
+    # les suppressions en attente. Sans cette clause, un clic sur « Confirmer et
+    # propager » porterait sur la bibliothèque entière.
     result = await db.execute(
         select(Font).where(
             Font.deleted_at.is_not(None),
-            Font.deleted_reason == DELETION_PENDING,
+            deletion_unconfirmed_clause(),
         )
     )
     fonts = list(result.scalars().all())
     for font in fonts:
         font.deleted_reason = DELETION_QUARANTINE
+        font.deletion_confirmed = True
     await db.commit()
 
     if fonts:
@@ -735,6 +735,7 @@ async def delete_font(
     font = await _get_font_or_404(font_id, db)
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     font.updated_at = datetime.now(timezone.utc)
     # Les associations « cet appareil détient cette police » tombent avec elle.
     # Les garder ferait re-quarantiner la police au premier sync suivant une
@@ -813,6 +814,7 @@ async def restore_font(
         )
     font.deleted_at = None
     font.deleted_reason = None
+    font.deletion_confirmed = False
     font.updated_at = datetime.now(timezone.utc)
     # Comme `delete_font` à la suppression : remettre l'inventaire de cette
     # police à zéro. La réconciliation (`services/inventory.py`) peut avoir

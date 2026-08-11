@@ -11,7 +11,6 @@ from sqlalchemy import (
     Text,
     Uuid,
     func,
-    or_,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -110,6 +109,22 @@ class Font(UUIDPrimaryKey, Base):
     # au jour 31.
     purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # LE verrou de propagation (M2). Remplace la liste blanche à trois valeurs de
+    # `deleted_reason` par une question binaire lue à un seul endroit (cf. plus
+    # bas). `deleted_reason` reste posé en parallèle jusqu'à M3 — double écriture,
+    # lecture uniquement sur ce booléen. Défaut `False` = fail-safe : une police
+    # tombée sans qu'on ait explicitement tranché ne se propage jamais.
+    deletion_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="0", default=False
+    )
+
+    # Mémoire du délai de grâce de la récolte (`docs/PLAN-ETATS-FONTS.md` §3.4,
+    # G8) : posé quand une pierre tombale devient candidate, remis à `NULL` si un
+    # appareil la redéclare entre-temps. Aucune lecture d'affichage.
+    harvest_candidate_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     # Relations
     device_fonts: Mapped[list["DeviceFont"]] = relationship(back_populates="font")
     family_member: Mapped["FontFamilyMember | None"] = relationship(
@@ -129,35 +144,32 @@ class Font(UUIDPrimaryKey, Base):
 #
 # Une question binaire, posée par tout ce qui peut rendre une suppression
 # irréversible : retirer le fichier du stockage, vider la corbeille, purger à
-# l'échéance. Le prédicat vit ici plutôt qu'à ces trois endroits — dupliqué, il
-# dériverait. (`sync_manager` pose la même question sur une ligne de résultat
-# brute, pas sur un objet `Font` ; c'est la quatrième et dernière lecture.)
+# l'échéance, récolter (`services/harvest.py`, G4). Le prédicat vit ici plutôt
+# qu'à ces endroits — dupliqué, il dériverait. (`sync_manager` pose la même
+# question sur une ligne de résultat brute, pas sur un objet `Font` ; elle lit
+# directement `Font.deletion_confirmed`, pas ces helpers.)
 #
-# Forme **liste blanche**, jamais négation : un motif absent ou inattendu reste
-# NON confirmé, donc inerte. C'est le sens sûr — rien ne s'efface sur un doute.
+# Depuis M2, la lecture porte sur `Font.deletion_confirmed` (`NOT NULL`) — plus
+# de liste blanche à traduire, plus de logique ternaire à éviter.
+# `deleted_reason` reste écrit en parallèle jusqu'à M3 (double écriture) mais
+# n'est plus lu ici. **Chaque appel doit rester combiné à `deleted_at IS NOT
+# NULL`** : le défaut `False` de `deletion_confirmed` est partagé par toute la
+# bibliothèque vivante, pas seulement par les suppressions en attente.
 
 
 def is_deletion_confirmed(font: Font) -> bool:
     """Cette suppression peut-elle produire un effet irréversible ?"""
-    return font.deleted_reason in PROPAGATING_DELETION_REASONS
+    return font.deletion_confirmed
 
 
 def deletion_confirmed_clause():
     """Version SQL de `is_deletion_confirmed`, pour un `WHERE`."""
-    return Font.deleted_reason.in_(PROPAGATING_DELETION_REASONS)
+    return Font.deletion_confirmed.is_(True)
 
 
 def deletion_unconfirmed_clause():
-    """Le complément — et **pas** `~deletion_confirmed_clause()`.
-
-    En logique ternaire SQL, `NOT (NULL IN (…))` vaut NULL : une ligne au motif
-    absent échapperait aux deux clauses à la fois, donc ne serait ni purgée ni
-    comptée comme retenue. La forme explicite la range du bon côté.
-    """
-    return or_(
-        Font.deleted_reason.is_(None),
-        Font.deleted_reason.not_in(PROPAGATING_DELETION_REASONS),
-    )
+    """Le complément explicite de `deletion_confirmed_clause`."""
+    return Font.deletion_confirmed.is_(False)
 
 
 from backend.models.device_font import DeviceFont  # noqa: E402

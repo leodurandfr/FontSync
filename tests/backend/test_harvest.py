@@ -1,8 +1,8 @@
-"""Récolte des pierres tombales — version INERTE de L1 (aperçu, aucune suppression).
+"""Récolte des pierres tombales — version INERTE de L1/L2 (aperçu, aucune suppression).
 
 Cf. `docs/PLAN-ETATS-FONTS.md` §3.4 pour la condition complète et ses neuf
-garde-fous ; cette version n'en mesure que les cinq déjà disponibles avec le
-schéma de L1 (G3, G4 via `is_deletion_confirmed`, G5, G6, G7).
+garde-fous ; cette version n'en mesure que les cinq déjà disponibles avant
+l'activation de la récolte en L5 (G3, G4, G5, G6, G7).
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ async def _make_tombstone(
     font = await _make_font(db, storage, font_factory, family)
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL if confirmed else DELETION_PENDING
+    font.deletion_confirmed = confirmed
     font.purged_at = datetime.now(timezone.utc)
     return font
 
@@ -85,8 +86,7 @@ async def test_undeclared_live_device_blocks_the_count(
 
 @pytest.mark.asyncio
 async def test_unconfirmed_deletion_blocks_the_count(db, storage, font_factory) -> None:
-    """G4 (proxy `deleted_reason`) : une quarantaine en attente n'est jamais
-    candidate."""
+    """G4 : une quarantaine en attente n'est jamais candidate."""
     device = await _make_device(db)
     tomb = await _make_tombstone(db, storage, font_factory, "Pending", confirmed=False)
     device.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
@@ -103,6 +103,7 @@ async def test_not_yet_purged_blocks_the_count(db, storage, font_factory) -> Non
     font = await _make_font(db, storage, font_factory, "StillStored")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     # `purged_at` volontairement absent.
     device.last_declaration_at = font.deleted_at + timedelta(seconds=1)
     await db.commit()

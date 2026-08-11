@@ -134,6 +134,7 @@ async def _revive_if_deleted(font: Font, db: AsyncSession) -> bool:
         return False
     font.deleted_at = None
     font.deleted_reason = None
+    font.deletion_confirmed = False
     font.purged_at = None
     # Comme `delete_font`/`resolve_duplicate_faces` à la suppression : remettre
     # l'inventaire de cette police à zéro. Sans ça, un appareil qui l'a

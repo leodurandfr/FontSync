@@ -2,15 +2,15 @@
 
 Condition exacte et neuf garde-fous détaillés en `docs/PLAN-ETATS-FONTS.md`
 §3.4. **Cette version, livrée en L1, est INERTE : elle ne supprime jamais
-rien.** Deux des garde-fous du modèle cible — G8 (délai de grâce) et G9
-(plafond, activation) — dépendent de `fonts.harvest_candidate_since` et
-`fonts.deletion_confirmed`, colonnes que M2 n'a pas encore posées.
+rien.** G8 (délai de grâce) et G9 (plafond, activation) restent hors de cette
+version : G8 suppose une phase 1 qui pose `fonts.harvest_candidate_since`
+(colonne posée par M2, cf. §0, mais dont l'écriture reste un geste de L5) ; G9
+n'a de sens qu'une fois la suppression réellement activée.
 
 Ce qu'elle fait : compter et journaliser, sur les garde-fous déjà mesurables
-avec le schéma actuel (G3, G4 — via `is_deletion_confirmed`, la traduction
-existante de `deleted_reason` en attendant le booléen dédié —, G5, G6, G7), ce
-qui deviendrait récoltable. C'est la répétition à blanc sur les données
-réelles qui précède l'activation, en L4/L5, de la suppression effective.
+(G3, G4 — sur `fonts.deletion_confirmed`, posée par M2 — G5, G6, G7), ce qui
+deviendrait récoltable. C'est la répétition à blanc sur les données réelles
+qui précède l'activation, en L4/L5, de la suppression effective.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ async def harvest_tombstones(db: AsyncSession) -> int:
         select(Font.id).where(
             Font.deleted_at.is_not(None),
             Font.purged_at.is_not(None),  # G3 — le fichier a quitté le stockage
-            deletion_confirmed_clause(),  # G4 — suppression confirmée (proxy)
+            deletion_confirmed_clause(),  # G4 — suppression confirmée
             exists(any_live_device),  # G5 — au moins un appareil vivant
             ~exists(holder_exists),  # G6 — aucun détenteur ingestible
             ~exists(undeclared_live_device),  # G7 — tous ont redéclaré depuis

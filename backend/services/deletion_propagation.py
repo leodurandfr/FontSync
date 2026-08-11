@@ -129,6 +129,7 @@ async def detect_local_deletions(
     for font in disappeared:
         font.deleted_at = now
         font.deleted_reason = reason
+        font.deletion_confirmed = propagates
         font.updated_at = now
 
     # Le registre doit refléter le disque : la machine n'a plus ces fichiers.

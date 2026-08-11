@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
-from backend.models.font import PROPAGATING_DELETION_REASONS, Font
+from backend.models.font import Font
 from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
 
 
@@ -70,7 +70,7 @@ async def compute_delta(
             Font.family_name,
             Font.file_size,
             Font.deleted_at,
-            Font.deleted_reason,
+            Font.deletion_confirmed,
         )
     )
     active_map: dict[str, Any] = {}
@@ -102,11 +102,7 @@ async def compute_delta(
     # l'utilisateur n'a pas tranché, personne ne perd son fichier.
     deleted_here = [deleted_map[h] for h in device_hashes & set(deleted_map)]
     to_uninstall = (
-        [
-            _to_ref(row)
-            for row in deleted_here
-            if row.deleted_reason in PROPAGATING_DELETION_REASONS
-        ]
+        [_to_ref(row) for row in deleted_here if row.deletion_confirmed]
         if propagate_deletions
         else []
     )

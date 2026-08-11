@@ -17,7 +17,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 |---|---|---|---|
 | **L0 — Hygiène** | **terminé** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
 | **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
-| **L2 — Booléen de confirmation** | à faire | M2 | requête de cohérence §5.1 = 0 |
+| **L2 — Booléen de confirmation** | **code livré, à déployer** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 (revérifiée en local, backfill exact) — **déploiement NAS restant** |
 | **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
 | **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
@@ -127,6 +127,42 @@ Séquence exécutée, dans l'ordre d'§5.2 :
    le flag L5 est éteint).
 
 **L1 est terminé et vérifié en production.** Prochain lot : **L2 — booléen de confirmation** (M2).
+
+**L2, code livré (11 août 2026), dans cette session.** Tout §8/L2 est en place, **rien n'est encore
+déployé** :
+
+- Migration `9c1e4f2b7a03` (`deletion_confirmed_flag`, revises `6adf18c939c6`) : `fonts.deletion_confirmed`
+  (`NOT NULL DEFAULT '0'`) + `fonts.harvest_candidate_since`. Backfill exact — vérifié manuellement en
+  local (upgrade jusqu'à M1, deux lignes insérées à la main `manual`/`quarantine_pending`, upgrade vers
+  M2) : `manual → confirmed=1`, `quarantine_pending → confirmed=0`, ligne vivante non affectée. Downgrade
+  testé dans le même run : les deux colonnes disparaissent, les 3 lignes survivent.
+- Lecture bascule intégralement sur le booléen. `backend/models/font.py` : `is_deletion_confirmed`,
+  `deletion_confirmed_clause`, `deletion_unconfirmed_clause` lisent `Font.deletion_confirmed` (fini la
+  liste blanche sur `deleted_reason` et sa logique ternaire — plus nécessaire, la colonne est
+  `NOT NULL`). `backend/services/sync_manager.py:compute_delta` (le « quatrième lecteur », sur une ligne
+  de résultat brute) sélectionne `Font.deletion_confirmed` au lieu de `Font.deleted_reason`. `fonts.py`
+  (`list_trash` pending, `/trash/confirm`) lisent désormais `deletion_unconfirmed_clause()` au lieu de
+  `Font.deleted_reason == DELETION_PENDING`.
+- Double écriture sur les 6 sites : `routers/fonts.py` (`delete_font`, `confirm_pending_deletions`,
+  `restore_font`), `services/duplicate_faces.py` (`resolve_duplicate_faces`),
+  `services/deletion_propagation.py` (`detect_local_deletions` — `deletion_confirmed = propagates`, le
+  même booléen qui choisit déjà entre `DELETION_QUARANTINE`/`DELETION_PENDING`),
+  `services/font_importer.py` (`_revive_if_deleted`). `deleted_reason` continue d'être posé partout,
+  inchangé — seule la lecture a bougé, comme prescrit (réversibilité du sens jusqu'à M3).
+- Tests : les 4 tests cassés par la bascule de lecture corrigés (`test_auto_purge_respects_retention`,
+  `test_to_uninstall_requires_the_device_setting`, `test_auto_purge_spares_unconfirmed_deletions`,
+  `test_harvest_never_deletes_anything`) en posant `deletion_confirmed` en décor partout où
+  `deleted_reason` l'était déjà (`test_deletion_propagation.py`, `test_harvest.py::_make_tombstone`,
+  `test_inventory.py`), pour que le décor de test reflète l'invariant réel. **Suite complète : 348
+  passed, 3 skipped** (inchangé vs L1 — aucun test ajouté, l'existant couvrait déjà chaque site).
+  `ruff check` sans régression sur le code touché (les seules nouvelles alertes viennent du gabarit
+  d'import de la migration, identique caractère pour caractère à M1/`b7c31a4d90e2`).
+
+**Déploiement non fait.** Contrairement à L1, cette session n'avait pas d'accès SSH actif au NAS ni aux
+deux Macs — le code est prêt (`M2` additive pure, mêmes garanties de réversibilité que M1) mais
+l'exécution de §5.2 (rituel d'arrêt sur les deux machines, build + publish de l'image, `docker compose
+pull/up`, vérification structurelle en prod, requête de cohérence §5.1 rejouée sur les données réelles)
+reste à faire, avec l'utilisateur pour relayer les commandes sur le Mac mini comme lors de L1.
 
 ---
 

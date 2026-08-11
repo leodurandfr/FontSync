@@ -125,6 +125,7 @@ async def test_deleted_font_is_not_offered_for_push(db, storage, font_factory) -
     font = await _make_font(db, storage, font_factory, "Gone")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     delta = await compute_delta(
@@ -146,6 +147,7 @@ async def test_agent_push_does_not_revive_a_deleted_font(
     font, _ = await import_font("phoenix.ttf", data, storage, db)
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     same, is_duplicate = await import_font(
@@ -168,6 +170,7 @@ async def test_web_upload_still_revives(db, storage, font_factory) -> None:
     font, _ = await import_font("revive.ttf", data, storage, db)
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     revived, is_duplicate = await import_font("revive.ttf", data, storage, db)
@@ -359,6 +362,7 @@ async def test_purge_is_idempotent(db, storage, font_factory) -> None:
     font = await _make_font(db, storage, font_factory, "Twice")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     assert await purge_font(font, storage, db) is True
@@ -371,6 +375,7 @@ async def test_auto_purge_is_off_by_default(db, storage, font_factory) -> None:
     font = await _make_font(db, storage, font_factory, "Old")
     font.deleted_at = datetime.now(timezone.utc) - timedelta(days=365)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
 
     assert settings.trash_retention_days == 0
@@ -385,8 +390,10 @@ async def test_auto_purge_respects_retention(db, storage, font_factory) -> None:
     now = datetime.now(timezone.utc)
     old.deleted_at = now - timedelta(days=40)
     old.deleted_reason = DELETION_MANUAL
+    old.deletion_confirmed = True
     recent.deleted_at = now - timedelta(days=2)
     recent.deleted_reason = DELETION_MANUAL
+    recent.deletion_confirmed = True
     await db.commit()
 
     assert await purge_expired(storage, db, retention_days=30) == 1
@@ -510,6 +517,7 @@ async def test_pending_quarantine_is_not_propagated(db, storage, font_factory) -
     font = await _make_font(db, storage, font_factory, "Held")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_PENDING
+    font.deletion_confirmed = False
     await db.commit()
 
     delta = await compute_delta(
@@ -530,6 +538,7 @@ async def test_to_uninstall_requires_the_device_setting(
     font = await _make_font(db, storage, font_factory, "Told")
     font.deleted_at = datetime.now(timezone.utc)
     font.deleted_reason = DELETION_MANUAL
+    font.deletion_confirmed = True
     await db.commit()
     entries = [DeviceFontEntry(hash=font.file_hash, filename="Told.ttf")]
 
@@ -849,6 +858,7 @@ async def test_empty_declaration_skips_reconciliation(
     tomb = await _make_font(db, storage, font_factory, "Guarded")
     tomb.deleted_at = datetime.now(timezone.utc)
     tomb.deleted_reason = DELETION_MANUAL
+    tomb.deletion_confirmed = True
     await register_device_font(device.id, tomb.id, "Guarded.ttf", db)
     await db.commit()
 
@@ -1171,7 +1181,9 @@ async def test_auto_purge_spares_unconfirmed_deletions(
     manual = await _make_font(db, storage, font_factory, "Manual")
     old = datetime.now(timezone.utc) - timedelta(days=40)
     held.deleted_at, held.deleted_reason = old, DELETION_PENDING
+    held.deletion_confirmed = False
     manual.deleted_at, manual.deleted_reason = old, DELETION_MANUAL
+    manual.deletion_confirmed = True
     await db.commit()
 
     assert await purge_expired(storage, db, retention_days=30) == 1
