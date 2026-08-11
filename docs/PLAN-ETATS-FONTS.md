@@ -17,7 +17,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 |---|---|---|---|
 | **L0 — Hygiène** | **terminé** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
 | **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
-| **L2 — Booléen de confirmation** | **code livré, à déployer** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 (revérifiée en local, backfill exact) — **déploiement NAS restant** |
+| **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
 | **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
@@ -128,8 +128,7 @@ Séquence exécutée, dans l'ordre d'§5.2 :
 
 **L1 est terminé et vérifié en production.** Prochain lot : **L2 — booléen de confirmation** (M2).
 
-**L2, code livré (11 août 2026), dans cette session.** Tout §8/L2 est en place, **rien n'est encore
-déployé** :
+**L2, code livré et déployé (11 août 2026), dans cette session.** Tout §8/L2 est en place :
 
 - Migration `9c1e4f2b7a03` (`deletion_confirmed_flag`, revises `6adf18c939c6`) : `fonts.deletion_confirmed`
   (`NOT NULL DEFAULT '0'`) + `fonts.harvest_candidate_since`. Backfill exact — vérifié manuellement en
@@ -158,11 +157,34 @@ déployé** :
   `ruff check` sans régression sur le code touché (les seules nouvelles alertes viennent du gabarit
   d'import de la migration, identique caractère pour caractère à M1/`b7c31a4d90e2`).
 
-**Déploiement non fait.** Contrairement à L1, cette session n'avait pas d'accès SSH actif au NAS ni aux
-deux Macs — le code est prêt (`M2` additive pure, mêmes garanties de réversibilité que M1) mais
-l'exécution de §5.2 (rituel d'arrêt sur les deux machines, build + publish de l'image, `docker compose
-pull/up`, vérification structurelle en prod, requête de cohérence §5.1 rejouée sur les données réelles)
-reste à faire, avec l'utilisateur pour relayer les commandes sur le Mac mini comme lors de L1.
+**Déploiement L2 du 11 août 2026, dans cette session.** Contrairement au constat initial (« pas d'accès
+SSH actif »), l'accès NAS de la session L1 s'est révélé encore valide (clé publique toujours autorisée,
+`sudoers.d/fontsync-deploy` toujours en place — **pas encore révoqué**, cf. §11). MacBook piloté
+directement, Mac mini de nouveau relayé commande par commande par l'utilisateur.
+
+Séquence exécutée, dans l'ordre d'§5.2 :
+
+1. Rituel d'arrêt sur les deux Macs (`launchctl bootout` de `com.fontsync.sync`/`.listen`) — le mini
+   n'avait déjà plus les jobs chargés (`No such process` aux deux premiers `bootout`), le MacBook a été
+   arrêté normalement.
+2. Sauvegarde automatique déjà fraîche du jour vérifiée avant d'agir (instantané `fontsync-20260811-131811.db`,
+   19 Mo, 13:18) — pas de sauvegarde manuelle supplémentaire, même raison qu'en L1.
+3. `git push origin main` (`3a0ebf0`), puis `gh workflow run docker-publish.yml --ref main` — build
+   multi-arch réussi.
+4. Sur le NAS : `docker compose pull fontsync` + `up -d fontsync`. Entrypoint : `6adf18c939c6 →
+   9c1e4f2b7a03` propre, `healthy` après ~25 s.
+5. Vérification structurelle : `alembic_version = 9c1e4f2b7a03`, les 2 colonnes présentes,
+   `PRAGMA integrity_check` → `ok`, `foreign_key_check` → vide.
+6. **Requête de cohérence §5.1 rejouée sur les données réelles : 0.** Répartition exacte —
+   `('manual', 1015)` et `('quarantine', 10)` toutes deux à `deletion_confirmed = 1`, les **5180**
+   polices vivantes à `0`. Correspond exactement aux comptes mesurés en L0/L1 : le backfill n'a ni
+   sur- ni sous-confirmé une seule ligne.
+7. Relance des agents sur les deux Macs (`launchctl bootstrap`). **4 deltas propres** (2 par machine,
+   tous `200 OK`), **aucune** ligne `WARNING`/quarantine/erreur dans les logs serveur sur la fenêtre de
+   vérification. `device_fonts` stable à **11 384** (inchangé vs L1 — M2 ne touche pas la
+   réconciliation). Corbeille toujours à 0, `pending_confirmation` à 0.
+
+**L2 est terminé et vérifié en production.** Prochain lot : **L3 — agent 0.2.0**.
 
 ---
 
