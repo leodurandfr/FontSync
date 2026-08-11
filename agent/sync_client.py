@@ -179,13 +179,14 @@ class SyncClient:
                     "hash": f.file_hash,
                     "filename": f.filename,
                     "localPath": str(f.path),
+                    "ingestible": f.ingestible,
                 }
                 for f in fonts
             ],
         )
 
     def delta_sync_hashes(
-        self, device_id: str, font_entries: list[dict[str, str]]
+        self, device_id: str, font_entries: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """Envoie des entrées {hash, filename} au serveur pour comparaison."""
         payload = {

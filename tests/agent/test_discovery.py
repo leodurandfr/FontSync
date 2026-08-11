@@ -108,7 +108,7 @@ def test_discover_fonts_falls_back_to_directories(
 ) -> None:
     """Core Text vide → le disque suffit."""
     _touch(tmp_path / "Inter.ttf")
-    monkeypatch.setattr(discovery, "discover_via_core_text", lambda: [])
+    monkeypatch.setattr(discovery, "discover_via_core_text", lambda *a, **k: [])
 
     fonts = discover_fonts([str(tmp_path)])
 
@@ -127,11 +127,14 @@ def test_discover_fonts_keeps_disk_font_missing_from_core_text(
     """
     _touch(tmp_path / "OnDisk.ttf")
     ct_result = [DiscoveredFont(path=Path("/Library/Fonts/X.ttf"), filename="X.ttf")]
-    monkeypatch.setattr(discovery, "discover_via_core_text", lambda: ct_result)
+    monkeypatch.setattr(discovery, "discover_via_core_text", lambda *a, **k: ct_result)
 
     fonts = discover_fonts([str(tmp_path)])
 
     assert sorted(f.filename for f in fonts) == ["OnDisk.ttf", "X.ttf"]
+    # La déclaration n'a pas bougé (§7.3/21) : l'union reste la même, seul le
+    # drapeau `ingestible` (défaut True ici, non calculé par ce stub) change.
+    assert all(f.ingestible for f in fonts)
 
 
 def test_discover_fonts_does_not_duplicate_shared_paths(
@@ -142,7 +145,7 @@ def test_discover_fonts_does_not_duplicate_shared_paths(
     monkeypatch.setattr(
         discovery,
         "discover_via_core_text",
-        lambda: [DiscoveredFont(path=path, filename="Inter.ttf")],
+        lambda *a, **k: [DiscoveredFont(path=path, filename="Inter.ttf")],
     )
 
     fonts = discover_fonts([str(tmp_path)])
@@ -162,7 +165,7 @@ def test_discover_fonts_applies_ignore_patterns_to_core_text(
     monkeypatch.setattr(
         discovery,
         "discover_via_core_text",
-        lambda: [
+        lambda *a, **k: [
             DiscoveredFont(
                 path=Path("/Library/Fonts/SystemX.ttf"), filename="SystemX.ttf"
             )
@@ -180,7 +183,7 @@ def test_discover_fonts_forced_directories_skips_core_text(
     """FONTSYNC_DISCOVERY=directories → Core Text court-circuité (simulation dev)."""
     _touch(tmp_path / "Inter.ttf")
 
-    def _boom() -> list[DiscoveredFont]:
+    def _boom(*a: object, **k: object) -> list[DiscoveredFont]:
         raise AssertionError("Core Text ne doit pas être appelé en mode forcé")
 
     monkeypatch.setattr(discovery, "discover_via_core_text", _boom)
@@ -205,3 +208,81 @@ def test_core_text_returns_empty_without_pyobjc(
     monkeypatch.setattr(builtins, "__import__", blocked_import)
 
     assert discover_via_core_text() == []
+
+
+# ---------- Agent 0.2.0 — drapeau `ingestible` (§7.3 PLAN-ETATS-FONTS.md) ----------
+
+
+def test_directories_flags_outside_ingest_directories_as_not_ingestible(
+    tmp_path: Path,
+) -> None:
+    """Une entrée hors `ingest_directories` (ex. `/Library/Fonts`) est déclarée
+    non ingestible : elle reste vue, mais ne candidate plus au push (#17)."""
+    shared = _touch(tmp_path / "shared" / "Office.ttf")
+    personal = _touch(tmp_path / "personal" / "Inter.ttf")
+
+    fonts = discover_via_directories(
+        [str(tmp_path / "shared"), str(tmp_path / "personal")],
+        ingest_directories=[str(tmp_path / "personal")],
+    )
+
+    by_name = {f.filename: f for f in fonts}
+    assert by_name["Office.ttf"].ingestible is False
+    assert by_name["Inter.ttf"].ingestible is True
+    assert shared.exists() and personal.exists()  # les deux restent déclarées
+
+
+def test_directories_ingest_directories_none_means_everything_ingestible(
+    tmp_path: Path,
+) -> None:
+    """`ingest_directories=None` (défaut) vaut « tout est ingestible »."""
+    _touch(tmp_path / "Inter.ttf")
+
+    fonts = discover_via_directories([str(tmp_path)])
+
+    assert all(f.ingestible for f in fonts)
+
+
+def test_core_text_reinjection_from_shared_folder_is_not_ingestible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une police réinjectée par Core Text depuis `/Library/Fonts` est aussi
+    non ingestible (#18) : `allowed_prefixes` code ce dossier en dur, hors de
+    toute configuration, et `discover_fonts` doit quand même la marquer."""
+    shared_font = Path("/Library/Fonts/Office.ttf")
+    monkeypatch.setattr(
+        discovery,
+        "discover_via_core_text",
+        lambda ingest_directories=None: [
+            DiscoveredFont(
+                path=shared_font,
+                filename="Office.ttf",
+                ingestible=discovery._is_ingestible(shared_font, ingest_directories),
+            )
+        ],
+    )
+
+    fonts = discover_fonts(
+        [str(tmp_path)], ingest_directories=[str(Path.home() / "Library" / "Fonts")]
+    )
+
+    assert [f.ingestible for f in fonts if f.filename == "Office.ttf"] == [False]
+
+
+def test_disabled_folder_declared_as_ingestible_by_the_scan_itself(
+    tmp_path: Path,
+) -> None:
+    """`discover_via_directories` seule ne connaît pas la sémantique de
+    `disabled/` : l'override `ingestible=True` est posé par l'appelant
+    (`sync_command._declared_fonts`), pas ici. Sans `ingest_directories`, la
+    fonction reste neutre (#19, moitié « scan »)."""
+    _touch(tmp_path / "disabled" / "Off.ttf")
+
+    fonts = discover_via_directories(
+        [str(tmp_path / "disabled")], ingest_directories=[]
+    )
+
+    # Un `ingest_directories` vide (aucun dossier ingestible) donnerait False
+    # sans l'override explicite côté appelant — exactement ce que
+    # `sync_command._declared_fonts` corrige.
+    assert fonts[0].ingestible is False

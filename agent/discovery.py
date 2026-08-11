@@ -37,13 +37,44 @@ class DiscoveredFont:
 
     path: Path
     filename: str
+    # Ce détenteur peut-il alimenter la bibliothèque synchronisée ? Défaut
+    # `True` — la direction sûre (cf. PLAN-ETATS-FONTS.md §4.3) : un appelant
+    # qui ne calcule pas le drapeau (tests, `disabled/`) ne bloque rien à tort.
+    ingestible: bool = True
 
 
-def discover_via_core_text() -> list[DiscoveredFont]:
+def _is_ingestible(path: Path, ingest_directories: list[str] | None) -> bool:
+    """Le chemin **résolu** est-il sous un des `ingest_directories` ?
+
+    Comparaison par `Path.is_relative_to` sur des chemins résolus, jamais un
+    préfixe de chaîne : `~/Library/Fonts` doit valoir `/Users/leo/Library/Fonts`,
+    pas matcher `~/Library/FontsBackup` par accident de préfixe.
+    """
+    if ingest_directories is None:
+        return True
+    resolved = path.resolve()
+    for d in ingest_directories:
+        try:
+            if resolved.is_relative_to(Path(d).expanduser().resolve()):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def discover_via_core_text(
+    ingest_directories: list[str] | None = None,
+) -> list[DiscoveredFont]:
     """Découvre les fonts via Core Text (pyobjc).
 
     Retourne uniquement les fonts dans ~/Library/Fonts et /Library/Fonts
     (on exclut /System/Library/Fonts qui contient les fonts OS).
+
+    `ingest_directories` : cf. `_is_ingestible`. `/Library/Fonts` est codé en
+    dur dans `allowed_prefixes` ci-dessous, hors de toute configuration — une
+    police que Core Text réinjecte depuis ce dossier (index macOS retrouvant
+    un fichier que le scan disque a manqué) doit rester non ingestible comme
+    si le scan l'avait trouvée directement.
     """
     try:
         import CoreText  # type: ignore[import-untyped]
@@ -84,7 +115,13 @@ def discover_via_core_text() -> list[DiscoveredFont]:
 
             path = Path(path_str)
             if path.suffix.lower() in FONT_EXTENSIONS and path.is_file():
-                fonts.append(DiscoveredFont(path=path, filename=path.name))
+                fonts.append(
+                    DiscoveredFont(
+                        path=path,
+                        filename=path.name,
+                        ingestible=_is_ingestible(path, ingest_directories),
+                    )
+                )
 
         logger.info("Core Text : %d fonts découvertes", len(fonts))
         return fonts
@@ -97,10 +134,15 @@ def discover_via_core_text() -> list[DiscoveredFont]:
 def discover_via_directories(
     directories: list[str],
     ignore_patterns: list[str] | None = None,
+    ingest_directories: list[str] | None = None,
 ) -> list[DiscoveredFont]:
     """Scan direct des dossiers de fonts (fallback).
 
     Parcourt récursivement les dossiers et collecte les fichiers font.
+
+    `ingest_directories` : cf. `_is_ingestible`. `None` (le défaut) vaut
+    « tout est ingestible » — c'est le cas de l'appel sur `disabled/`, qui
+    force le drapeau à `True` lui-même (cf. `sync_command.py`).
     """
     ignore = ignore_patterns or []
     fonts: list[DiscoveredFont] = []
@@ -127,7 +169,13 @@ def discover_via_directories(
                 continue
             seen_paths.add(resolved)
 
-            fonts.append(DiscoveredFont(path=file_path, filename=file_path.name))
+            fonts.append(
+                DiscoveredFont(
+                    path=file_path,
+                    filename=file_path.name,
+                    ingestible=_is_ingestible(file_path, ingest_directories),
+                )
+            )
 
     logger.info("Scan dossiers : %d fonts découvertes", len(fonts))
     return fonts
@@ -140,6 +188,7 @@ def _matches_ignore(filename: str, ignore_patterns: list[str] | None) -> bool:
 def discover_fonts(
     directories: list[str],
     ignore_patterns: list[str] | None = None,
+    ingest_directories: list[str] | None = None,
 ) -> list[DiscoveredFont]:
     """Découvre toutes les fonts de cette machine : disque **union** Core Text.
 
@@ -148,17 +197,21 @@ def discover_fonts(
     de module : depuis que l'absence vaut suppression, se fier au seul index de
     macOS ferait effacer partout ce que cet index a momentanément perdu.
 
+    `ingest_directories` : cf. `_is_ingestible` — posé sur les deux sources, la
+    découverte elle-même reste **inchangée** (§4.2 PLAN-ETATS-FONTS.md) : ce
+    qui change, c'est la candidature au push, jamais ce qui est déclaré.
+
     En développement, ``FONTSYNC_DISCOVERY=directories`` court-circuite Core
     Text (qui renverrait toujours le vrai ``~/Library/Fonts``) : indispensable
     pour simuler une machine au jeu de fonts isolé. Neutre en production.
     """
-    on_disk = discover_via_directories(directories, ignore_patterns)
+    on_disk = discover_via_directories(directories, ignore_patterns, ingest_directories)
     if os.environ.get("FONTSYNC_DISCOVERY") == "directories":
         return on_disk
 
     seen = {str(f.path.resolve()) for f in on_disk}
     extra = 0
-    for font in discover_via_core_text():
+    for font in discover_via_core_text(ingest_directories):
         if _matches_ignore(font.filename, ignore_patterns):
             continue
         try:

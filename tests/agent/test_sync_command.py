@@ -320,6 +320,78 @@ def test_empty_uninstall_list_is_the_default(monkeypatch: pytest.MonkeyPatch) ->
     assert result.reindex_triggered is False
 
 
+# ---------- Agent 0.2.0 — drapeau `ingestible` (§7.3 PLAN-ETATS-FONTS.md) ----------
+
+
+def test_disabled_folder_is_forced_ingestible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`disabled/` n'appartient à aucun `ingest_directories` : le calcul
+    générique donnerait `ingestible=False`. `_declared_fonts` l'écrase à
+    `True` (#19) — sinon désactiver une police sur un appareil sans
+    propagation cesserait de protéger sa tombe."""
+    _stub_scan(monkeypatch, [])
+    disabled = DiscoveredFont(
+        path=Path("/fake/disabled/Off.ttf"), filename="Off.ttf", ingestible=False
+    )
+    monkeypatch.setattr(
+        sync_command, "discover_via_directories", lambda *a, **k: [disabled]
+    )
+    declared: list[Any] = []
+    monkeypatch.setattr(
+        sync_command, "scan_fonts", lambda fonts, **k: declared.extend(fonts) or []
+    )
+
+    run_sync(_config(), client=FakeClient())
+
+    assert [f.ingestible for f in declared if f.filename == "Off.ttf"] == [True]
+
+
+def test_non_ingestible_fonts_excluded_from_push_but_still_declared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une font non ingestible (ex. `/Library/Fonts`) reste déclarée — elle
+    compte dans `discovered` — mais n'est jamais candidate au push, même si
+    le serveur la renvoie dans `unknownToServer` (#20, défense en profondeur
+    du filtre serveur déjà appliqué sur `unknown_to_server`)."""
+    ingestible_hash = "a" * 64
+    out_of_scope_hash = "b" * 64
+    fonts = [
+        ScannedFont(
+            path=Path(f"/fake/{ingestible_hash}.ttf"),
+            filename=f"{ingestible_hash}.ttf",
+            file_hash=ingestible_hash,
+            file_size=1000,
+            ingestible=True,
+        ),
+        ScannedFont(
+            path=Path(f"/fake/{out_of_scope_hash}.ttf"),
+            filename=f"{out_of_scope_hash}.ttf",
+            file_hash=out_of_scope_hash,
+            file_size=1001,
+            ingestible=False,
+        ),
+    ]
+    monkeypatch.setattr(sync_command, "discover_fonts", lambda *a, **k: list(fonts))
+    monkeypatch.setattr(sync_command, "scan_fonts", lambda *a, **k: list(fonts))
+    monkeypatch.setattr(sync_command, "HashCache", _NoopCache)
+    monkeypatch.setattr(sync_command, "discover_via_directories", lambda *a, **k: [])
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [ingestible_hash, out_of_scope_hash],
+            "missingOnDevice": [],
+            "alreadySynced": 0,
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert client.pushed_hashes == {ingestible_hash}
+    assert result.pushed == 1
+    assert result.push_out_of_scope == 1
+    # La police reste déclarée : elle ne disparaît pas de la découverte.
+    assert result.discovered == 2
+
+
 def test_stateless_repeatable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deux runs identiques → bilans identiques (aucune accumulation d'état)."""
     _stub_scan(monkeypatch, ["e" * 64])

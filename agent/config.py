@@ -16,6 +16,9 @@ Schéma YAML :
       device_id: …           # persisté après le 1er enregistrement
     scan:
       directories: [...]
+      ingest_directories: [...]  # sous-ensemble alimentant la bibliothèque
+                                  #   synchronisée (le reste est scanné/déclaré
+                                  #   mais jamais poussé, cf. PLAN-ETATS-FONTS.md §4)
       ignore_patterns: [...]
     sync:
       auto_pull: false        # le serveur fait foi ; ceci n'est que le défaut
@@ -42,7 +45,7 @@ from agent.paths import state_dir
 CONFIG_DIR = state_dir()
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.2.0"
 
 # Dossiers de fonts macOS (per-user + système partagé, pas /System/Library/Fonts)
 DEFAULT_MACOS_DIRECTORIES = [
@@ -50,6 +53,11 @@ DEFAULT_MACOS_DIRECTORIES = [
     "/Library/Fonts",
 ]
 DEFAULT_IGNORE_PATTERNS = [".*", "System*"]
+# Sous-ensemble de `directories` qui alimente la bibliothèque synchronisée
+# (§4 PLAN-ETATS-FONTS.md) : `/Library/Fonts` reste scanné et déclaré (retirer
+# la découverte serait non déterministe et ferait quarantiner en masse), mais
+# ce que ce dossier contient n'est plus candidat au push — `ingestible=False`.
+DEFAULT_INGEST_DIRECTORIES = [str(Path.home() / "Library" / "Fonts")]
 
 
 @dataclass
@@ -74,6 +82,9 @@ class AgentConfig:
     device_id: str | None = None
     directories: list[str] = field(
         default_factory=lambda: list(DEFAULT_MACOS_DIRECTORIES)
+    )
+    ingest_directories: list[str] = field(
+        default_factory=lambda: list(DEFAULT_INGEST_DIRECTORIES)
     )
     ignore_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_IGNORE_PATTERNS)
@@ -109,6 +120,9 @@ class AgentConfig:
             device_token=server.get("device_token", defaults.device_token),
             device_id=server.get("device_id", defaults.device_id),
             directories=scan.get("directories", defaults.directories),
+            ingest_directories=scan.get(
+                "ingest_directories", defaults.ingest_directories
+            ),
             ignore_patterns=scan.get("ignore_patterns", defaults.ignore_patterns),
             auto_push=sync.get("auto_push", defaults.auto_push),
             auto_pull=sync.get("auto_pull", defaults.auto_pull),
@@ -132,6 +146,7 @@ class AgentConfig:
             },
             "scan": {
                 "directories": self.directories,
+                "ingest_directories": self.ingest_directories,
                 "ignore_patterns": self.ignore_patterns,
             },
             "sync": {

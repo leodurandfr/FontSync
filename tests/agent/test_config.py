@@ -57,6 +57,7 @@ def test_full_round_trip_preserves_all_fields(_isolated_config: Path) -> None:
         device_token="tok",
         device_id="dev",
         directories=["/a", "/b"],
+        ingest_directories=["/a"],
         ignore_patterns=["x*"],
         auto_push=False,
         auto_pull=True,
@@ -65,6 +66,32 @@ def test_full_round_trip_preserves_all_fields(_isolated_config: Path) -> None:
 
     reloaded = AgentConfig.load()
     assert reloaded == cfg
+
+
+def test_ingest_directories_defaults_to_user_library_fonts_only(
+    _isolated_config: Path,
+) -> None:
+    """`/Library/Fonts` (partagé) reste scanné (`directories`) mais n'est pas
+    dans `ingest_directories` par défaut — c'est lui que L3 rend non
+    ingestible (PLAN-ETATS-FONTS.md §4.1)."""
+    cfg = AgentConfig.load()
+    assert cfg.ingest_directories == [str(Path.home() / "Library" / "Fonts")]
+    assert "/Library/Fonts" in cfg.directories
+    assert "/Library/Fonts" not in cfg.ingest_directories
+
+
+def test_ingest_directories_absent_from_yaml_falls_back_to_default(
+    _isolated_config: Path,
+) -> None:
+    """Un fichier existant écrit par un agent 0.1.0 (sans la clé) ne casse
+    rien : le défaut du dataclass s'applique, comme pour toute clé absente."""
+    _isolated_config.parent.mkdir(parents=True, exist_ok=True)
+    _isolated_config.write_text(
+        yaml.safe_dump({"scan": {"directories": ["/a"]}}), encoding="utf-8"
+    )
+
+    cfg = AgentConfig.load()
+    assert cfg.ingest_directories == AgentConfig().ingest_directories
 
 
 def test_persists_server_token(_isolated_config: Path) -> None:

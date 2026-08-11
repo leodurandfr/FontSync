@@ -31,6 +31,7 @@ class ScannedFont:
     filename: str
     file_hash: str
     file_size: int
+    ingestible: bool = True
 
 
 def hash_file(path: Path) -> str:
@@ -80,6 +81,7 @@ def scan_fonts(
                     filename=font.filename,
                     file_hash=file_hash,
                     file_size=file_size,
+                    ingestible=font.ingestible,
                 )
             )
         except OSError:

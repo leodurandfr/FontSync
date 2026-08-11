@@ -30,7 +30,7 @@ d'event loop → pas de risque de blocage.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from agent.config import AgentConfig
@@ -90,6 +90,7 @@ class SyncResult:
     push_errors: int = 0
     push_skipped: int = 0  # inconnues non envoyées (auto_push désactivé)
     push_refused: int = 0  # refusées car supprimées côté serveur (pas une erreur)
+    push_out_of_scope: int = 0  # inconnues mais non ingestibles (ex. /Library/Fonts)
     installed: int = 0
     pull_skipped: int = 0  # format non installable (woff/woff2)
     pull_errors: int = 0
@@ -121,7 +122,8 @@ class SyncResult:
             f"déjà sync={self.already_synced} | "
             f"push: {self.pushed} ok, {self.duplicates} doublons, "
             f"{self.push_errors} erreurs, {self.push_skipped} ignorées, "
-            f"{self.push_refused} refusées (supprimées) | "
+            f"{self.push_refused} refusées (supprimées), "
+            f"{self.push_out_of_scope} hors périmètre | "
             f"pull: {self.installed} installées, {self.pull_skipped} non installables, "
             f"{self.pull_errors} erreurs, {self.pull_disabled} ignorées"
             f"{deletions}"
@@ -195,6 +197,17 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
         to_uninstall: list[dict[str, Any]] = delta.get("toUninstall", [])
         result.already_synced = int(delta.get("alreadySynced", 0))
         result.deleted_on_server = int(delta.get("deletedOnServer", 0))
+
+        # Filtre local, en défense en profondeur du filtre serveur (déjà
+        # appliqué côté `unknownToServer`, cf. PLAN-ETATS-FONTS.md §3.2) : ne
+        # jamais pousser un détenteur non ingestible, quoi qu'en dise le
+        # serveur. Coût réel nul : `push_fonts` filtre déjà par set de hashes.
+        ingestible_hashes = {f.file_hash for f in scanned if f.ingestible}
+        out_of_scope = unknown - ingestible_hashes
+        if out_of_scope:
+            result.push_out_of_scope = len(out_of_scope)
+            unknown -= out_of_scope
+
         logger.info(
             "Delta : %d à pusher, %d à puller, %d à désinstaller, "
             "%d déjà synchronisées",
@@ -259,11 +272,22 @@ def _declared_fonts(config: AgentConfig) -> tuple[list[DiscoveredFont], int]:
 
     Returns:
         (fonts déclarées, nombre venant du dossier `disabled/`).
+
+    `ingestible` forcé à `True` sur les entrées de `disabled/` : ce dossier
+    n'appartient à aucun `ingest_directories`, le calcul générique donnerait
+    `False` — ce qui cesserait de protéger la tombe d'une police simplement
+    désactivée sur un appareil sans propagation (§4.1 PLAN-ETATS-FONTS.md).
     """
-    fonts = discover_fonts(config.directories, config.ignore_patterns)
+    fonts = discover_fonts(
+        config.directories, config.ignore_patterns, config.ingest_directories
+    )
     deactivated = discover_via_directories([str(DISABLED_DIR)], config.ignore_patterns)
     known = {str(f.path.resolve()) for f in fonts}
-    added = [f for f in deactivated if str(f.path.resolve()) not in known]
+    added = [
+        replace(f, ingestible=True)
+        for f in deactivated
+        if str(f.path.resolve()) not in known
+    ]
     return fonts + added, len(added)
 
 
