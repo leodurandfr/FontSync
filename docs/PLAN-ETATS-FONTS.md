@@ -19,7 +19,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
-| **L4 — Nettoyage** | code livré, **pas encore déployé** | M3 | `npm run build` **vert** ; `PRAGMA foreign_key_check` **vide** (vérifié sur base jetable, cf. ci-dessous) — **pas encore rejoué sur la prod** |
+| **L4 — Nettoyage** | **terminé** | M3 (`1e9d0c4f6b21`) | `npm run build` **vert** ; M3 chronométrée sur copie réelle (~1 s, 6 205 fonts/11 384 device_fonts) puis rejouée sur le NAS : `alembic_version` à jour, colonnes absentes, `PRAGMA integrity_check`/`foreign_key_check` propres, comptage non-NULL identique avant/après ; 2 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
@@ -296,10 +296,8 @@ supprimé) — il avait déjà perdu ces copies par un autre biais.
 Sparkle future, en respectant `--latest` différé — cf. clé privée manquante ci-dessus). Prochain
 lot : **L4 — Nettoyage** (M3, la seule migration qui recrée des tables).
 
-**L4, code livré (11 août 2026), dans cette session — pas déployé.** Tout §8/L4 est en place côté
-code, testé localement ; **le déploiement (rituel d'arrêt, NAS, redémarrage des agents) n'a pas été
-tenté dans cette session** — M3 recrée trois tables et arrête les agents sur les deux Macs, un geste
-qui mérite sa propre confirmation explicite plutôt qu'un enchaînement automatique après L3.
+**L4, code livré et déployé (11 août 2026), dans cette session.** Tout §8/L4 est en place côté code,
+testé localement, puis déployé en production le même jour.
 
 - Migration `1e9d0c4f6b21` (`drop_dead_columns`, revises `9c1e4f2b7a03`) : retire `fonts.deleted_reason`,
   `fonts.storage_path`, `devices.sync_status`, `devices.last_sync_at`, `device_fonts.activated` — la
@@ -310,7 +308,7 @@ qui mérite sa propre confirmation explicite plutôt qu'un enchaînement automat
   disparaissent puis se reconstruisent à l'identique (`storage_path` recalculé par la même formule que
   `services/storage.py`, `deleted_reason` reconstruit fidèle au verrou `deletion_confirmed`, `sync_status`/
   `last_sync_at`/`activated` aux valeurs par défaut observées en prod), `PRAGMA integrity_check` → `ok`,
-  `foreign_key_check` → vide aux trois étapes. **Pas encore rejouée sur les données réelles du NAS.**
+  `foreign_key_check` → vide aux trois étapes.
 - `backend/routers/ws.py` : `/ws/agent/{device_id}` supprimé en entier (52 lignes), avec le registre
   agent de `ws_manager.py` (`connect_agent`, `broadcast_to_agents`, `send_to_agent`, `agent_count`,
   `connected_agents`) et ses deux appelants orphelins (`routers/sync.py` après un push,
@@ -363,14 +361,48 @@ qui mérite sa propre confirmation explicite plutôt qu'un enchaînement automat
   au sens de §2.3, mais pas un problème que ce lot peut corriger sans élargir son scope à un nouveau
   champ API. À reprendre dans un lot dédié (hors L4/L5).
 
-**Reste à faire pour clore L4** : déploiement en production — rituel d'arrêt sur les deux Macs,
-sauvegarde fraîche vérifiée, `git push` + build image, puis sur le NAS `docker compose pull` + `up -d`
-(l'entrypoint applique `9c1e4f2b7a03 → 1e9d0c4f6b21`), vérification structurelle (`alembic_version`,
-colonnes absentes, `integrity_check`/`foreign_key_check`), relance des agents, `npm run build` déployé
-côté frontend. **Chronométrer M3 sur une copie de la base réelle avant de la poser sur le NAS** (§5.4) :
-c'est la seule migration du chantier qui recrée des tables, et le volume réel (6 205 lignes `fonts`,
-11 384 `device_fonts`) n'a pas été mesuré ici. Prochain lot après déploiement : **L5 — Récolte +
-affichage dérivé** (point de non-retour données, cf. §5.3).
+**Déploiement L4 du 11 août 2026, dans cette session.** Accès NAS toujours valide (clé publique +
+`sudoers.d/fontsync-deploy` scopé à `docker`, cf. §11 — **toujours pas révoqué**). MacBook piloté
+directement (la session tourne dessus), Mac mini relayé commande par commande.
+
+**Avant d'agir : M3 chronométrée sur une copie réelle**, comme prescrit par §5.4. Sauvegarde
+automatique la plus fraîche du NAS récupérée par `docker exec … cat` (`scp`/`rsync` toujours hors
+service sur ce NAS, cf. L1) : instantané `fontsync-20260811-141617.db` (14:16, `alembic_version`
+`9c1e4f2b7a03`, 6 205 `fonts` / 11 384 `device_fonts`, `integrity_check` → `ok`). `alembic upgrade
+head` rejoué dessus en local : **~1 seconde**, `integrity_check`/`foreign_key_check` propres, les 5
+colonnes absentes, et le comptage non-NULL de contrôle (`license`, `variable_axes`, `panose`,
+`unicode_ranges`, `supported_scripts`) **identique avant/après** (2235, 6205, 6205, 6205, 6205) — la
+recréation de `fonts` n'a perdu aucune colonne de métadonnées. Volume trop petit pour que le temps
+d'exécution soit une préoccupation en prod.
+
+Séquence exécutée, dans l'ordre d'§5.2 :
+1. Rituel d'arrêt sur les deux Macs (app quittée, `launchctl bootout` de `.listen`/`.sync`) — aucune
+   erreur des deux côtés.
+2. Sauvegarde automatique du NAS revérifiée après l'arrêt : toujours l'instantané de 14:16, aucune
+   écriture depuis (les agents étaient la seule source de mutation) — pas de sauvegarde manuelle
+   supplémentaire, même raison qu'aux lots précédents (scope sudo limité à `docker`).
+3. `git push origin main` (`594b24e`, `26ab60d`), puis `gh workflow run docker-publish.yml --ref main`
+   — build multi-arch réussi en 4 min 37.
+4. Sur le NAS : `docker compose -f docker-compose.nas.yml pull fontsync` + `up -d fontsync`.
+   L'entrypoint a appliqué `9c1e4f2b7a03 → 1e9d0c4f6b21` avant de redémarrer uvicorn ; conteneur
+   `healthy` en 49 s.
+5. Vérification structurelle sur `/data/fontsync.db` en direct (`docker exec … python3 -c …`) :
+   `alembic_version = 1e9d0c4f6b21`, les 5 colonnes absentes des trois tables, `PRAGMA
+   integrity_check` → `ok`, `foreign_key_check` → vide. `device_fonts` mesuré à **10 366** (vs 11 384
+   dans l'instantané de 14:16) : écart expliqué par les deltas légitimes des deux machines à 18:18/18:25
+   (avant l'arrêt effectif, donc après ma copie de sauvegarde) — corbeille et `pending_confirmation`
+   tous deux à 0, aucune ligne `WARNING`/quarantine dans les logs sur la fenêtre : réconciliation
+   normale (§3.2), pas une perte causée par M3 (qui ne touche que des colonnes, jamais des lignes).
+6. Relance des agents sur les deux Macs (`launchctl bootstrap`). **Deux deltas propres** (`200 OK`),
+   aucune ligne `WARNING`/erreur/quarantine dans les logs serveur. Côté MacBook (logs agent) : delta
+   identique aux cycles précédant la migration (`0 à pusher, 0 à puller, 3 à désinstaller — déjà
+   absentes, 0 erreur`), les 3 tombes déjà connues du MacBook depuis L3 (fichiers commerciaux déjà
+   absents, cf. incident documenté à la fin de la section L3 ci-dessus) — comportement inchangé,
+   confirmant que le changement de schéma n'a rien cassé côté agent.
+
+**L4 est terminé et vérifié en production sur les deux machines.** Prochain lot : **L5 — Récolte +
+affichage dérivé** (point de non-retour données, cf. §5.3) — ne pas l'entamer sans relire §3.4 (les
+neuf garde-fous) et sans confirmation explicite, comme pour tout geste destructeur de ce chantier.
 
 ---
 
