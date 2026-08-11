@@ -85,6 +85,12 @@ class FontResponse(CamelModel):
     """Fichier retiré du stockage. La police n'est plus restaurable telle
     quelle ; seule son empreinte subsiste, pour que la suppression tienne."""
 
+    installed_on: int = 0
+    """Nombre d'appareils vivants qui détiennent cette police (`device_fonts`),
+    tous détenteurs confondus — affichage dérivé, jamais lu pour décider de
+    quoi que ce soit (cf. `services/harvest.py` pour le seul détenteur qui
+    compte, l'ingestible)."""
+
     model_config = {
         "from_attributes": True,
         "alias_generator": CamelModel.model_config["alias_generator"],
@@ -112,6 +118,9 @@ class FontListResponse(CamelModel):
     page: int
     per_page: int
     pages: int
+    device_count: int = 0
+    """Nombre total d'appareils vivants — le dénominateur M de « installée sur
+    N de tes M machines »."""
 
 
 class TrashListResponse(FontListResponse):

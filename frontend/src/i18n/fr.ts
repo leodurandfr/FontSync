@@ -59,6 +59,7 @@ const fr: typeof en = {
     adjustFilters: "Ajustez les filtres",
     loadError: "Erreur de chargement",
     styleCount: "{n} style | {n} styles",
+    installedOnCount: "Installée sur {n} de vos {total} machines",
   },
   fontDetail: {
     openDetails: "Voir les détails",

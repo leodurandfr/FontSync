@@ -57,6 +57,7 @@ export default {
     adjustFilters: "Adjust the filters",
     loadError: "Failed to load",
     styleCount: "{n} style | {n} styles",
+    installedOnCount: "Installed on {n} of your {total} machines",
   },
   fontDetail: {
     openDetails: "View details",

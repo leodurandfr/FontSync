@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -23,12 +23,30 @@ import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
 import { downloadFromApi } from "@/lib/download";
 import { useLocale } from "@/composables/useLocale";
+import { useDevicesStore } from "@/stores/devices";
 import type { Font, FamilyMember, FontFamilyDetail } from "@/types/api";
 
 const props = defineProps<{ id: string }>();
 
 const { t, te } = useI18n();
 const { dateLocale } = useLocale();
+const devicesStore = useDevicesStore();
+
+onMounted(() => {
+  devicesStore.fetchDevices();
+});
+
+// « Installée sur N de tes M machines » : affichage dérivé, jamais lu pour
+// décider de quoi que ce soit — le seul détenteur qui compte (l'ingestible)
+// reste arbitré côté serveur (`services/harvest.py`). `undefined` tant que le
+// compte total des appareils n'est pas encore chargé, pour éviter un flash à
+// « 0 de vos 0 machines ».
+const installedOnLabel = computed(() => {
+  if (!font.value || devicesStore.devices.length === 0) return undefined;
+  return t("fonts.installedOnCount", font.value.installedOn, {
+    named: { n: font.value.installedOn, total: devicesStore.devices.length },
+  });
+});
 
 function classificationLabel(c: string): string {
   const key = `fontDetail.classification.${c}`;
@@ -366,7 +384,10 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="flex flex-shrink-0 items-center gap-2">
-            <DeviceInstallSheet :font-ids="[id]" />
+            <DeviceInstallSheet
+              :font-ids="[id]"
+              :trigger-label="installedOnLabel"
+            />
 
             <Button @click="handleDownload">
               <Download class="mr-2 h-4 w-4" />

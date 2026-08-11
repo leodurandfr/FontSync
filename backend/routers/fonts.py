@@ -59,6 +59,30 @@ def get_storage() -> StorageBackend:
     return get_storage_backend()
 
 
+async def _installed_on_counts(
+    font_ids: list[uuid.UUID], db: AsyncSession
+) -> dict[uuid.UUID, int]:
+    """Nombre d'appareils vivants détenteurs, par font — affichage dérivé
+    (« installée sur N de tes M machines »), jamais lu pour décider (cf.
+    `services/harvest.py` pour le seul détenteur qui compte)."""
+    if not font_ids:
+        return {}
+    result = await db.execute(
+        select(DeviceFont.font_id, func.count(DeviceFont.device_id))
+        .join(Device, Device.id == DeviceFont.device_id)
+        .where(DeviceFont.font_id.in_(font_ids), Device.deleted_at.is_(None))
+        .group_by(DeviceFont.font_id)
+    )
+    return {font_id: count for font_id, count in result.all()}
+
+
+async def _live_device_count(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Device).where(Device.deleted_at.is_(None))
+    )
+    return result.scalar() or 0
+
+
 # ---------- Upload ----------
 
 
@@ -201,12 +225,20 @@ async def list_fonts(
     result = await db.execute(query)
     fonts = result.scalars().all()
 
+    counts = await _installed_on_counts([f.id for f in fonts], db)
+    items = []
+    for f in fonts:
+        item = FontResponse.model_validate(f)
+        item.installed_on = counts.get(f.id, 0)
+        items.append(item)
+
     return FontListResponse(
-        items=[FontResponse.model_validate(f) for f in fonts],
+        items=items,
         total=total,
         page=page,
         per_page=per_page,
         pages=math.ceil(total / per_page) if total > 0 else 0,
+        device_count=await _live_device_count(db),
     )
 
 
@@ -493,6 +525,9 @@ async def get_font(
             select(Device.name).where(Device.id == font.source_device_id)
         )
         resp.source_device_name = device_result.scalar_one_or_none()
+
+    counts = await _installed_on_counts([font.id], db)
+    resp.installed_on = counts.get(font.id, 0)
 
     return resp
 

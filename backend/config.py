@@ -40,6 +40,28 @@ class Settings(BaseSettings):
     # pourcentage, et la fonctionnalité paraîtrait cassée.
     deletion_propagation_min_fonts: int = 3
 
+    # ---------- Récolte des pierres tombales (`docs/PLAN-ETATS-FONTS.md` §3.4) ----------
+
+    # **Défaut `False` = fail-safe.** Tant que le flag est éteint, `harvest_tombstones`
+    # reste l'aperçu INERTE livré en L1 (compte et journalise, ne supprime jamais
+    # rien). L'activer est le seul geste destructeur et irréversible du chantier
+    # (§5.3) — G9 : le flag protège d'une erreur de raisonnement (livrer inerte,
+    # lire les chiffres, puis autoriser), distincte des erreurs d'ordonnancement
+    # (G7/G8) et de mesure que les autres garde-fous couvrent.
+    tombstone_harvest_enabled: bool = False
+
+    # Délai de grâce (G8) entre l'ouverture de candidature d'une pierre tombale et
+    # sa récolte effective : le temps qu'un appareil qui aurait omis une
+    # déclaration (fichier temporairement illisible, dossier démonté) la reprenne
+    # sans qu'aucune tombe n'ait été perdue entre-temps.
+    tombstone_harvest_grace_hours: int = 24
+
+    # Plafond par passe (G9). Démarre à 5 au premier cycle réel après activation —
+    # le temps de vérifier à la main qu'aucun des fichiers correspondants n'est
+    # encore dans un dossier ingestible sur l'une des machines — puis remonté à
+    # 200 une fois la confiance établie.
+    tombstone_harvest_max_per_pass: int = 5
+
     # ---------- Sauvegarde automatique ----------
 
     # Répertoire de sauvegarde, monté en volume par l'hôte. Vide (défaut) =

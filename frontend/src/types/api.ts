@@ -45,6 +45,8 @@ export interface Font {
    * ne figure plus dans la corbeille.
    */
   purgedAt?: string | null;
+  /** Nombre d'appareils vivants détenteurs — affichage dérivé uniquement. */
+  installedOn: number;
 }
 
 export interface FontListResponse {
@@ -53,6 +55,8 @@ export interface FontListResponse {
   page: number;
   perPage: number;
   pages: number;
+  /** Dénominateur M de « installée sur N de tes M machines ». */
+  deviceCount: number;
 }
 
 export interface TrashListResponse extends FontListResponse {

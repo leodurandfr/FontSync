@@ -124,9 +124,7 @@ async def reconcile_inventory(
     # Hash déclaré ∧ police connue du serveur (active OU tombée) ∧ pas encore
     # associée. C'est le geste le plus important du chantier : créer
     # l'association d'une police EN CORBEILLE est ce qui protège son fichier
-    # tant que cette machine le détient encore. (`harvest_candidate_since` sera
-    # remis à NULL ici une fois la colonne posée par M2 — non applicable tant
-    # qu'elle n'existe pas.)
+    # tant que cette machine le détient encore.
     arrivals = 0
     missing_hashes = [h for h in by_hash if h not in existing_by_hash]
     if missing_hashes:
@@ -151,6 +149,12 @@ async def reconcile_inventory(
                     installed_at=font.created_at,
                 )
             )
+            # Une arrivée sur une tombe annule sa candidature à la récolte
+            # (`docs/PLAN-ETATS-FONTS.md` §3.1, §3.4/G8) : ce détenteur retrouvé
+            # prouve que la pierre tombale n'était pas orpheline, quelle que soit
+            # la couche (ingestible ou non — G6 la protège déjà indépendamment).
+            if font.deleted_at is not None:
+                font.harvest_candidate_since = None
             arrivals += 1
 
     # ---------- Départs et mises à jour ----------
