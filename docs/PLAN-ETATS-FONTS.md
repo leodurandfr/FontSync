@@ -18,7 +18,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L0 — Hygiène** | **terminé** | — | `pytest tests/ -q` **vert — 329 passed, 3 skipped** ; `npm run build` **vert** ; corbeille affichée à 0 ligne — **vérifié en prod le 11 août 2026** (`GET /api/fonts/trash` → `total: 0`) ; sauvegarde automatique **livrée, déployée et vérifiée en prod** (`BACKUP_DIR=/backups`, instantané 19 Mo intègre + miroir 5180/5180 fichiers) |
 | **L1 — Inventaire miroir** | **terminé** | M1 (`6adf18c939c6`) | `DeletionDetection.total == 0` **vérifié** aux deux premiers deltas des deux machines ; registre passé de 8 215 à **11 384** (6 201 MacBook + 5 183 mini) — au-dessus des ~10 400 estimés (dédup par hash réel plus généreux que l'estimation sur l'instantané du 10 août), sans anomalie : `PRAGMA integrity_check`/`foreign_key_check` propres, aucune ligne `WARNING`/quarantine dans les logs — **déployé et vérifié en prod le 11 août 2026** |
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
-| **L3 — Agent 0.2.0** | à faire | — | `.dmg` posé à la main, mini d'abord ; release **non publiée en `--latest`** |
+| **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
 | **L4 — Nettoyage** | à faire | M3 | `npm run build` vert ; `PRAGMA foreign_key_check` vide |
 | **L5 — Récolte + affichage dérivé** | à faire | — | **point de non-retour données** — ne pas activer sans avoir lu §5.3 |
 
@@ -185,6 +185,116 @@ Séquence exécutée, dans l'ordre d'§5.2 :
    réconciliation). Corbeille toujours à 0, `pending_confirmation` à 0.
 
 **L2 est terminé et vérifié en production.** Prochain lot : **L3 — agent 0.2.0**.
+
+**L3, code livré (11 août 2026), dans cette session.** Tout §4.1/§7.3/§8 côté agent est en place —
+**aucun changement serveur, aucune migration** (le serveur sait déjà lire `DeviceFontEntry.ingestible`
+depuis M1/L1) :
+
+- `agent/config.py` : `AGENT_VERSION` → `0.2.0` ; nouvelle clé `scan.ingest_directories`
+  (`DEFAULT_INGEST_DIRECTORIES = [~/Library/Fonts]`, `/Library/Fonts` en est exclu), lue et écrite
+  symétriquement dans `load()`/`save()` (une clé absente de l'un des deux disparaîtrait en silence,
+  cf. §4.1).
+- `agent/discovery.py` : `DiscoveredFont.ingestible` (défaut `True` — la direction sûre, §4.3).
+  `_is_ingestible()` compare des chemins **résolus** par `Path.is_relative_to`, jamais un préfixe de
+  chaîne. Posé dans les **deux sources** : `discover_via_directories` et `discover_via_core_text` (qui
+  code `/Library/Fonts` en dur dans `allowed_prefixes`, hors de toute configuration — une police
+  réinjectée par l'index macOS depuis ce dossier hérite du même calcul). La découverte elle-même est
+  **inchangée** : `discover_fonts` continue de déclarer l'union disque ∪ Core Text, seul le drapeau
+  qui l'accompagne change.
+- `agent/hashing.py` : `ScannedFont.ingestible` propage le drapeau depuis `DiscoveredFont` dans
+  `scan_fonts` (défaut `True` pour toute construction directe, ex. tests).
+- `agent/sync_client.py` : `delta_sync` envoie `"ingestible": f.ingestible` dans chaque entrée.
+- `agent/sync_command.py` : `_declared_fonts` passe `config.ingest_directories` à `discover_fonts`
+  **et force `ingestible=True` sur les entrées de `~/.fontsync/disabled/`** (`dataclasses.replace`) —
+  ce dossier n'est sous aucun `ingest_directories`, le calcul générique donnerait `False` et cesserait
+  de protéger la tombe d'une police simplement désactivée sur un appareil sans propagation (le
+  défaut). Filtre de push en défense en profondeur, avant l'appel à `push_fonts` :
+  `unknown -= (unknown - {f.file_hash for f in scanned if f.ingestible})`, compté dans le nouveau
+  `SyncResult.push_out_of_scope`. Coût réel nul (`push_fonts` filtre déjà par set de hashes) ; le
+  filtre serveur sur `unknown_to_server` (déjà livré en L1/§3.2) fait tout le travail en régime normal,
+  celui-ci ne mord que si les deux versants divergent.
+- Tests (§7.3, items 17-21) : `test_discovery.py` (4 nouveaux — drapeau par source, `None` = tout
+  ingestible, réinjection Core Text depuis `/Library/Fonts`, neutralité de `discover_via_directories`
+  seule sur `disabled/`) ; `test_sync_command.py` (2 nouveaux — override forcé à `True` sur
+  `disabled/` au niveau `_declared_fonts`, exclusion du push sans disparition de la déclaration) ;
+  `test_config.py` (2 nouveaux — défaut, tolérance à une clé absente écrite par un agent 0.1.0). Les
+  tests d'union existants (`:118-134`, `:153-174` du plan, renumérotés dans le fichier) restent verts,
+  enrichis d'une assertion `ingestible` sans être réécrits. **Suite complète : 356 passed, 3 skipped**
+  (+8 vs les 348 de L2), `ruff format`/`ruff check` sans régression sur le code touché.
+
+**App macOS : aucune action de code requise** (confirmé, §6). Le `.dmg` a été construit, signé et
+notarisé dans cette session, sur le MacBook (accès direct, comme L1/L2) :
+
+- `pyproject.toml` : `version` → `0.2.0` (métadonnée du paquet `fontsync-agent`, distincte
+  d'`AGENT_VERSION` mais alignée sur le même palier).
+- Deux bugs de `scripts/release-macos-app.sh`/`build-agent-venv.sh` corrigés en cours de route,
+  jamais exercés par une release précédente sur cette machine dans cet état :
+  - `build-agent-venv.sh` : `uv python find "cpython-3.12-macos-…"`, lancé depuis la racine du dépôt,
+    découvrait le `.venv` du projet (résolu jusqu'à un Python framework **système** préexistant,
+    `/Library/Frameworks/Python.framework/Versions/3.12`, 3.12.2) au lieu du CPython standalone
+    3.12.9 fraîchement téléchargé — arbre non relocatable, rejeté par le garde-fou de l'étape 5
+    (symlink absolu). Fix : `--managed-python` sur l'appel `find`.
+  - `xcode-select` pointait sur les Command Line Tools seules (pas Xcode complet) — `xcodebuild`
+    refusait de démarrer. Basculé sur `/Applications/Xcode.app/Contents/Developer` (`sudo
+    xcode-select -s`, à la main par l'utilisateur, pas d'accès `sudo` interactif depuis cette
+    session).
+  - `release-macos-app.sh` : `codesign --sign "$DEVELOPER_ID_APP"` (le nom affiché, avec l'accent de
+    « Léo ») échouait avec `no identity found` **alors que les octets UTF-8 du nom sont identiques**
+    à ceux affichés par `security find-identity` (vérifié `xxd`, NFC des deux côtés — pas un problème
+    de normalisation Unicode identifié). `xcodebuild` s'en sortait, lui, avec le même nom en
+    `CODE_SIGN_IDENTITY`. Fix, plus robuste dans les deux cas : résoudre l'identité en empreinte
+    SHA-1 une fois (`SIGN_ID`) et l'utiliser partout (`CODE_SIGN_IDENTITY` **et** `codesign --sign`).
+- Build `VERSION=0.2.0 BUILD=2` (arche hôte, arm64 — mini et MacBook sont tous deux Apple Silicon) :
+  compilation, embarquement de l'agent, signature inside-out, notarisation (`Accepted`) et stapling
+  tous **réussis**. `spctl --assess --type install` → `accepted`, `source=Notarized Developer ID`.
+  → `macos-app/dist/FontSync-0.2.0.dmg` (26,8 Mo).
+- **Étape 8/8 (signature Sparkle + `appcast.xml`) non faite** : la clé privée EdDSA n'est pas dans le
+  Trousseau de cette session (`-25300`, alors que la clé **publique** est bien celle déjà présente
+  dans `Info.plist` depuis la v0.0.1). Décision utilisateur : laissé de côté pour l'instant — sans
+  incidence sur le déploiement manuel prévu ici (pas de `--latest`, pas d'auto-update Sparkle tant
+  que les deux machines n'ont pas basculé). **À reprendre avant toute future release publiée en
+  `--latest`** : retrouver/importer la clé privée (sauvegarde Trousseau évoquée dans
+  `macos-app/RELEASE.md`), sans quoi il faudra en régénérer une — ce qui casserait la compatibilité
+  de mise à jour Sparkle avec un éventuel client déjà sur l'ancienne clé publique.
+
+**Déploiement du 11 août 2026, dans cette session, sur les deux Macs.** Séquence §5.2 suivie à la
+lettre : rituel d'arrêt (`launchctl bootout` de `.listen`/`.sync`, app quittée), `.dmg` posé à la
+main **sur le mini d'abord** (relayé commande par commande, accès direct non tenté — cf. précédent
+de L1/L2), `AGENT_VERSION` vérifié à `0.2.0`, `launchctl bootstrap` (syntaxe correcte : chemin du
+plist, pas juste le label — `bootstrap` en a besoin contrairement à `bootout`), cycle d'observation
+propre (sync sans erreur). **Puis le MacBook**, cette fois en direct (la session tourne dessus) :
+même séquence, mêmes vérifications.
+
+Deux incidents de déploiement, corrigés en cours de route (aucun lien avec le code L3 lui-même) :
+- `build-agent-venv.sh` embarquait un Python **système** (`/Library/Frameworks/Python.framework`,
+  3.12.2) au lieu du CPython standalone téléchargé (3.12.9) — `uv python find`, lancé depuis la
+  racine du dépôt, découvrait le `.venv` du projet en priorité. Fix : `--managed-python`.
+- `xcode-select` pointait sur les Command Line Tools seules ; `codesign --sign` échouait à
+  retrouver l'identité par son nom accentué (« Léo ») alors que les octets UTF-8 étaient identiques
+  à ceux de `security find-identity` (cause exacte non élucidée). Fix : résolution en empreinte
+  SHA-1 une fois, réutilisée partout.
+
+**Incident observé au premier sync du MacBook post-déploiement : 1022 fichiers réellement
+désinstallés de `~/Library/Fonts`** (`toUninstall` : 1025, 1022 désinstallées, 3 déjà absentes, 0
+erreur). **Diagnostiqué comme un rattrapage légitime, pas une régression L3** : `git show
+v0.0.1:agent/sync_command.py` ne contient **aucune** référence à `to_uninstall`/`_uninstall` — la
+désinstallation propagée, écrite et testée pendant L1/L2, n'avait **jamais été embarquée dans un
+agent publié** avant ce `.dmg` 0.2.0. Le serveur renvoyait ces 1025 tombes (déjà `deleted_at` +
+`deletion_confirmed=1` + `purged_at` — backfillées par M2, mesurées dès L0) à chaque delta depuis
+des mois ; l'agent 0.1.0 les ignorait silencieusement faute de savoir lire ce champ. `propagate_deletions`
+était déjà actif sur le MacBook (mesuré avant même L1). Suppression **non récupérable** par
+FontSync (`uninstall_font` fait un `path.unlink()` direct, pas de Corbeille macOS ; blob serveur
+déjà purgé) — seule une sauvegarde Time Machine locale y échapperait. Noms cohérents avec un pack de
+polices commerciales (GT Maru, GT Walsheim, GT Standard, GT Planar, Brice, Brunel…, liste complète
+perdue avec la session — non sauvegardée dans le repo). **Confirmé par l'utilisateur comme attendu** :
+correspond à un nettoyage de doublons/coquilles qu'il avait fait dans la corbeille avant ce chantier.
+Le mini, lui, n'avait que 3 entrées dans son propre `toUninstall`, déjà absentes (0 fichier réel
+supprimé) — il avait déjà perdu ces copies par un autre biais.
+
+**L3 est terminé et vérifié en production sur les deux machines.** Release GitHub **pas publiée**
+(le `.dmg` local a suffi au déploiement manuel ; publier reste à faire avant toute mise à jour
+Sparkle future, en respectant `--latest` différé — cf. clé privée manquante ci-dessus). Prochain
+lot : **L4 — Nettoyage** (M3, la seule migration qui recrée des tables).
 
 ---
 
