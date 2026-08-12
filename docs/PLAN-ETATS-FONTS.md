@@ -549,6 +549,23 @@ précédents) :
   côté agent). Rien d'actionnable avant cette échéance — la vérification manuelle des identifiants
   récoltés et la remontée à `max_per_pass=200` restent bloquées jusque-là.
 
+**Vérification anticipée du garde-fou G6 (12 août 2026, dans cette session).** Plutôt que
+d'attendre la récolte effective pour vérifier après coup — les lignes `fonts` supprimées
+disparaissent, seul l'UUID est journalisé (`_log_candidates`), pas le `file_hash` — capture d'un
+instantané des 1022 candidats (`id`, `file_hash`, `original_filename`, `family_name`) pendant
+qu'ils existent encore en base, puis hash de tous les fichiers de `~/Library/Fonts` sur les deux
+machines et recherche de correspondance :
+
+- **MacBook** (accès direct) : 4987 fichiers scannés, **0 correspondance**.
+- **Mac mini** (script + instantané transférés par l'utilisateur, exécuté par lui) : 4467 fichiers
+  scannés, **0 correspondance**.
+
+**Aucun des 1022 candidats n'est physiquement présent dans un dossier ingestible sur l'une des deux
+machines** — G6 tient, avant même que la suppression n'ait lieu. Ceci couvre l'esprit de la
+vérification manuelle prévue par le plan (§8/L5), en avance de phase ; la reprendre après la
+récolte effective de demain reste utile pour confirmer que l'ensemble réellement supprimé
+(sous-ensemble des 1022, celles dont G8 sera passé) coïncide bien avec ce qui a été vérifié ici.
+
 ---
 
 ## 1. Ce qui change, en un tableau
