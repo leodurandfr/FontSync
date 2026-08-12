@@ -25,6 +25,21 @@ onUnmounted(disconnect);
 
 <template>
   <!--
+    Feux de fenêtre : un seul exemplaire, réel et interactif, en position fixe
+    par rapport à la fenêtre — comme les vrais traffic lights macOS, qui sont
+    du chrome de fenêtre et ne bougent jamais quel que soit le contenu en
+    dessous. Les trois autres emplacements historiques (header sidebar, panel
+    de réouverture, bloc toolbar de la page fonts) ne réservent plus qu'un
+    espace invisible de même taille, pour que boutons/labels voisins gardent
+    leur position sans dédoubler ni faire glisser les feux pendant les
+    transitions. `z-[60]` : au-dessus de la sidebar en mode overlay (z-50).
+  -->
+  <WindowControls
+    v-if="showWindowControls"
+    class="fixed left-[28px] top-[26px] z-[60]"
+  />
+
+  <!--
     Au-dessus de 740px : modèle Finder, la sidebar pousse le contenu et élargit
     la fenêtre native si besoin (layout store → ensureWindowWidth). En dessous :
     elle passe en drawer overlay au-dessus du contenu, avec le backdrop ci-après
@@ -48,13 +63,14 @@ onUnmounted(disconnect);
 
     <AppSidebar />
 
-    <!-- Feux de fenêtre + réouverture (la page Fonts l'intègre dans sa toolbar) -->
+    <!-- Espace réservé + réouverture (la page Fonts l'intègre dans sa toolbar) -->
     <Panel
       v-if="!layout.sidebarOpen && route.name !== 'fonts'"
-      class="absolute left-3 top-3 z-40 flex h-9 items-center gap-3 pl-5 pr-3"
+      class="absolute left-2 top-2 z-40 flex h-12 items-center gap-3 pl-5 pr-3"
       data-window-drag
     >
-      <WindowControls v-if="showWindowControls" />
+      <!-- Espaceur invisible : le vrai exemplaire, fixe, est plus haut dans ce fichier. -->
+      <WindowControls v-if="showWindowControls" class="invisible" />
       <span
         v-if="showWindowControls"
         class="h-4 w-px flex-shrink-0 bg-separator"
@@ -71,15 +87,18 @@ onUnmounted(disconnect);
     </Panel>
 
     <!--
-      En mode « push » sidebar ouverte, on tire le contenu de 12px vers la
+      En mode « push » sidebar ouverte, on tire le contenu de 8px vers la
       gauche (la demi-gouttière à droite du panneau) pour que sa bordure vienne
       affleurer le bord du panneau : les filets séparateurs des fontes semblent
       ainsi filer sous la sidebar. Désactivé fermé / en overlay, sinon le
-      `overflow-hidden` parent rognerait 12px de contenu à gauche.
+      `overflow-hidden` parent rognerait 8px de contenu à gauche. Transitionnée
+      en phase avec la largeur de la sidebar (même durée/easing) : sinon la
+      marge bascule instantanément pendant que la sidebar anime sur 200 ms, ce
+      qui produit un saut visuel au lieu d'un mouvement continu.
     -->
     <main
-      class="relative min-w-0 flex-1 overflow-hidden"
-      :class="!isOverlay && layout.sidebarOpen ? '-ml-3' : ''"
+      class="relative min-w-0 flex-1 overflow-hidden transition-[margin-left] duration-200 ease-in-out"
+      :class="!isOverlay && layout.sidebarOpen ? '-ml-2' : ''"
     >
       <!--
         Crossfade entre pages : opacity seule (composité GPU, aucun reflow) et

@@ -72,18 +72,36 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         v-if="!layoutStore.sidebarOpen"
         class="order-1 grid h-12 flex-shrink-0 overflow-hidden sm:h-full"
       >
-        <div
-          class="flex min-w-0 items-center gap-3 overflow-hidden border-r border-separator pl-5 pr-3"
-        >
-          <WindowControls v-if="showWindowControls" />
-          <button
-            type="button"
-            class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
-            :aria-label="t('sidebar.openSidebar')"
-            @click="layoutStore.setSidebarOpen(true)"
+        <!--
+          Le padding/bordure vivent sur ce petit-enfant plutôt que sur l'enfant
+          direct de la grille : appliqués ici, ils imposeraient une largeur
+          plancher (padding + bordure incompressibles) que `grid-template-columns`
+          ne pourrait jamais ramener à 0, empêchant l'élément d'atteindre une
+          largeur visuelle nulle avant que Vue ne le retire du DOM — d'où un
+          saut final (la recherche à droite se décale d'un coup au lieu de
+          suivre un fondu continu).
+        -->
+        <div class="min-w-0 overflow-hidden">
+          <div
+            class="flex h-12 items-center gap-3 border-r border-separator pl-5 pr-3 sm:h-full"
           >
-            <PanelLeftOpen class="size-4" :stroke-width="1.5" />
-          </button>
+            <!--
+              Espace réservé, invisible : les vrais feux (interactifs) vivent
+              en un seul exemplaire à position fixe dans AppShell — ce sont des
+              éléments de chrome de fenêtre, jamais de contenu applicatif, ils
+              ne doivent donc jamais bouger ni se dédoubler. Cet espaceur garde
+              juste la mise en page (bouton) identique à avant.
+            -->
+            <WindowControls v-if="showWindowControls" class="invisible" />
+            <button
+              type="button"
+              class="flex items-center text-foreground-subtle transition-colors hover:text-muted-foreground"
+              :aria-label="t('sidebar.openSidebar')"
+              @click="layoutStore.setSidebarOpen(true)"
+            >
+              <PanelLeftOpen class="size-4" :stroke-width="1.5" />
+            </button>
+          </div>
         </div>
       </div>
     </Transition>

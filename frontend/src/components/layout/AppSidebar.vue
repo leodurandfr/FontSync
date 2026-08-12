@@ -116,7 +116,7 @@ function startResize(e: PointerEvent) {
   >
     <Panel
       as="aside"
-      class="m-3 flex h-[calc(100vh-24px)] flex-col overflow-hidden"
+      class="m-2 flex h-[calc(100vh-16px)] flex-col overflow-hidden"
       :class="isOverlay ? 'relative' : 'absolute right-0 top-0'"
       :style="{ width: `${layout.sidebarWidth}px` }"
     >
@@ -131,9 +131,27 @@ function startResize(e: PointerEvent) {
         data-window-drag
       >
         <div class="flex min-w-0 items-center gap-3">
-          <WindowControls v-if="showWindowControls" class="flex-shrink-0" />
+          <!-- Espaceur invisible : cf. AppShell pour l'exemplaire réel, fixe. -->
+          <WindowControls
+            v-if="showWindowControls"
+            class="invisible flex-shrink-0"
+          />
+          <!--
+            Fondu bref (100 ms, contre 200 ms pour le glissement de la
+            sidebar), pour ne jamais être à pleine opacité en croisant la zone
+            des feux de fenêtre fixes (toujours au-dessus, cf. AppShell) — sans
+            pour autant attendre l'arrêt du panneau pour démarrer.
+            Fermeture : le panneau part de sa position ouverte, donc ce label
+            croise cette zone tôt dans le glissement (~25-50 %) → le fondu
+            démarre dès le clic, en même temps que le glissement.
+            Ouverture : le panneau émerge par la droite (cf. plus haut), donc
+            ce label ne croise cette zone que tard (~45-70 %) → `delay-[90ms]`
+            pour que le fondu se termine à peu près avec le glissement au lieu
+            d'être déjà à pleine opacité bien avant d'y arriver.
+          -->
           <span
-            class="truncate text-[11px] font-semibold uppercase tracking-[0.12em]"
+            class="truncate text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity duration-100 ease-in-out"
+            :class="layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'"
           >
             FontSync
           </span>
@@ -175,7 +193,7 @@ function startResize(e: PointerEvent) {
           t("sidebar.manage")
         }}</SectionLabel>
         <RouterLink
-          to="/duplicates"
+          :to="onDuplicates ? { name: 'fonts' } : { name: 'duplicates' }"
           class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
           :class="
             onDuplicates
@@ -189,7 +207,7 @@ function startResize(e: PointerEvent) {
           }}</span>
         </RouterLink>
         <RouterLink
-          to="/trash"
+          :to="onTrash ? { name: 'fonts' } : { name: 'trash' }"
           class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
           :class="
             onTrash
@@ -217,7 +235,7 @@ function startResize(e: PointerEvent) {
         </UploadDialog>
 
         <RouterLink
-          to="/settings"
+          :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
           class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
           :class="
             onSettings

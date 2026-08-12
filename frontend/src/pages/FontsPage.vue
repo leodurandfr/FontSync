@@ -37,7 +37,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="relative h-full">
     <!-- Toolbar flottante -->
-    <div class="absolute left-3 right-3 top-3 z-20">
+    <div class="absolute left-2 right-2 top-2 z-20">
       <FontsToolbar
         v-model:font-size="fontSize"
         v-model:line-height="lineHeight"
@@ -49,11 +49,11 @@ onBeforeUnmount(() => {
 
     <!-- Fade sous la toolbar -->
     <div
-      class="pointer-events-none absolute left-0 right-3 top-[60px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
+      class="pointer-events-none absolute left-0 right-2 top-[56px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
     />
 
     <!-- Liste -->
-    <div class="scrollbar-thin absolute inset-x-0 bottom-0 top-[60px] overflow-y-auto">
+    <div class="scrollbar-thin absolute inset-x-0 bottom-0 top-[56px] overflow-y-auto">
       <div class="pb-16 pt-3">
         <FontFamilyList :typo="typo" :layout="layout" />
       </div>

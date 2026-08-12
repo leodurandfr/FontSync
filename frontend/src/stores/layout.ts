@@ -9,9 +9,9 @@ const OPEN_KEY = "fontsync_sidebar_open";
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
 
-// Gouttière autour du panneau (m-3 : 12px de chaque côté) ajoutée à la largeur
+// Gouttière autour du panneau (m-2 : 8px de chaque côté) ajoutée à la largeur
 // occupée par la sidebar quand elle pousse le contenu.
-const GUTTER = 24;
+const GUTTER = 16;
 
 // Largeur minimale qu'on veut préserver pour la zone de contenu. À l'ouverture,
 // si la fenêtre est trop étroite pour loger sidebar + ce minimum, on demande au
