@@ -20,7 +20,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
 | **L4 — Nettoyage** | **terminé** | M3 (`1e9d0c4f6b21`) | `npm run build` **vert** ; M3 chronométrée sur copie réelle (~1 s, 6 205 fonts/11 384 device_fonts) puis rejouée sur le NAS : `alembic_version` à jour, colonnes absentes, `PRAGMA integrity_check`/`foreign_key_check` propres, comptage non-NULL identique avant/après ; 2 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
-| **L5 — Récolte + affichage dérivé** | **code déployé — récolte PAS activée** | — (aucune migration ; `tombstone_harvest_enabled` reste `False` par défaut) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; image déployée sur le NAS **healthy**, `alembic_version` inchangée (`1e9d0c4f6b21`), `PRAGMA integrity_check`/`foreign_key_check` propres, comptes `fonts` identiques (5180 vivantes/1025 supprimées) — **déployé et vérifié en prod le 12 août 2026** ; **l'activation de la récolte reste un point de non-retour données** — ne pas activer sans avoir relu §5.3 et sans confirmation explicite renouvelée |
+| **L5 — Récolte + affichage dérivé** | **code déployé, récolte ACTIVÉE (`max_per_pass=5`) — en observation** | — (aucune migration ; `tombstone_harvest_enabled` basculé à `True` par variable d'env, hors migration) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; image déployée sur le NAS **healthy**, `alembic_version` inchangée (`1e9d0c4f6b21`), `PRAGMA integrity_check`/`foreign_key_check` propres, comptes `fonts` identiques (5180 vivantes/1025 supprimées) — code **déployé et vérifié en prod le 12 août 2026** ; récolte **activée en prod le 12 août 2026** (sauvegarde manuelle fraîche prise avant, confirmation explicite renouvelée obtenue) — **reste à faire** : vérification à la main des identifiants récoltés puis remontée à `max_per_pass=200` |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
 
@@ -495,6 +495,59 @@ MacBook (accès direct), Mac mini relayé commande par commande comme pour L1-L4
 observable n'a bougé. **Reste à faire, en tant que geste séparé et explicitement confirmé** :
 activation de `tombstone_harvest_enabled` avec `max_per_pass=5`, vérification à la main, puis
 remontée à 200 (§8) — voir prérequis et procédure exacts en §3.4 et §5.3 avant de l'entamer.
+
+**Activation de la récolte (12 août 2026), dans cette session.** Confirmation explicite renouvelée
+de l'utilisateur obtenue avant de commencer, spécifiquement pour ce geste (distincte de celle de L5
+lui-même, comme l'exige §5.3). §5.3 et §3.4 relus avant d'agir. Session tournant sur le MacBook
+(accès direct), NAS toujours accessible en SSH (clé de session + `sudoers.d/fontsync-deploy` encore
+en place, non révoqué — cf. §11).
+
+1. Sauvegarde manuelle déclenchée avant d'agir plutôt que de se fier à l'automatique de la veille
+   (21:39, ~11 h) : `backup_database()` appelée directement `docker exec` (le script shell
+   `backup-prod.sh` exige un accès root complet hors du périmètre du sudoers scopé à `docker`) —
+   instantané `fontsync-20260812-070257.db` écrit, `integrity_check` propre.
+2. `docker-compose.nas.yml` du NAS sauvegardé à part (`.bak-pre-L5-activation-20260812-090410`) avant
+   modification — pas d'écrasement depuis le template du dépôt, qui diverge toujours (`:main`/8070
+   vs `:latest`/8080, cf. note précédente).
+3. Deux lignes ajoutées à l'environnement du service `fontsync` : `TOMBSTONE_HARVEST_ENABLED: "true"`,
+   `TOMBSTONE_HARVEST_MAX_PER_PASS: "5"` (grace laissée au défaut, 24 h).
+4. `docker compose -f docker-compose.nas.yml up -d fontsync` — recréation du conteneur, aucune image
+   nouvelle, aucune migration (cohérent avec §0/L5). `healthy` en ~25 s.
+5. Vérifications : les deux réglages relus depuis `backend.config.settings` dans le conteneur
+   (`tombstone_harvest_enabled=True`, `max_per_pass=5`) ; `PRAGMA integrity_check` → `ok`,
+   `foreign_key_check` → vide, `alembic_version` inchangée (`1e9d0c4f6b21`) ; comptes `fonts`
+   identiques à avant activation (**5180 vivantes / 1025 supprimées** — la bascule du flag seule ne
+   touche aucune ligne, la récolte n'agit qu'au prochain `delta_sync`).
+6. Un moniteur de logs est resté branché sur le conteneur (`docker logs -f`, filtré sur
+   `récolte|candidat|harvest|DeletionDetection|ERROR`) pour capter en direct l'ouverture de
+   candidature (immédiate, au premier `delta_sync` de chaque machine) et la récolte effective elle-même
+   (après le délai de grâce de 24 h, G8).
+
+**Récolte activée, `max_per_pass=5`, en observation.** Prochain jalon : constater dans les logs
+l'ouverture de candidature sur les ~1 015 tombes sans détenteur (attendue au premier cycle des deux
+Macs, StartInterval 600 s), puis la récolte elle-même **au plus tôt 24 h après**, **vérifier à la
+main qu'aucun identifiant récolté ne correspond à un fichier encore présent dans un dossier
+ingestible sur l'une des deux machines**, avant de remonter `max_per_pass` à 200 (§8) — geste séparé,
+non fait ici, à ne déclencher qu'après cette vérification.
+
+**Vérification en direct (12 août 2026, 08:08 UTC), dans cette session.** Session tournant sur le
+MacBook, accès SSH au NAS confirmé toujours valide (`100.104.232.79:93`). État relu en base, lecture
+seule (`python3 -c` dans le conteneur, `sqlite3` toujours absent de l'image, comme aux lots
+précédents) :
+
+- `harvest_candidate_since` posé sur **1022** pierres tombales (proche des ~1015 estimés), la plus
+  ancienne ouverte à `2026-08-12 07:05:29 UTC` — `_open_candidacies` (phase 1, silencieuse par
+  design, aucune ligne de log) a bien tourné au premier `delta_sync` post-activation. L'absence de
+  ligne `récolte|candidat|harvest` dans les logs jusqu'ici n'est donc **pas une anomalie** : seule la
+  phase 2 (`_harvest_ready_candidates`) journalise, en `WARNING`, et seulement quand elle supprime
+  effectivement.
+- **Aucune récolte effective encore** : `fonts` toujours à **6205** lignes (5180 vivantes / 1025
+  supprimées), identique à avant activation — cohérent, la phase 2 exige G8
+  (`harvest_candidate_since <= now - 24h`), pas encore atteint.
+- Horloge NAS relue : `2026-08-12 08:08:46 UTC`. **G8 s'ouvre au plus tôt le 2026-08-13 à 07:05:29
+  UTC**, au prochain `delta_sync` de l'une des deux machines après cette heure (StartInterval 600 s
+  côté agent). Rien d'actionnable avant cette échéance — la vérification manuelle des identifiants
+  récoltés et la remontée à `max_per_pass=200` restent bloquées jusque-là.
 
 ---
 
