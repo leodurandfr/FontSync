@@ -20,7 +20,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
 | **L4 — Nettoyage** | **terminé** | M3 (`1e9d0c4f6b21`) | `npm run build` **vert** ; M3 chronométrée sur copie réelle (~1 s, 6 205 fonts/11 384 device_fonts) puis rejouée sur le NAS : `alembic_version` à jour, colonnes absentes, `PRAGMA integrity_check`/`foreign_key_check` propres, comptage non-NULL identique avant/après ; 2 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
-| **L5 — Récolte + affichage dérivé** | **code livré, testé localement — PAS déployé** | — (`tombstone_harvest_enabled` reste `False` par défaut) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; **point de non-retour données** — ne pas activer en prod sans avoir relu §5.3 et sans confirmation explicite |
+| **L5 — Récolte + affichage dérivé** | **code déployé — récolte PAS activée** | — (aucune migration ; `tombstone_harvest_enabled` reste `False` par défaut) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; image déployée sur le NAS **healthy**, `alembic_version` inchangée (`1e9d0c4f6b21`), `PRAGMA integrity_check`/`foreign_key_check` propres, comptes `fonts` identiques (5180 vivantes/1025 supprimées) — **déployé et vérifié en prod le 12 août 2026** ; **l'activation de la récolte reste un point de non-retour données** — ne pas activer sans avoir relu §5.3 et sans confirmation explicite renouvelée |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
 
@@ -447,12 +447,54 @@ en prod, §5.2/§8) reste un geste distinct, à confirmer séparément le jour o
   (+10 vs les 355 de L4). `ruff check`/`format` sans régression sur le code touché (vérifié par
   `git stash` : les seules alertes pré-existantes, `RUF012`/`UP017`/`B008`, inchangées en nombre).
   `npm run build` (`vue-tsc -b && vite build`) et `npx prettier --check` **verts**.
-- **Non fait, volontairement** : aucun déploiement, aucune migration (L5 n'en a pas), le flag reste
-  `False` — l'état de production est **identique à L4**. Activer `tombstone_harvest_enabled` sur le
-  NAS reste un geste séparé, à ne déclencher qu'avec `max_per_pass=5`, une vérification à la main que
-  les identifiants loggés ne correspondent à aucun fichier encore présent dans un dossier ingestible
-  sur l'une des deux machines, puis une remontée à 200 (§8) — **et une confirmation explicite
-  renouvelée**, ce paragraphe n'en tient pas lieu.
+- **Non fait, volontairement, au moment du codage** : aucun déploiement, aucune migration (L5 n'en a
+  pas), le flag reste `False` — l'état de production restait **identique à L4**. Activer
+  `tombstone_harvest_enabled` sur le NAS reste un geste séparé, à ne déclencher qu'avec
+  `max_per_pass=5`, une vérification à la main que les identifiants loggés ne correspondent à aucun
+  fichier encore présent dans un dossier ingestible sur l'une des deux machines, puis une remontée à
+  200 (§8) — **et une confirmation explicite renouvelée**, ce paragraphe n'en tient pas lieu.
+
+**Déploiement du code L5 (12 août 2026), dans une nouvelle session.** Confirmation explicite de
+l'utilisateur obtenue avant de commencer (ce dépôt du code, flag `False` — pas l'activation de la
+récolte, geste distinct non fait ici). Séquence §5.2 suivie à la lettre, session tournant sur le
+MacBook (accès direct), Mac mini relayé commande par commande comme pour L1-L4 :
+
+1. Rituel d'arrêt sur les deux Macs (`launchctl bootout` de `.listen`/`.sync`, app quittée) —
+   confirmé propre des deux côtés (`launchctl list`/`ps aux` vides).
+2. Sauvegarde automatique déjà fraîche du jour vérifiée avant d'agir (instantané
+   `fontsync-20260811-184055.db`, ~5 h, `PRAGMA integrity_check` → `ok`) — pas de sauvegarde
+   manuelle supplémentaire, même raison qu'en L1/L2.
+3. `git push origin main` (`aebbd83`), puis `gh workflow run docker-publish.yml --ref main` — build
+   multi-arch réussi en 4 min 16 (un `dial tcp … i/o timeout` transitoire sur l'API GitHub au premier
+   essai, résolu de lui-même à la relance).
+4. Sur le NAS : `docker compose -f docker-compose.nas.yml pull fontsync` + `up -d fontsync` (le nom
+   de fichier compose du NAS diverge du défaut, cf. note précédente — toujours passer `-f
+   docker-compose.nas.yml` sur cet hôte). Container recréé, `healthy` en ~53 s.
+5. Vérification structurelle : `alembic_version` **inchangée** (`1e9d0c4f6b21`, cohérent — L5 n'a pas
+   de migration), `PRAGMA integrity_check` → `ok`, `foreign_key_check` → vide, comptes `fonts`
+   identiques avant/après (5180 vivantes/1025 supprimées). Aucune variable `TOMBSTONE_*` dans l'env
+   du conteneur — le flag reste sur son défaut `False`.
+6. Relance des agents sur les deux Macs (`launchctl bootstrap`). Sur le mini, le premier essai a
+   affiché `Bootstrap failed: 5: Input/output error` sur les trois commandes malgré une session
+   console active depuis longtemps (`who` : connecté depuis le 29 juillet) — `launchctl print`
+   a montré dans la foulée que les deux jobs étaient en réalité chargés et fonctionnels (`.listen`
+   avec un PID réel, `.sync` déjà sorti en exit 0) : un faux positif connu de launchd au moment du
+   `RunAtLoad`, pas un vrai échec de bootstrap. **Deux détails relevés en cours de route, hors
+   périmètre de ce lot, à reprendre séparément si besoin** : (a) sur le mini, le `Program` du plist
+   pointe vers `/Users/leo/Developer/FontSync/macos-app/build/agent-venv/bin/python3` — un chemin de
+   build dev dans le clone git, pas l'app `.dmg` 0.2.0 signée posée en L3 ; (b) mon propre accès
+   shell local a transitoirement buté sur `fork failed: resource temporarily unavailable` (résidu
+   d'une commande de surveillance mal terminée), résolu de lui-même sans action.
+7. **4 cycles de sync propres observés** (2 MacBook à 23:41/23:52, 2 mini à 07:46/07:56 le
+   lendemain) : `0 erreurs` sur push/pull sur les deux machines, seul bruit `3 tombées côté serveur`
+   / `0 désinstallées, 3 absentes` — bruit préexistant déjà documenté en §3.5 (fenêtre L1→L5, pas une
+   régression). `déjà sync=5180` stable des deux côtés.
+
+**L5 est déployé en prod, récolte toujours désactivée.** L'état réel de production reste
+**fonctionnellement identique à L4** : seul le binaire a changé, aucune donnée ni comportement
+observable n'a bougé. **Reste à faire, en tant que geste séparé et explicitement confirmé** :
+activation de `tombstone_harvest_enabled` avec `max_per_pass=5`, vérification à la main, puis
+remontée à 200 (§8) — voir prérequis et procédure exacts en §3.4 et §5.3 avant de l'entamer.
 
 ---
 
