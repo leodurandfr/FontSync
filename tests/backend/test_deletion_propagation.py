@@ -121,9 +121,12 @@ async def test_deleted_font_is_not_offered_for_push(db, storage, font_factory) -
     font.deleted_at = datetime.now(timezone.utc)
     font.deletion_confirmed = True
     await db.commit()
+    device = await _make_device(db)
 
     delta = await compute_delta(
-        [DeviceFontEntry(hash=font.file_hash, filename="Gone.ttf")], db
+        [DeviceFontEntry(hash=font.file_hash, filename="Gone.ttf")],
+        db,
+        device_id=device.id,
     )
 
     assert delta.unknown_to_server == []
@@ -505,10 +508,12 @@ async def test_pending_quarantine_is_not_propagated(db, storage, font_factory) -
     font.deleted_at = datetime.now(timezone.utc)
     font.deletion_confirmed = False
     await db.commit()
+    device = await _make_device(db)
 
     delta = await compute_delta(
         [DeviceFontEntry(hash=font.file_hash, filename="Held.ttf")],
         db,
+        device_id=device.id,
         propagate_deletions=True,
     )
 
@@ -525,10 +530,13 @@ async def test_to_uninstall_requires_the_device_setting(
     font.deleted_at = datetime.now(timezone.utc)
     font.deletion_confirmed = True
     await db.commit()
+    device = await _make_device(db)
     entries = [DeviceFontEntry(hash=font.file_hash, filename="Told.ttf")]
 
-    off = await compute_delta(entries, db, propagate_deletions=False)
-    on = await compute_delta(entries, db, propagate_deletions=True)
+    off = await compute_delta(
+        entries, db, device_id=device.id, propagate_deletions=False
+    )
+    on = await compute_delta(entries, db, device_id=device.id, propagate_deletions=True)
 
     assert off.to_uninstall == []
     assert off.deleted_on_server == 1

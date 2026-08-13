@@ -187,13 +187,131 @@ async def test_install_unknown_device_is_404(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["uninstall", "activate", "deactivate"])
-async def test_per_device_actions_return_501_not_503(
-    client: AsyncClient, action: str
+async def test_uninstall_by_device_still_returns_501_not_503(
+    client: AsyncClient,
 ) -> None:
-    # Actions par-device reportées (manifeste désiré) : 501 honnête, pas 503.
+    # Désinstallation par appareil : toujours reportée (manifeste désiré),
+    # 501 honnête plutôt qu'un 503 trompeur « agent non connecté ».
     resp = await client.post(
-        f"/api/fonts/{_MISSING_UUID}/{action}/{_MISSING_UUID}", headers=_AUTH
+        f"/api/fonts/{_MISSING_UUID}/uninstall/{_MISSING_UUID}", headers=_AUTH
     )
     assert resp.status_code == 501
     assert resp.status_code != 503
+
+
+# ---------- Activation / désactivation par appareil ----------
+
+
+async def _upload(client: AsyncClient, data: bytes, name: str) -> dict:
+    resp = await client.post(
+        "/api/fonts/upload",
+        headers=_AUTH,
+        files=[("files", (name, data, "font/ttf"))],
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["imported"][0]
+
+
+async def _install_on_device(client: AsyncClient, device_id: str, font: dict) -> None:
+    """Fait apparaître `font` comme installée sur `device_id` (device_fonts).
+
+    Passe par `/api/sync/delta` (réconciliation), pas par `/api/sync/push` :
+    ce fichier de test ne surcharge le stockage que pour le router `fonts`
+    (`_upload`), pas pour `routers.sync`.
+    """
+    resp = await client.post(
+        "/api/sync/delta",
+        headers=_AUTH,
+        json={
+            "deviceId": device_id,
+            "fonts": [{"hash": font["fileHash"], "filename": font["originalFilename"]}],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["activate", "deactivate"])
+async def test_activate_deactivate_unknown_font_is_404(
+    client: AsyncClient, action: str
+) -> None:
+    device_id = await _register_device(client)
+    resp = await client.post(
+        f"/api/fonts/{_MISSING_UUID}/{action}/{device_id}", headers=_AUTH
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["activate", "deactivate"])
+async def test_activate_deactivate_unknown_device_is_404(
+    client: AsyncClient, action: str, font_factory
+) -> None:
+    font_id = await _upload_font(
+        client, font_factory(family="E2E NoDev2"), "E2ENoDev2-Regular.ttf"
+    )
+    resp = await client.post(
+        f"/api/fonts/{font_id}/{action}/{_MISSING_UUID}", headers=_AUTH
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["activate", "deactivate"])
+async def test_activate_deactivate_without_device_font_row_is_409(
+    client: AsyncClient, action: str, font_factory
+) -> None:
+    # Police connue du serveur, appareil connu, mais jamais installée là :
+    # rien à (dés)activer.
+    device_id = await _register_device(client)
+    font_id = await _upload_font(
+        client, font_factory(family="E2E Never"), "E2ENever-Regular.ttf"
+    )
+    resp = await client.post(
+        f"/api/fonts/{font_id}/{action}/{device_id}", headers=_AUTH
+    )
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_deactivate_persists_and_signals_resync(
+    client: AsyncClient, manager: WebSocketManager, font_factory
+) -> None:
+    device_id = await _register_device(client)
+    font = await _upload(
+        client, font_factory(family="E2E Deact"), "E2EDeact-Regular.ttf"
+    )
+    await _install_on_device(client, device_id, font)
+    font_id = font["id"]
+
+    queue = manager.subscribe_agent_events(device_id)
+
+    resp = await client.post(
+        f"/api/fonts/{font_id}/deactivate/{device_id}", headers=_AUTH
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active"] is False
+    assert queue.get_nowait() == "sync"
+
+
+@pytest.mark.asyncio
+async def test_activate_persists_and_signals_resync(
+    client: AsyncClient, manager: WebSocketManager, font_factory
+) -> None:
+    device_id = await _register_device(client)
+    font = await _upload(
+        client, font_factory(family="E2E React"), "E2EReact-Regular.ttf"
+    )
+    await _install_on_device(client, device_id, font)
+    font_id = font["id"]
+    await client.post(f"/api/fonts/{font_id}/deactivate/{device_id}", headers=_AUTH)
+
+    queue = manager.subscribe_agent_events(device_id)
+    resp = await client.post(
+        f"/api/fonts/{font_id}/activate/{device_id}", headers=_AUTH
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active"] is True
+    assert queue.get_nowait() == "sync"

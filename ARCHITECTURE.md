@@ -232,7 +232,8 @@ Fonts known to be present on a device.
 | `device_id` | UUID (FK → devices) | |
 | `font_id` | UUID (FK → fonts) | |
 | `local_path` | VARCHAR(1000) | Path on the device |
-| `activated` | BOOLEAN | Font active on the device (default `true`) |
+| `ingestible` | BOOLEAN | Can this holder feed the synced library? (default `true`; `false` for fonts scanned outside `scan.ingest_directories`, e.g. `/Library/Fonts`) |
+| `active` | BOOLEAN | Desired state, set only by `POST /{font_id}/activate\|deactivate/{device_id}` (default `true`) — read on the next delta sync as `to_deactivate` |
 | `installed_at` | DateTime (tz) | |
 | PK | (device_id, font_id) | |
 
@@ -476,9 +477,12 @@ way — those groups go undetected, never mis-resolved.
 > The `/trash*` routes are declared **before** `/{font_id}` — FastAPI resolves in
 > declaration order, and `trash` would otherwise be parsed as a font UUID (`422`).
 
-> The `uninstall` / `activate` / `deactivate` routes (`POST /api/fonts/{id}/{action}/{device_id}`)
-> exist as **stubs** (`501` response) — uninstall by hash and activation/deactivation
-> are deferred beyond the MVP.
+> `POST /{font_id}/activate/{device_id}` and `.../deactivate/{device_id}` set the
+> desired state (`device_fonts.active`) and nudge an SSE re-sync; the device
+> converges on its next `sync` by moving the file to/from `~/.fontsync/disabled/`
+> — never deleted, never removed from other devices. `409` if the font was never
+> installed on that device. The `uninstall` route (by hash) remains a **stub**
+> (`501` response), deferred beyond the MVP.
 
 **Filters on `GET /api/fonts`:**
 
@@ -685,6 +689,13 @@ The subsequent `sync` runs are nearly instantaneous thanks to the cache.
 - `deleted_on_server`: how many of the declared fonts have fallen (informative)
 - `to_uninstall`: fonts to remove from this device — empty unless
   `propagate_deletions` is on, and never a quarantine awaiting review
+- `to_deactivate`: fonts *this* device has deactivated (`device_fonts.active =
+  false`) among what it just declared — always computed, no device-level gate
+  needed (each entry is already a single explicit gesture on this exact
+  device). No symmetric `to_activate`: the default is active, so "should be
+  active" just means "hash absent from `to_deactivate`" — the agent compares
+  that against what it just found in `~/Library/Fonts` and `disabled/` and
+  converges locally, never reindexing a font that's already in place
 
 The delta computation itself (`compute_delta`) is a **pure read** (no writes, no
 `commit` in the middle). Interpreting *disappearances* writes, so it lives in the

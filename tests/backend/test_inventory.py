@@ -7,6 +7,7 @@ exclusif de `detect_local_deletions`).
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -289,7 +290,7 @@ async def test_non_ingestible_hash_never_offered_for_push(
         DeviceFontEntry(hash="b" * 64, filename="user.ttf", ingestible=True),
     ]
 
-    delta = await compute_delta(entries, db)
+    delta = await compute_delta(entries, db, device_id=uuid.uuid4())
 
     assert delta.unknown_to_server == ["b" * 64]
     assert delta.missing_on_device == []

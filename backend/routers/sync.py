@@ -68,6 +68,7 @@ async def delta_sync(
     - missing_on_device : fonts à puller
     - already_synced : nombre de fonts en commun
     - deleted_on_server / to_uninstall : polices tombées que l'appareil détient
+    - to_deactivate : polices que CET appareil a désactivées (`device_fonts.active=False`)
 
     Quatre temps, dans cet ordre (cf. `docs/PLAN-ETATS-FONTS.md` §3.2) :
 
@@ -109,7 +110,10 @@ async def delta_sync(
         await _notify_quarantined(detection, source_device_id=str(device.id))
 
     return await compute_delta(
-        body.fonts, db, propagate_deletions=device.propagate_deletions
+        body.fonts,
+        db,
+        device_id=device.id,
+        propagate_deletions=device.propagate_deletions,
     )
 
 
@@ -232,9 +236,9 @@ async def pull_font(
 ) -> Response:
     """Retourne le fichier font pour installation par l'agent.
 
-    L'association `device_font` (installed/activated) n'est enregistrée
-    qu'après récupération réussie du fichier : un échec de stockage ne laisse
-    donc jamais d'association « installée » fantôme.
+    L'association `device_font` n'est enregistrée qu'après récupération
+    réussie du fichier : un échec de stockage ne laisse donc jamais
+    d'association « installée » fantôme.
     """
     # Vérifier que le device existe
     await _get_device_or_404(device_id, db)

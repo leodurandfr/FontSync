@@ -72,6 +72,19 @@ class DeltaSyncResponse(CamelModel):
     n'inclut jamais une quarantaine en attente de confirmation.
     """
 
+    to_deactivate: list[FontRef] = []
+    """Fonts à désactiver sur cet appareil (déplacer vers disabled/, jamais
+    désinstaller).
+
+    Toujours calculé, contrairement à `to_uninstall` : chaque entrée vient
+    d'un geste explicite déjà ciblé sur ce couple (police, appareil) précis
+    (`POST /{font_id}/deactivate/{device_id}`), il n'y a rien à propager
+    depuis un autre appareil ni de réglage à vérifier. Une police absente de
+    cette liste doit être active — l'agent en déduit lui-même s'il a une
+    activation à faire, en comparant à ce qu'il trouve dans
+    `~/.fontsync/disabled/`.
+    """
+
 
 class PushResponse(CamelModel):
     """Réponse après un push de font depuis un agent."""

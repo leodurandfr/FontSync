@@ -27,6 +27,14 @@ class DeviceFont(Base):
     ingestible: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, server_default="1"
     )
+    # État désiré, posé par un geste explicite de l'utilisateur (endpoints
+    # activate/deactivate) sur ce couple (device, font) précis — jamais par
+    # `register_device_font` ni `reconcile_inventory`, qui doivent le laisser
+    # intact au fil des push/pull. Défaut `True` : une police nouvellement
+    # associée à un appareil est active tant que personne ne l'a désactivée.
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="1"
+    )
     installed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

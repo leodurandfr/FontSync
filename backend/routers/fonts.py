@@ -651,22 +651,25 @@ async def get_font_device_status(
 
     online_ids = set(ws_manager.connected_sse_devices)
 
-    statuses = []
-    for device in devices:
-        df = device_fonts.get(device.id)
-        statuses.append(
-            FontDeviceStatus(
-                device_id=device.id,
-                device_name=device.name,
-                hostname=device.hostname,
-                is_online=str(device.id) in online_ids,
-                installed=df is not None,
-                local_path=df.local_path if df else None,
-                installed_at=df.installed_at if df else None,
-            )
-        )
+    return [
+        _to_device_status(device, device_fonts.get(device.id), online_ids)
+        for device in devices
+    ]
 
-    return statuses
+
+def _to_device_status(
+    device: Device, df: DeviceFont | None, online_ids: set[str]
+) -> FontDeviceStatus:
+    return FontDeviceStatus(
+        device_id=device.id,
+        device_name=device.name,
+        hostname=device.hostname,
+        is_online=str(device.id) in online_ids,
+        installed=df is not None,
+        local_path=df.local_path if df else None,
+        installed_at=df.installed_at if df else None,
+        active=df.active if df else True,
+    )
 
 
 async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
@@ -680,18 +683,41 @@ async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
     return device
 
 
+async def _get_device_font_or_409(
+    device_id: uuid.UUID, font_id: uuid.UUID, db: AsyncSession
+) -> DeviceFont:
+    """Récupère l'association device↔font ou lève 409.
+
+    404 est réservé à « font_id/device_id inconnu » (déjà couvert par les
+    vérifications qui précèdent cet appel). Une police jamais installée sur cet
+    appareil n'est pas une ressource introuvable, c'est un état incompatible
+    avec l'action demandée — on ne peut pas désactiver ce qui n'a jamais été là.
+    """
+    result = await db.execute(
+        select(DeviceFont).where(
+            DeviceFont.device_id == device_id, DeviceFont.font_id == font_id
+        )
+    )
+    device_font = result.scalar_one_or_none()
+    if device_font is None:
+        raise HTTPException(
+            status_code=409, detail="Cette police n'est pas installée sur cet appareil."
+        )
+    return device_font
+
+
 # Stop-gap B1 (PLAN-PUBLICATION.md). Depuis la refonte stateless, le sync est un
 # *miroir* (l'agent pulle toutes les fonts du serveur selon `auto_pull`) et le
-# canal commande UI→agent a disparu. La sélection fine par appareil — n'installer
-# QUE cette font, désinstaller, activer/désactiver — suppose un « manifeste désiré »
-# par device + une réconciliation côté agent : c'est une vraie fonctionnalité,
-# reportée à un redesign dédié. En attendant : « install » déclenche un re-sync de
-# l'appareil (pas une commande spécifique), et les actions non encore supportées
-# répondent 501 (au lieu d'un 503 trompeur « agent non connecté »).
+# canal commande UI→agent a disparu. La désinstallation par hash sélective
+# suppose un « manifeste désiré » par device + une réconciliation côté agent
+# dédiée : reportée à un redesign. « install » et « activate »/« deactivate »
+# n'en ont pas besoin — le premier se contente de nudger un re-sync (miroir),
+# les deux autres posent un état désiré sur `device_fonts.active`, lu au
+# prochain delta (cf. `compute_delta`).
 _B1_DEFERRED = (
-    "Le contrôle par appareil (désinstallation, activation/désactivation) est en "
-    "cours de refonte (manifeste désiré). Dans cette version, les polices se "
-    "synchronisent en miroir selon le réglage « pull automatique » de l'appareil."
+    "La désinstallation par appareil est en cours de refonte (manifeste désiré). "
+    "Dans cette version, les polices se synchronisent en miroir selon le réglage "
+    "« pull automatique » de l'appareil."
 )
 
 
@@ -724,22 +750,47 @@ async def uninstall_font_on_device(
     raise HTTPException(status_code=501, detail=_B1_DEFERRED)
 
 
-@router.post("/{font_id}/activate/{device_id}", status_code=501)
+@router.post("/{font_id}/activate/{device_id}", response_model=FontDeviceStatus)
 async def activate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
-) -> dict:
-    """Activation par appareil — reportée au redesign « manifeste désiré » (B1)."""
-    raise HTTPException(status_code=501, detail=_B1_DEFERRED)
+    db: AsyncSession = Depends(get_db),
+) -> FontDeviceStatus:
+    """Réactive une police sur cet appareil (état désiré, lu au prochain delta).
+
+    N'agit pas tout de suite sur le disque de l'appareil : pose `device_fonts.active`
+    et signale un re-sync (best-effort, cf. `install_font_on_device`) pour que la
+    convergence ait lieu dès que possible. Si l'appareil est hors ligne, le
+    prochain `sync` (WatchPaths, StartInterval) la fera tout aussi bien —
+    bloquer l'action tant qu'il n'est pas en ligne n'aurait aucun bénéfice.
+    """
+    await _get_font_or_404(font_id, db)
+    device = await _get_device_or_404(device_id, db)
+    df = await _get_device_font_or_409(device_id, font_id, db)
+    df.active = True
+    await db.commit()
+    await ws_manager.signal_sync(str(device_id))
+    return _to_device_status(device, df, set(ws_manager.connected_sse_devices))
 
 
-@router.post("/{font_id}/deactivate/{device_id}", status_code=501)
+@router.post("/{font_id}/deactivate/{device_id}", response_model=FontDeviceStatus)
 async def deactivate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
-) -> dict:
-    """Désactivation par appareil — reportée au redesign « manifeste désiré » (B1)."""
-    raise HTTPException(status_code=501, detail=_B1_DEFERRED)
+    db: AsyncSession = Depends(get_db),
+) -> FontDeviceStatus:
+    """Désactive une police sur cet appareil (état désiré, lu au prochain delta).
+
+    Ne supprime rien : au prochain `sync`, l'appareil déplace le fichier vers
+    `~/.fontsync/disabled/` — la police reste sur la bibliothèque et sur les
+    autres appareils, elle disparaît seulement des menus polices de celui-ci."""
+    await _get_font_or_404(font_id, db)
+    device = await _get_device_or_404(device_id, db)
+    df = await _get_device_font_or_409(device_id, font_id, db)
+    df.active = False
+    await db.commit()
+    await ws_manager.signal_sync(str(device_id))
+    return _to_device_status(device, df, set(ws_manager.connected_sse_devices))
 
 
 # ---------- Soft delete ----------

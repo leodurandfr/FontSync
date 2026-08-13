@@ -108,6 +108,9 @@ class FontDeviceStatus(CamelModel):
     installed: bool
     local_path: str | None = None
     installed_at: datetime | None = None
+    active: bool = True
+    """État désiré sur cet appareil (`device_fonts.active`). Sans association
+    (`installed=False`), reste à sa valeur par défaut — rien à activer."""
 
 
 class FontListResponse(CamelModel):

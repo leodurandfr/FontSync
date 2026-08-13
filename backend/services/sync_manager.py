@@ -26,6 +26,7 @@ async def compute_delta(
     device_fonts: list[DeviceFontEntry],
     db: AsyncSession,
     *,
+    device_id: uuid.UUID,
     propagate_deletions: bool = False,
 ) -> DeltaSyncResponse:
     """Compare les fonts de l'agent avec celles du serveur.
@@ -44,13 +45,16 @@ async def compute_delta(
     Args:
         device_fonts: Liste des fonts présentes sur le device (hash + filename).
         db: Session de base de données.
+        device_id: appareil qui synchronise — sert à lire son propre état
+            `device_fonts.active` (`to_deactivate` est strictement local à ce
+            couple (device, font), jamais dérivé d'un autre appareil).
         propagate_deletions: l'appareil applique-t-il les suppressions du
             serveur ? Si non, `to_uninstall` reste vide (on renvoie quand même
             le décompte `deleted_on_server`, purement informatif).
 
     Returns:
         DeltaSyncResponse avec unknown_to_server, missing_on_device,
-        already_synced, deleted_on_server et to_uninstall.
+        already_synced, deleted_on_server, to_uninstall et to_deactivate.
     """
     device_hashes = {entry.hash for entry in device_fonts}
     # `ingestible` n'agit QUE sur ce qui serait proposé au push. Ni sur
@@ -107,12 +111,28 @@ async def compute_delta(
         else []
     )
 
+    # Fonts que CET appareil a désiré-désactivées (device_fonts.active=False).
+    # Contrairement à to_uninstall, aucun réglage à vérifier : chaque ligne
+    # est déjà un geste explicite posé sur ce couple précis.
+    inactive_result = await db.execute(
+        select(Font.file_hash)
+        .join(DeviceFont, DeviceFont.font_id == Font.id)
+        .where(DeviceFont.device_id == device_id, DeviceFont.active.is_(False))
+    )
+    inactive_hashes = {row[0] for row in inactive_result.all()}
+    to_deactivate = [
+        _to_ref(active_map[h])
+        for h in device_hashes & inactive_hashes
+        if h in active_map
+    ]
+
     return DeltaSyncResponse(
         unknown_to_server=unknown_to_server,
         missing_on_device=missing_on_device,
         already_synced=already_synced,
         deleted_on_server=len(deleted_here),
         to_uninstall=to_uninstall,
+        to_deactivate=to_deactivate,
     )
 
 
