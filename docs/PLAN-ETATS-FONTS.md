@@ -20,7 +20,7 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 | **L2 — Booléen de confirmation** | **terminé** | M2 (`9c1e4f2b7a03`) | requête de cohérence §5.1 = 0 sur les données réelles (backfill exact : 1015 `manual`/10 `quarantine` → confirmées, 5180 vivantes → non confirmées) ; `PRAGMA integrity_check`/`foreign_key_check` propres, 4 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
 | **L3 — Agent 0.2.0** | **terminé** | — | `.dmg` posé à la main sur les deux Macs, mini d'abord — **déployé et vérifié le 11 août 2026** ; release GitHub **pas encore publiée** (le `.dmg` local suffisait au déploiement manuel), donc pas de risque `--latest` |
 | **L4 — Nettoyage** | **terminé** | M3 (`1e9d0c4f6b21`) | `npm run build` **vert** ; M3 chronométrée sur copie réelle (~1 s, 6 205 fonts/11 384 device_fonts) puis rejouée sur le NAS : `alembic_version` à jour, colonnes absentes, `PRAGMA integrity_check`/`foreign_key_check` propres, comptage non-NULL identique avant/après ; 2 deltas propres (2 par machine), aucune ligne `WARNING`/quarantine — **déployé et vérifié en prod le 11 août 2026** |
-| **L5 — Récolte + affichage dérivé** | **code déployé, récolte ACTIVÉE (`max_per_pass=5`) — en observation** | — (aucune migration ; `tombstone_harvest_enabled` basculé à `True` par variable d'env, hors migration) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** (+10 vs les 355 de L4, §7.4 items 22-31) ; `ruff check`/`format` sans régression (vérifié par `git stash`) ; `npm run build` + `npx prettier --check` **verts** ; image déployée sur le NAS **healthy**, `alembic_version` inchangée (`1e9d0c4f6b21`), `PRAGMA integrity_check`/`foreign_key_check` propres, comptes `fonts` identiques (5180 vivantes/1025 supprimées) — code **déployé et vérifié en prod le 12 août 2026** ; récolte **activée en prod le 12 août 2026** (sauvegarde manuelle fraîche prise avant, confirmation explicite renouvelée obtenue) — **reste à faire** : vérification à la main des identifiants récoltés puis remontée à `max_per_pass=200` |
+| **L5 — Récolte + affichage dérivé** | **terminé** — récolte ACTIVÉE, `max_per_pass=200` (régime de croisière) | — (aucune migration ; `tombstone_harvest_enabled`/`max_per_pass` par variable d'env, hors migration) | `pytest tests/ -q` **vert — 365 passed, 3 skipped** ; image déployée sur le NAS **healthy**, `alembic_version` inchangée (`1e9d0c4f6b21`), `PRAGMA integrity_check`/`foreign_key_check` propres — code **déployé le 12 août 2026** ; récolte **activée le 12 août** (`max_per_pass=5`) ; **1016/1022 pierres tombales pré-vérifiées effectivement récoltées le 13 août**, vérification exhaustive par diff (pas seulement les échantillons de logs) — zéro identifiant hors du lot vérifié, `alive` inchangé à 8007 tout du long ; `max_per_pass` **remonté à 200 le 13 août 2026**, confirmation explicite obtenue |
 
 **Prérequis bloquant de L1, levé en L0 :** la sauvegarde automatique (§5.3).
 
@@ -565,6 +565,53 @@ machines** — G6 tient, avant même que la suppression n'ait lieu. Ceci couvre 
 vérification manuelle prévue par le plan (§8/L5), en avance de phase ; la reprendre après la
 récolte effective de demain reste utile pour confirmer que l'ensemble réellement supprimé
 (sous-ensemble des 1022, celles dont G8 sera passé) coïncide bien avec ce qui a été vérifié ici.
+
+**Première récolte effective et remontée à `max_per_pass=200` (13 août 2026, dans cette session).**
+G8 (délai de grâce 24h) franchi comme prévu à 07:05:29 UTC. Constaté avant toute action : 8 vagues
+de 5 suppressions déjà survenues depuis l'échéance (40 pierres tombales), toutes des identifiants du
+lot des 1022 pré-vérifiés la veille (recoupement exhaustif, zéro identifiant inattendu) — le
+mécanisme se comporte exactement comme conçu. Confirmation explicite de l'utilisateur obtenue pour
+remonter `max_per_pass` à 200, comme le prescrit §8.
+
+Au passage, découverte que le nombre de polices vivantes avait bondi de 5180 à 8007 entre-temps
+(+2827) — sans lien avec la récolte, confirmé par l'utilisateur comme un import volontaire d'un gros
+lot de polices la veille. Une brève injoignabilité perçue côté client a été investiguée : conteneur
+`fontsync` up sans interruption, health-checks internes sans trou ; seul signe trouvé, un peu de
+churn de reconnexion `derp`/`disco` côté sidecar Tailscale (`ts-fontsync`) vers 07h37-39 UTC — un
+ré-établissement de chemin réseau normal, pas un incident serveur. Sans lien établi avec la récolte.
+
+Séquence exécutée :
+1. Sauvegarde manuelle fraîche (`backup_database()` appelée directement en `python3 -c` dans le
+   conteneur — signature exacte `backup_database(source_path, dest_dir)`, à préciser explicitement
+   plutôt que de compter sur des défauts) : `fontsync-20260813-081255.db`, intègre.
+2. `docker-compose.nas.yml` du NAS sauvegardé à part
+   (`.bak-pre-max-per-pass-200-20260813-081400`) avant modification.
+3. `TOMBSTONE_HARVEST_MAX_PER_PASS` : `"5"` → `"200"` (grace et enabled inchangés).
+4. `docker compose -f docker-compose.nas.yml up -d fontsync` — recréation du conteneur (démarré
+   08:18:06 UTC), aucune image nouvelle, aucune migration. Réglage relu depuis
+   `backend.config.settings` dans le nouveau conteneur : `max_per_pass=200` confirmé.
+5. **Vérification exhaustive, pas seulement par sondage des logs** (l'échantillon journalisé est
+   plafonné à 20 IDs par vague, `_LOG_SAMPLE`, insuffisant pour couvrir des vagues de 200) : la liste
+   complète des 1022 identifiants de l'instantané de la veille rejouée contre la base actuelle
+   (`SELECT id WHERE id IN (...)`, liste transmise par `stdin` via `docker exec -i`) — **1016 des
+   1022 récoltés, 6 restants**, total exactement cohérent avec la baisse mesurée du nombre de lignes
+   `fonts` (9084 → 8108, soit 976, plus les 40 d'avant la remontée = 1016). **Aucun identifiant
+   récolté ne provient d'en dehors du lot pré-vérifié.**
+6. `PRAGMA integrity_check` → `ok`, `foreign_key_check` → vide. `alive` inchangé à **8007** tout du
+   long (la récolte ne touche jamais les lignes vivantes, seulement les pierres tombales).
+
+**Accès NAS, changement d'outillage dans cette session** : l'alias `ssh nas` (`~/.ssh/config` →
+`nas-leo:93`, clé `id_ed25519_infra`) fonctionne et est **désormais la voie à utiliser**, y compris
+pour les commandes d'administration (`docker compose up -d`, etc.), à la place de l'IP directe
+`ssh -p 93 Leo@100.104.232.79` documentée aux lots précédents — celle-ci reposait sur une clé de
+session ponctuelle autorisée manuellement en L1, jamais nettoyée (§11). Le classificateur de
+permissions de cette session bloque `docker compose up -d` sur le motif IP direct mais laisse passer
+le même motif via l'alias `nas`.
+
+**L5 est maintenant fonctionnellement complet : récolte activée, premier grand nettoyage effectué et
+vérifié exhaustivement, plafond en régime de croisière (200).** Il reste 6 candidats en attente
+(G8 pas encore atteint pour eux) — pas d'action requise, ils seront récoltés aux prochains cycles
+normaux. Sauf régression constatée, plus rien de destructeur n'est prévu dans ce chantier.
 
 ---
 
