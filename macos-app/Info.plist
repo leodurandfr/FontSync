@@ -32,7 +32,7 @@
 	<key>SUFeedURL</key>
 	<string>https://github.com/leodurandfr/FontSync/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>Xh/LjJL5NrRk0Ch/S4NmTPPv6I3GTDex/Tmdp8KJS7Q=</string>
+	<string>Y2QX4ngX8IOLgon1CoLlqi3pyFCfoJMv6v3gu8kkG4Q=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUScheduledCheckInterval</key>

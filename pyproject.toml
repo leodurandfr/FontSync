@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fontsync-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agent FontSync — synchronisation de polices multi-machines (macOS, launchd + SSE)."
 requires-python = ">=3.12"
 # Licence : AGPL-3.0-or-later (cf. LICENSE à la racine). Classifier plutôt que le
