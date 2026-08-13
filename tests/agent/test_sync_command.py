@@ -392,6 +392,237 @@ def test_non_ingestible_fonts_excluded_from_push_but_still_declared(
     assert result.discovered == 2
 
 
+# ---------- Convergence activation/désactivation (`toDeactivate`) ----------
+
+
+def _stub_scanned(monkeypatch: pytest.MonkeyPatch, scanned: list[ScannedFont]) -> None:
+    """Comme `_stub_scan`, mais avec des `ScannedFont` fournis tels quels (chemins
+    réels sous `tmp_path`, nécessaires pour que `_is_within` les reconnaisse)."""
+    monkeypatch.setattr(sync_command, "discover_fonts", lambda *a, **k: [])
+    monkeypatch.setattr(sync_command, "scan_fonts", lambda *a, **k: list(scanned))
+    monkeypatch.setattr(sync_command, "HashCache", _NoopCache)
+    monkeypatch.setattr(sync_command, "discover_via_directories", lambda *a, **k: [])
+
+
+@pytest.fixture
+def convergence_dirs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path]:
+    install = tmp_path / "Fonts"
+    disabled = tmp_path / "disabled"
+    install.mkdir()
+    disabled.mkdir()
+    monkeypatch.setattr(sync_command, "INSTALL_DIR", install)
+    monkeypatch.setattr(sync_command, "DISABLED_DIR", disabled)
+    return install, disabled
+
+
+def test_deactivates_font_present_and_instructed(
+    convergence_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install, _ = convergence_dirs
+    font_path = install / "Muted.ttf"
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=font_path, filename="Muted.ttf", file_hash="a" * 64, file_size=100
+            )
+        ],
+    )
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        sync_command,
+        "deactivate_font",
+        lambda p, *, refresh_index: calls.append((p, refresh_index)) or True,
+    )
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "alreadySynced": 1,
+            "toDeactivate": [
+                {"id": "font-1", "originalFilename": "Muted.ttf", "fileHash": "a" * 64}
+            ],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    # `refresh_index=False` : la réindexation est groupée par `run_sync`.
+    assert calls == [(str(font_path), False)]
+    assert result.newly_deactivated == 1
+    assert result.deactivate_errors == 0
+
+
+def test_activates_font_present_in_disabled_and_not_instructed(
+    convergence_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Absente de `toDeactivate` → doit être active : l'agent la ramène lui-même."""
+    _, disabled = convergence_dirs
+    font_path = disabled / "Loud.ttf"
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=font_path, filename="Loud.ttf", file_hash="b" * 64, file_size=100
+            )
+        ],
+    )
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        sync_command,
+        "activate_font",
+        lambda p, *, refresh_index: calls.append((p, refresh_index)) or True,
+    )
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "alreadySynced": 1,
+            "toDeactivate": [],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert calls == [(str(font_path), False)]
+    assert result.newly_activated == 1
+    assert result.activate_errors == 0
+
+
+def test_deactivate_ignores_hash_already_in_disabled(
+    convergence_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rien à faire pour un hash déjà à sa place : ni activate, ni deactivate."""
+    _, disabled = convergence_dirs
+    font_path = disabled / "AlreadyOff.ttf"
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=font_path,
+                filename="AlreadyOff.ttf",
+                file_hash="c" * 64,
+                file_size=100,
+            )
+        ],
+    )
+
+    def _boom(*a: Any, **k: Any) -> bool:
+        raise AssertionError("ni activation ni désactivation ne doit être tentée")
+
+    monkeypatch.setattr(sync_command, "activate_font", _boom)
+    monkeypatch.setattr(sync_command, "deactivate_font", _boom)
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "alreadySynced": 1,
+            "toDeactivate": [
+                {
+                    "id": "font-1",
+                    "originalFilename": "AlreadyOff.ttf",
+                    "fileHash": "c" * 64,
+                }
+            ],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert (result.newly_deactivated, result.newly_activated) == (0, 0)
+
+
+def test_deactivates_every_file_sharing_a_hash(
+    convergence_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une police dupliquée sous deux noms partage un hash : les DEUX fichiers
+    doivent disparaître de ~/Library/Fonts, pas seulement le premier trouvé."""
+    install, _ = convergence_dirs
+    path_a = install / "Muted.ttf"
+    path_b = install / "Muted-Copy.ttf"
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=path_a, filename="Muted.ttf", file_hash="d" * 64, file_size=100
+            ),
+            ScannedFont(
+                path=path_b,
+                filename="Muted-Copy.ttf",
+                file_hash="d" * 64,
+                file_size=100,
+            ),
+        ],
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        sync_command, "deactivate_font", lambda p, **kw: calls.append(p) or True
+    )
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "alreadySynced": 2,
+            "toDeactivate": [
+                {"id": "font-1", "originalFilename": "Muted.ttf", "fileHash": "d" * 64}
+            ],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert sorted(calls) == sorted([str(path_a), str(path_b)])
+    assert result.newly_deactivated == 2
+
+
+def test_activation_convergence_triggers_a_single_reindex(
+    convergence_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install, _ = convergence_dirs
+    path_a = install / "A.ttf"
+    path_b = install / "B.ttf"
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=path_a, filename="A.ttf", file_hash="e" * 64, file_size=100
+            ),
+            ScannedFont(
+                path=path_b, filename="B.ttf", file_hash="f" * 64, file_size=100
+            ),
+        ],
+    )
+    monkeypatch.setattr(sync_command, "deactivate_font", lambda p, **kw: True)
+    reindexed: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "reindex_installed", lambda: reindexed.append(True) or True
+    )
+
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "alreadySynced": 2,
+            "toDeactivate": [
+                {"id": "font-1", "originalFilename": "A.ttf", "fileHash": "e" * 64},
+                {"id": "font-2", "originalFilename": "B.ttf", "fileHash": "f" * 64},
+            ],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert result.newly_deactivated == 2
+    # Une seule réindexation pour les deux, comme pour install/uninstall.
+    assert reindexed == [True]
+
+
 def test_stateless_repeatable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deux runs identiques → bilans identiques (aucune accumulation d'état)."""
     _stub_scan(monkeypatch, ["e" * 64])

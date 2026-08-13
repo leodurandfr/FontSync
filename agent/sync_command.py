@@ -4,8 +4,8 @@ Flux complet, identique quelle que soit la source du déclenchement
 (launchd `WatchPaths`, `StartInterval`, ou signal SSE relayé par `listen`) :
 
     discover → hash → register/update device → POST /sync/delta
-    → push inconnues → désinstaller les tombées → pull manquantes (si auto_pull)
-    → install → exit
+    → push inconnues → désinstaller les tombées → activer/désactiver selon le
+    delta → pull manquantes (si auto_pull) → install → exit
 
 **Aucun état global mutable.** Chaque exécution repart de l'état réel du disque
 et de la réponse delta du serveur (source de vérité). La seule chose persistée
@@ -23,6 +23,16 @@ disparu de la machine. Deux conséquences, toutes deux dans `_declared_fonts` :
   index de macOS, qui peut se figer et faire disparaître de sa vue des fichiers
   bien présents.
 
+Le delta répond aussi `toDeactivate` : les hashes que **cet** appareil a
+désactivés depuis l'interface (`device_fonts.active=False`). Pas de liste
+symétrique `toActivate` — l'état par défaut est actif, donc « doit être
+active » se lit comme « absente de `toDeactivate` ». L'agent, qui vient de
+scanner `~/Library/Fonts` et `disabled/` dans ce même run, fait le diff
+localement plutôt que d'appeler `activate_font`/`deactivate_font` sur une
+police déjà à sa place — les deux déclenchent une réindexation macOS à chaque
+vrai déplacement, l'appeler sans discernement à chaque sync recréerait
+exactement la lenteur que la désactivation existe pour résoudre.
+
 HTTP synchrone (`httpx` via `SyncClient`) : la commande est courte et n'a pas
 d'event loop → pas de risque de blocage.
 """
@@ -31,12 +41,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from agent.config import AgentConfig
 from agent.discovery import DiscoveredFont, discover_fonts, discover_via_directories
 from agent.font_installer import (
     DISABLED_DIR,
+    INSTALL_DIR,
+    activate_font,
+    deactivate_font,
     install_font,
     reindex_installed,
     uninstall_font,
@@ -99,6 +113,10 @@ class SyncResult:
     uninstalled: int = 0
     uninstall_missing: int = 0  # aucun fichier correspondant (déjà partie)
     uninstall_errors: int = 0
+    newly_deactivated: int = 0  # déplacées vers disabled/ CE run, sur instruction
+    deactivate_errors: int = 0
+    newly_activated: int = 0  # ramenées dans ~/Library/Fonts CE run
+    activate_errors: int = 0
     reindex_triggered: bool = False  # réindexation macOS amorcée (effet différé)
 
     def summary(self) -> str:
@@ -116,6 +134,18 @@ class SyncResult:
             if self.deleted_on_server or self.uninstalled or self.uninstall_errors
             else ""
         )
+        # Même logique qu'au-dessus : en régime normal, rien à activer/désactiver
+        # ne mérite pas une colonne de zéros.
+        activation = (
+            f" | activation: {self.newly_deactivated} désactivées, "
+            f"{self.newly_activated} activées, "
+            f"{self.deactivate_errors + self.activate_errors} erreurs"
+            if self.newly_deactivated
+            or self.newly_activated
+            or self.deactivate_errors
+            or self.activate_errors
+            else ""
+        )
         return (
             f"device={self.device_id or '?'} | "
             f"découvertes={self.discovered} (dont {self.deactivated} désactivées), "
@@ -127,6 +157,7 @@ class SyncResult:
             f"pull: {self.installed} installées, {self.pull_skipped} non installables, "
             f"{self.pull_errors} erreurs, {self.pull_disabled} ignorées"
             f"{deletions}"
+            f"{activation}"
             f"{reindex}"
         )
 
@@ -195,6 +226,8 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
         unknown: set[str] = set(delta.get("unknownToServer", []))
         missing: list[dict[str, Any]] = delta.get("missingOnDevice", [])
         to_uninstall: list[dict[str, Any]] = delta.get("toUninstall", [])
+        to_deactivate: list[dict[str, Any]] = delta.get("toDeactivate", [])
+        deactivate_hashes = {r["fileHash"] for r in to_deactivate if r.get("fileHash")}
         result.already_synced = int(delta.get("alreadySynced", 0))
         result.deleted_on_server = int(delta.get("deletedOnServer", 0))
 
@@ -210,10 +243,11 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
 
         logger.info(
             "Delta : %d à pusher, %d à puller, %d à désinstaller, "
-            "%d déjà synchronisées",
+            "%d à désactiver, %d déjà synchronisées",
             len(unknown),
             len(missing),
             len(to_uninstall),
+            len(deactivate_hashes),
             result.already_synced,
         )
 
@@ -237,7 +271,27 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
         for ref in to_uninstall:
             _uninstall(ref, result)
 
-        # 7. Pull + installation des fonts manquantes localement.
+        # 7. Activation/désactivation demandées par le serveur (`toDeactivate`).
+        #    Comparaison purement locale : ce run a déjà scanné ~/Library/Fonts
+        #    et disabled/ (`scanned`), donc on sait où se trouve chaque hash
+        #    sans rappeler activate/deactivate sur une font déjà à sa place —
+        #    qui réindexerait pour rien (cf. docstring du module).
+        by_hash: dict[str, list[ScannedFont]] = {}
+        for sf in scanned:
+            by_hash.setdefault(sf.file_hash, []).append(sf)
+
+        for file_hash in deactivate_hashes:
+            for sf in by_hash.get(file_hash, []):
+                if _is_within(sf.path, INSTALL_DIR):
+                    _deactivate(sf, result)
+
+        for sf in scanned:
+            if sf.file_hash not in deactivate_hashes and _is_within(
+                sf.path, DISABLED_DIR
+            ):
+                _activate(sf, result)
+
+        # 8. Pull + installation des fonts manquantes localement.
         if missing and auto_pull:
             for ref in missing:
                 _pull_and_install(client, device_id, ref, result)
@@ -247,10 +301,15 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
                 "%d fonts disponibles ignorées (auto_pull désactivé)", len(missing)
             )
 
-        # 8. Une seule réindexation macOS pour tout le lot, poses et retraits
-        #    confondus : la reconstruction de l'index repartirait de zéro si on
-        #    la relançait par fichier.
-        if result.installed or result.uninstalled:
+        # 9. Une seule réindexation macOS pour tout le lot, poses, retraits et
+        #    (dés)activations confondus : la reconstruction de l'index
+        #    repartirait de zéro si on la relançait par fichier.
+        if (
+            result.installed
+            or result.uninstalled
+            or result.newly_activated
+            or result.newly_deactivated
+        ):
             result.reindex_triggered = reindex_installed()
 
     finally:
@@ -315,6 +374,45 @@ def _uninstall(ref: dict[str, Any], result: SyncResult) -> None:
     except Exception:
         logger.exception("Échec de la désinstallation de %s", filename)
         result.uninstall_errors += 1
+
+
+def _is_within(path: Path, directory: Path) -> bool:
+    """True si `path` (résolu) est bien contenu dans `directory` (résolu).
+
+    Comparaison sur des chemins résolus, jamais un préfixe de chaîne — même
+    convention que `agent.discovery._is_ingestible`.
+    """
+    try:
+        return path.resolve().is_relative_to(directory.resolve())
+    except OSError:
+        return False
+
+
+def _deactivate(font: ScannedFont, result: SyncResult) -> None:
+    """Désactive une font sur instruction du serveur. Une erreur isolée n'arrête pas le sync."""
+    try:
+        # `refresh_index=False` : réindexation groupée en fin de sync (étape 9).
+        if deactivate_font(str(font.path), refresh_index=False):
+            result.newly_deactivated += 1
+            logger.info("Désactivée (demandé par le serveur) : %s", font.filename)
+        else:
+            result.deactivate_errors += 1
+    except Exception:
+        logger.exception("Échec de la désactivation de %s", font.filename)
+        result.deactivate_errors += 1
+
+
+def _activate(font: ScannedFont, result: SyncResult) -> None:
+    """Réactive une font qui n'est plus dans `toDeactivate`. Une erreur isolée n'arrête pas le sync."""
+    try:
+        if activate_font(str(font.path), refresh_index=False):
+            result.newly_activated += 1
+            logger.info("Activée (plus désactivée côté serveur) : %s", font.filename)
+        else:
+            result.activate_errors += 1
+    except Exception:
+        logger.exception("Échec de l'activation de %s", font.filename)
+        result.activate_errors += 1
 
 
 def _pull_and_install(

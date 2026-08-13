@@ -258,7 +258,7 @@ def uninstall_font(
     return removed
 
 
-def activate_font(local_path: str) -> bool:
+def activate_font(local_path: str, *, refresh_index: bool = True) -> bool:
     """Active une font en la déplaçant de ~/.fontsync/disabled/ vers ~/Library/Fonts/.
 
     Le déplacement seul ne suffit pas à coup sûr sur macOS 14+ : il est suivi
@@ -268,6 +268,10 @@ def activate_font(local_path: str) -> bool:
 
     Args:
         local_path: chemin du fichier (absolu ou nom de fichier)
+        refresh_index: déclencher la réindexation macOS. Même règle qu'à
+            l'installation : un appelant qui traite un lot passe False et
+            groupe un seul `reindex_installed()` à la fin — la relancer par
+            font ferait repartir de zéro une reconstruction coûteuse.
 
     Returns:
         True si la font a été activée, False sinon.
@@ -280,7 +284,7 @@ def activate_font(local_path: str) -> bool:
     # que le système l'a indexé — on le lui redemande (idempotent).
     if dest.exists():
         logger.info("Font déjà en place : %s", dest)
-        font_registry.reindex(INSTALL_DIR)
+        _maybe_reindex(refresh_index)
         return True
 
     if not source.exists():
@@ -298,11 +302,11 @@ def activate_font(local_path: str) -> bool:
 
     shutil.move(str(source), str(dest))
     logger.info("Font activée : %s → %s", source, dest)
-    font_registry.reindex(INSTALL_DIR)
+    _maybe_reindex(refresh_index)
     return True
 
 
-def deactivate_font(local_path: str) -> bool:
+def deactivate_font(local_path: str, *, refresh_index: bool = True) -> bool:
     """Désactive une font en la déplaçant de ~/Library/Fonts/ vers ~/.fontsync/disabled/.
 
     Le fichier reste sur le disque mais n'est plus visible par les applications.
@@ -312,6 +316,9 @@ def deactivate_font(local_path: str) -> bool:
 
     Args:
         local_path: chemin du fichier (absolu ou nom de fichier)
+        refresh_index: déclencher la réindexation macOS. Même règle qu'à
+            l'installation : un appelant qui traite un lot passe False et
+            groupe un seul `reindex_installed()` à la fin.
 
     Returns:
         True si la font a été désactivée, False sinon.
@@ -335,7 +342,7 @@ def deactivate_font(local_path: str) -> bool:
             dest.unlink()
         shutil.move(str(source), str(dest))
         logger.info("Font désactivée : %s → %s", source, dest)
-        font_registry.reindex(INSTALL_DIR)
+        _maybe_reindex(refresh_index)
         return True
 
     # Source absente de ~/Library/Fonts — vérifier si déjà dans disabled

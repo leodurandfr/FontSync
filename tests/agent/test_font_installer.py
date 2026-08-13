@@ -331,3 +331,43 @@ def test_deactivate_already_disabled_does_not_reindex(
 
     assert font_installer.deactivate_font("Inter.ttf") is True
     assert registry.reindexed == []
+
+
+def test_activate_batch_defers_reindex(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    """En lot : une seule réindexation à la fin, comme pour install/uninstall."""
+    install, disabled = dirs
+    disabled.mkdir(parents=True)
+    for i in range(3):
+        (disabled / f"Font{i}.ttf").write_bytes(f"DATA{i}".encode())
+
+    for i in range(3):
+        assert font_installer.activate_font(f"Font{i}.ttf", refresh_index=False) is True
+
+    assert registry.reindexed == []
+    assert all((install / f"Font{i}.ttf").exists() for i in range(3))
+
+    assert font_installer.reindex_installed() is True
+    assert registry.reindexed == [install]
+
+
+def test_deactivate_batch_defers_reindex(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    """En lot : une seule réindexation à la fin, comme pour install/uninstall."""
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    for i in range(3):
+        (install / f"Font{i}.ttf").write_bytes(f"DATA{i}".encode())
+
+    for i in range(3):
+        assert (
+            font_installer.deactivate_font(f"Font{i}.ttf", refresh_index=False) is True
+        )
+
+    assert registry.reindexed == []
+    assert all((disabled / f"Font{i}.ttf").exists() for i in range(3))
+
+    assert font_installer.reindex_installed() is True
+    assert registry.reindexed == [install]
