@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useLocale } from "@/composables/useLocale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sheet,
@@ -16,7 +17,10 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-interface DeviceStatus {
+// Forme exacte renvoyée par `GET /api/fonts/{id}/devices` — un statut par
+// police. Le sheet peut recevoir plusieurs `fontIds` (famille entière) : ces
+// entrées sont agrégées par appareil en `DeviceStatus` ci-dessous.
+interface RawDeviceStatus {
   deviceId: string;
   deviceName: string;
   hostname: string;
@@ -24,6 +28,55 @@ interface DeviceStatus {
   installed: boolean;
   localPath: string | null;
   installedAt: string | null;
+  active: boolean;
+}
+
+interface DeviceStatus {
+  deviceId: string;
+  deviceName: string;
+  hostname: string;
+  isOnline: boolean;
+  installed: boolean;
+  installedAt: string | null;
+  // Agrégats sur les styles de `fontIds` réellement installés sur cet
+  // appareil : `active` — tous le sont ; `mixed` — certains seulement.
+  active: boolean;
+  mixed: boolean;
+}
+
+function mergeDeviceStatuses(perFont: RawDeviceStatus[][]): DeviceStatus[] {
+  const byDevice = new Map<string, RawDeviceStatus[]>();
+  for (const statuses of perFont) {
+    for (const status of statuses) {
+      const entries = byDevice.get(status.deviceId) ?? [];
+      entries.push(status);
+      byDevice.set(status.deviceId, entries);
+    }
+  }
+  const merged: DeviceStatus[] = [];
+  for (const entries of byDevice.values()) {
+    const first = entries[0];
+    if (!first) continue;
+    const installedEntries = entries.filter((e) => e.installed);
+    const activeCount = installedEntries.filter((e) => e.active).length;
+    // Le plus récent : peu importe quel style précis, seule la présence compte.
+    const installedDates = installedEntries
+      .map((e) => e.installedAt)
+      .filter((d): d is string => d != null)
+      .sort();
+    merged.push({
+      deviceId: first.deviceId,
+      deviceName: first.deviceName,
+      hostname: first.hostname,
+      isOnline: first.isOnline,
+      installed: installedEntries.length > 0,
+      installedAt: installedDates[installedDates.length - 1] ?? null,
+      active:
+        installedEntries.length > 0 && activeCount === installedEntries.length,
+      mixed: activeCount > 0 && activeCount < installedEntries.length,
+    });
+  }
+  return merged;
 }
 
 const props = defineProps<{
@@ -57,11 +110,16 @@ function formatDate(dateStr: string): string {
 async function fetchDeviceStatuses() {
   devicesLoading.value = true;
   try {
-    // For multi-font, fetch statuses for the first font (all devices are the same)
-    const res = await apiFetch(`/api/fonts/${props.fontIds[0]}/devices`);
-    if (res.ok) {
-      deviceStatuses.value = await res.json();
+    // Un appel par police (une famille entière peut en compter plusieurs) ;
+    // même liste d'appareils partout, seul le statut d'installation varie.
+    const responses = await Promise.all(
+      props.fontIds.map((id) => apiFetch(`/api/fonts/${id}/devices`)),
+    );
+    const perFont: RawDeviceStatus[][] = [];
+    for (const res of responses) {
+      if (res.ok) perFont.push(await res.json());
     }
+    deviceStatuses.value = mergeDeviceStatuses(perFont);
   } catch (e) {
     console.error("Failed to fetch device statuses:", e);
   } finally {
@@ -86,9 +144,9 @@ function markReindexing(deviceId: string, active: boolean) {
 
 // Stop-gap B1 : le modèle de sync est un *miroir* (l'appareil pulle les fonts du
 // serveur selon `auto_pull`). « Installer » ne pousse donc pas une commande
-// ciblée : il déclenche un re-sync de l'appareil. La désinstallation et
-// l'activation par appareil (sélectives) sont reportées au redesign « manifeste
-// désiré » — d'où l'absence de ces toggles ici.
+// ciblée : il déclenche un re-sync de l'appareil. La désinstallation sélective
+// par appareil reste reportée au redesign « manifeste désiré » — l'activation,
+// elle, n'en a pas besoin (cf. `handleToggleActive` ci-dessous).
 async function handleInstall(deviceId: string) {
   actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
   try {
@@ -116,6 +174,35 @@ async function handleInstall(deviceId: string) {
     const next = new Set(actionInProgress.value);
     next.delete(deviceId);
     actionInProgress.value = next;
+  }
+}
+
+// Contrairement à Installer, la désactivation ne dépend pas de l'appareil en
+// ligne tout de suite : c'est un état désiré, posé côté serveur, que
+// l'appareil applique au prochain sync (`WatchPaths`, signal SSE ou
+// `StartInterval`) — bloquer le geste jusque-là n'apporterait rien.
+//
+// Une famille entière (`fontIds.length > 1`) bascule d'un coup : un appel par
+// style, sur l'appareil choisi. `409` (style non installé là) n'est pas une
+// erreur — rien à activer/désactiver pour lui, les autres styles suffisent.
+async function handleToggleActive(deviceId: string, next: boolean) {
+  actionInProgress.value = new Set([...actionInProgress.value, deviceId]);
+  try {
+    const action = next ? "activate" : "deactivate";
+    const responses = await Promise.all(
+      props.fontIds.map((id) =>
+        apiFetch(`/api/fonts/${id}/${action}/${deviceId}`, { method: "POST" }),
+      ),
+    );
+    const failed = responses.find((res) => !res.ok && res.status !== 409);
+    if (failed) throw new Error(`HTTP ${failed.status}`);
+    await fetchDeviceStatuses();
+  } catch (e) {
+    console.error("Toggle active error:", e);
+  } finally {
+    const nextSet = new Set(actionInProgress.value);
+    nextSet.delete(deviceId);
+    actionInProgress.value = nextSet;
   }
 }
 </script>
@@ -202,7 +289,11 @@ async function handleInstall(deviceId: string) {
                 <p class="text-sm">
                   {{
                     status.installed
-                      ? t("deviceInstall.present")
+                      ? status.active
+                        ? t("deviceInstall.present")
+                        : status.mixed
+                          ? t("deviceInstall.disabledPartially")
+                          : t("deviceInstall.disabledHere")
                       : reindexing.has(status.deviceId)
                         ? t("deviceInstall.indexing")
                         : isMultiFont
@@ -237,9 +328,23 @@ async function handleInstall(deviceId: string) {
                   "
                   class="h-4 w-4 animate-spin text-muted-foreground"
                 />
-                <Badge v-if="status.installed" variant="secondary">{{
-                  t("common.installed")
-                }}</Badge>
+                <template v-if="status.installed">
+                  <Badge :variant="status.active ? 'secondary' : 'outline'">{{
+                    status.active
+                      ? t("common.installed")
+                      : status.mixed
+                        ? t("deviceInstall.disabledPartially")
+                        : t("deviceInstall.disabledHere")
+                  }}</Badge>
+                  <Switch
+                    :model-value="status.active"
+                    :disabled="actionInProgress.has(status.deviceId)"
+                    :aria-label="t('deviceInstall.toggleActive')"
+                    @update:model-value="
+                      handleToggleActive(status.deviceId, $event)
+                    "
+                  />
+                </template>
                 <Button
                   v-else
                   size="sm"

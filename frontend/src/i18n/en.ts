@@ -244,9 +244,12 @@ export default {
     descSingle: "Sync this font to your connected machines.",
     descMulti: "Sync these {n} fonts to your connected machines.",
     mirrorNote:
-      "Fonts sync as a mirror based on each device's “auto pull” setting. Per-device uninstall and activation are coming in a future version.",
+      "Fonts sync as a mirror based on each device's “auto pull” setting. Per-device uninstall is coming in a future version.",
     none: "No registered device.",
     present: "Present on the device",
+    disabledHere: "Disabled on this device",
+    disabledPartially: "Disabled on some styles",
+    toggleActive: "Active on this device",
     notInstalledSingle: "Not installed",
     notInstalledMulti: "Not installed",
     installedOn: "Installed on {date}",

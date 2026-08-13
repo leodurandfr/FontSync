@@ -247,9 +247,12 @@ const fr: typeof en = {
     descSingle: "Synchronisez cette police sur vos machines connectées.",
     descMulti: "Synchronisez ces {n} polices sur vos machines connectées.",
     mirrorNote:
-      "Les polices se synchronisent en miroir selon le réglage « pull automatique » de chaque appareil. La désinstallation et l'activation par appareil arrivent dans une prochaine version.",
+      "Les polices se synchronisent en miroir selon le réglage « pull automatique » de chaque appareil. La désinstallation par appareil arrive dans une prochaine version.",
     none: "Aucun appareil enregistré.",
     present: "Présente sur l'appareil",
+    disabledHere: "Désactivée sur cet appareil",
+    disabledPartially: "Désactivée sur certains styles",
+    toggleActive: "Active sur cet appareil",
     notInstalledSingle: "Non installée",
     notInstalledMulti: "Non installées",
     installedOn: "Installée le {date}",
