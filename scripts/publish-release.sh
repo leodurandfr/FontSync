@@ -38,6 +38,9 @@ command -v gh >/dev/null || { echo "gh (GitHub CLI) requis." >&2; exit 1; }
 
 REPO_ARGS=()
 [ -n "${REPO:-}" ] && REPO_ARGS=(--repo "$REPO")
+# `"${REPO_ARGS[@]+"${REPO_ARGS[@]}"}"` (pas juste `"${REPO_ARGS[@]}"`) : le
+# bash 3.2 livré par macOS traite l'expansion d'un tableau vide comme une
+# variable non définie sous `set -u` et fait échouer le script.
 
 # 1. Construit le .dmg signé + appcast (sauf réutilisation explicite).
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -49,22 +52,22 @@ fi
 
 # 2. La Release doit exister (créée par release.yml sur le tag). Repli local si
 #    on publie hors CI.
-if ! gh release view "$TAG" "${REPO_ARGS[@]}" >/dev/null 2>&1; then
+if ! gh release view "$TAG" "${REPO_ARGS[@]+"${REPO_ARGS[@]}"}" >/dev/null 2>&1; then
   echo "▶ Release $TAG absente — création (draft)…"
-  gh release create "$TAG" "${REPO_ARGS[@]}" \
+  gh release create "$TAG" "${REPO_ARGS[@]+"${REPO_ARGS[@]}"}" \
     --title "$APP_NAME $TAG" --generate-notes --draft
 fi
 
 # 3. Téléverse les artefacts (--clobber : ré-exécution sûre).
-echo "▶ Téléversement des artefacts sur $TAG…"
+echo "▶ Téléversement des artefacts sur ${TAG}…"
 ASSETS=("$DMG")
 [ -f "$APPCAST" ] && ASSETS+=("$APPCAST")
-gh release upload "$TAG" "${ASSETS[@]}" "${REPO_ARGS[@]}" --clobber
+gh release upload "$TAG" "${ASSETS[@]}" "${REPO_ARGS[@]+"${REPO_ARGS[@]}"}" --clobber
 
 # 4. Publication optionnelle (retire le draft).
 if [ "${PUBLISH:-0}" = "1" ]; then
-  echo "▶ Publication de la release $TAG…"
-  gh release edit "$TAG" "${REPO_ARGS[@]}" --draft=false --latest
+  echo "▶ Publication de la release ${TAG}…"
+  gh release edit "$TAG" "${REPO_ARGS[@]+"${REPO_ARGS[@]}"}" --draft=false --latest
 fi
 
 echo "✓ Terminé."
