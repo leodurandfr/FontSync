@@ -184,3 +184,62 @@ async def test_to_deactivate_gated_by_device_hashes(db, storage, font_factory) -
     delta = await compute_delta([], db, device_id=device_id)
 
     assert delta.to_deactivate == []
+
+
+def _flavored(ttf: bytes, flavor: str | None) -> bytes:
+    """Re-encode a generated TTF (WOFF via zlib; None keeps the sfnt)."""
+    import io
+
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(io.BytesIO(ttf))
+    font.flavor = flavor
+    out = io.BytesIO()
+    font.save(out)
+    return out.getvalue()
+
+
+def _collection(*ttfs: bytes) -> bytes:
+    """Build a real TrueType collection (.ttc) from generated TTFs."""
+    import io
+
+    from fontTools.ttLib import TTFont
+    from fontTools.ttLib.ttCollection import TTCollection
+
+    collection = TTCollection()
+    collection.fonts = [TTFont(io.BytesIO(data)) for data in ttfs]
+    out = io.BytesIO()
+    collection.save(out)
+    return out.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_missing_on_device_never_offers_web_fonts(
+    db, storage, font_factory
+) -> None:
+    """WOFF/WOFF2 are stored and previewable, never offered for installation."""
+    woff = _flavored(font_factory(family="WebOnly"), "woff")
+    # No brotli in the test venv: a WOFF2 header is enough, the importer keeps
+    # malformed fonts with partial metadata.
+    woff2 = b"wOF2" + hashlib.sha256(b"woff2").digest() * 4
+    ttf = font_factory(family="Desk")
+    otf_named = font_factory(family="DeskOtf")
+    ttc = _collection(font_factory(family="CollA"), font_factory(family="CollB"))
+
+    imported = {}
+    for name, data in (
+        ("web.woff", woff),
+        ("web.woff2", woff2),
+        ("desk.ttf", ttf),
+        ("desk.otf", otf_named),
+        ("coll.ttc", ttc),
+    ):
+        font, _ = await import_font(name, data, storage, db)
+        imported[font.file_format] = font.file_hash
+
+    delta = await compute_delta([], db, device_id=_DEVICE_ID)
+
+    offered = {ref.file_hash for ref in delta.missing_on_device}
+    assert imported["woff"] not in offered
+    assert imported["woff2"] not in offered
+    assert {imported["ttf"], imported["otf"], imported["ttc"]} <= offered

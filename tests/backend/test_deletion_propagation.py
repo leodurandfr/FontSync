@@ -582,11 +582,9 @@ async def test_delta_quarantines_then_asks_other_device_to_uninstall(
     # Une seconde police reste en place : le laptop doit continuer de déclarer
     # quelque chose, sinon c'est le garde-fou « déclaration vide » qui répond.
     kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
-    # Le desktop récupère la première → il en devient détenteur enregistré.
-    pull = await api_client.get(
-        f"/api/sync/pull/{pushed['fontId']}?device_id={desktop}", headers=AUTH_HEADERS
-    )
-    assert pull.status_code == 200, pull.text
+    # Le desktop installe la première et la déclare → détenteur enregistré
+    # (télécharger seul ne suffit pas : c'est la déclaration qui compte).
+    await _delta(api_client, desktop, [file_hash])
 
     # Le laptop la supprime localement : il ne la déclare plus.
     delta_laptop = await _delta(api_client, laptop, [kept["fileHash"]])
@@ -724,10 +722,8 @@ async def test_deletion_recorded_here_is_not_applied_there(
     desktop = await _register_device(api_client, hostname="desktop")
     pushed = await _push(api_client, laptop, font_factory(family="Both"), "Both.ttf")
     kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
-    pull = await api_client.get(
-        f"/api/sync/pull/{pushed['fontId']}?device_id={desktop}", headers=AUTH_HEADERS
-    )
-    assert pull.status_code == 200, pull.text
+    # Le desktop la détient : il la déclare.
+    await _delta(api_client, desktop, [pushed["fileHash"]])
 
     # Le laptop la perd → quarantaine propageable (sous le seuil).
     await _delta(api_client, laptop, [kept["fileHash"]])
@@ -1037,12 +1033,8 @@ async def test_confirming_pending_spares_the_living_library(
     alpha = await _push(api_client, laptop, font_factory(family="Alpha"), "Alpha.ttf")
     beta = await _push(api_client, laptop, font_factory(family="Beta"), "Beta.ttf")
     alive = await _push(api_client, laptop, font_factory(family="Alive"), "Alive.ttf")
-    for pushed in (alpha, beta):
-        pull = await api_client.get(
-            f"/api/sync/pull/{pushed['fontId']}?device_id={desktop}",
-            headers=AUTH_HEADERS,
-        )
-        assert pull.status_code == 200, pull.text
+    # Le desktop détient Alpha et Beta : il les déclare.
+    await _delta(api_client, desktop, [alpha["fileHash"], beta["fileHash"]])
 
     # Le laptop perd deux polices d'un coup : au-delà du seuil → retenues.
     await _delta(api_client, laptop, [alive["fileHash"]])
@@ -1181,3 +1173,83 @@ async def test_auto_purge_spares_unconfirmed_deletions(
     assert await purge_expired(storage, db, retention_days=30) == 1
     assert manual.purged_at is not None
     assert held.purged_at is None
+
+
+@pytest.mark.asyncio
+async def test_pull_alone_never_makes_a_device_a_holder(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Downloading a font is not holding it: only a declaration counts (H-02).
+
+    C pulls Fresh, then declares an inventory without it (the install failed,
+    or C is still catching up). That must not read as « C deleted Fresh ».
+    """
+    a = await _register_device(api_client, hostname="a")
+    b = await _register_device(api_client, hostname="b")
+    c = await _register_device(api_client, hostname="c")
+    resp = await api_client.patch(
+        f"/api/devices/{b}", headers=AUTH_HEADERS, json={"propagateDeletions": True}
+    )
+    assert resp.status_code == 200, resp.text
+
+    fresh = await _push(api_client, a, font_factory(family="Fresh"), "Fresh.ttf")
+    kept = await _push(api_client, a, font_factory(family="KeptC"), "KeptC.ttf")
+    await _delta(api_client, b, [fresh["fileHash"]])
+
+    pull = await api_client.get(
+        f"/api/sync/pull/{fresh['fontId']}?device_id={c}", headers=AUTH_HEADERS
+    )
+    assert pull.status_code == 200, pull.text
+    await _delta(api_client, c, [kept["fileHash"]])
+
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["total"] == 0
+    still = await api_client.get(f"/api/fonts/{fresh['fontId']}", headers=AUTH_HEADERS)
+    assert still.json()["deletedAt"] is None
+    delta_b = await _delta(api_client, b, [fresh["fileHash"]])
+    assert delta_b["toUninstall"] == []
+
+
+@pytest.mark.asyncio
+async def test_pulled_web_font_never_goes_to_the_trash(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """An auto-pull device that cannot install a WOFF must not delete it (H-03)."""
+    import io
+
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(io.BytesIO(font_factory(family="WebFace")))
+    font.flavor = "woff"
+    buffer = io.BytesIO()
+    font.save(buffer)
+    resp = await api_client.post(
+        "/api/fonts/upload",
+        headers=AUTH_HEADERS,
+        files=[("files", ("WebFace.woff", buffer.getvalue(), "font/woff"))],
+    )
+    assert resp.status_code == 200, resp.text
+    woff = resp.json()["imported"][0]
+
+    device = await _register_device(api_client, hostname="auto-pull")
+    kept = await _push(api_client, device, font_factory(family="Local"), "Local.ttf")
+    for _ in range(2):
+        delta = await _delta(api_client, device, [kept["fileHash"]])
+        for ref in delta["missingOnDevice"]:
+            # The agent pulls what it is offered, but cannot install a WOFF.
+            pulled = await api_client.get(
+                f"/api/sync/pull/{ref['id']}?device_id={device}",
+                headers=AUTH_HEADERS,
+            )
+            assert pulled.status_code == 200, pulled.text
+    # Even pulled by hand, the WOFF stays active and out of the trash.
+    pulled = await api_client.get(
+        f"/api/sync/pull/{woff['id']}?device_id={device}", headers=AUTH_HEADERS
+    )
+    assert pulled.status_code == 200, pulled.text
+    await _delta(api_client, device, [kept["fileHash"]])
+
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["total"] == 0
+    still = await api_client.get(f"/api/fonts/{woff['id']}", headers=AUTH_HEADERS)
+    assert still.json()["deletedAt"] is None

@@ -236,9 +236,11 @@ async def pull_font(
 ) -> Response:
     """Retourne le fichier font pour installation par l'agent.
 
-    L'association `device_font` n'est enregistrée qu'après récupération
-    réussie du fichier : un échec de stockage ne laisse donc jamais
-    d'association « installée » fantôme.
+    Télécharger n'est pas détenir : aucune association `device_font` n'est
+    écrite ici. Elle naît au delta suivant, quand l'appareil déclare la police
+    dans son inventaire (`reconcile_inventory`). Une installation ratée, ou un
+    format que l'appareil ne sait pas installer (WOFF/WOFF2), ne peut donc
+    jamais passer pour une suppression locale.
     """
     # Vérifier que le device existe
     await _get_device_or_404(device_id, db)
@@ -256,15 +258,6 @@ async def pull_font(
         raise HTTPException(
             status_code=404, detail="Fichier introuvable dans le stockage."
         )
-
-    # Le fichier est disponible → enregistrer l'association device ↔ font
-    await register_device_font(
-        device_id=device_id,
-        font_id=font.id,
-        local_path=font.original_filename,
-        db=db,
-    )
-    await db.commit()
 
     content_type = MIME_TYPES.get(font.file_format, "application/octet-stream")
     encoded = quote(font.original_filename, safe="")

@@ -10,6 +10,9 @@ from backend.models.device_font import DeviceFont
 from backend.models.font import Font
 from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
 
+# Formats stockés et prévisualisables, jamais proposés à l'installation système.
+NON_INSTALLABLE_FORMATS = frozenset({"woff", "woff2"})
+
 
 def _to_ref(row: Any) -> FontRef:
     return FontRef(
@@ -95,8 +98,14 @@ async def compute_delta(
     # qu'elle détient) sans jamais être offerte au push.
     unknown_to_server = list(ingestible_hashes - known_hashes)
 
-    # Fonts sur le serveur mais pas sur le device → à puller
-    missing_on_device = [_to_ref(active_map[h]) for h in active_hashes - device_hashes]
+    # Fonts sur le serveur mais pas sur le device → à puller. Les formats web
+    # (WOFF/WOFF2) sont stockés et prévisualisables mais jamais installés : ne
+    # jamais les proposer, sinon l'agent les tire sans pouvoir les déclarer.
+    missing_on_device = [
+        _to_ref(active_map[h])
+        for h in active_hashes - device_hashes
+        if (active_map[h].file_format or "").lower() not in NON_INSTALLABLE_FORMATS
+    ]
 
     # Fonts en commun → simple comptage (aucune écriture)
     already_synced = len(device_hashes & active_hashes)
