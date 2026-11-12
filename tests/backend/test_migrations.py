@@ -97,3 +97,54 @@ def test_upgrade_keeps_app_loggers_enabled(tmp_path, monkeypatch) -> None:
     assert logger.disabled is False
     _upgrade_head(tmp_path / "loggers.db", monkeypatch)
     assert logging.getLogger("backend.auth").disabled is False
+
+
+def _upgrade_to(db_path: Path, monkeypatch, revision: str) -> None:
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "alembic"))
+    monkeypatch.setattr(settings, "database_url", f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(cfg, revision)
+
+
+def test_upgrade_drops_associations_to_active_web_fonts(tmp_path, monkeypatch) -> None:
+    """Old pulls registered WOFF/WOFF2 as held: drop those rows, never tombstones'."""
+    import sqlite3
+
+    db_path = tmp_path / "woff.db"
+    _upgrade_to(db_path, monkeypatch, "a43134c85b44")
+
+    device = "d" * 32
+    fonts = {
+        # id: (file_format, deleted_at)
+        "a" * 32: ("woff", None),
+        "b" * 32: ("WOFF2", None),
+        "c" * 32: ("woff", "2026-10-01 00:00:00"),
+        "e" * 32: ("ttf", None),
+    }
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO devices (id, name, hostname, os, auto_pull, auto_push) "
+            "VALUES (?, 'Mac', 'mac', 'macos', 1, 1)",
+            (device,),
+        )
+        for font_id, (fmt, deleted_at) in fonts.items():
+            conn.execute(
+                "INSERT INTO fonts (id, file_hash, original_filename, file_size, "
+                "file_format, is_italic, is_oblique, is_variable, source, deleted_at) "
+                "VALUES (?, ?, ?, 1, ?, 0, 0, 0, 'upload', ?)",
+                (font_id, font_id * 2, f"{font_id[:4]}.{fmt.lower()}", fmt, deleted_at),
+            )
+            conn.execute(
+                "INSERT INTO device_fonts (device_id, font_id, local_path) "
+                "VALUES (?, ?, 'x')",
+                (device, font_id),
+            )
+
+    _upgrade_head(db_path, monkeypatch)
+
+    with sqlite3.connect(db_path) as conn:
+        kept = {row[0] for row in conn.execute("SELECT font_id FROM device_fonts")}
+        font_count = conn.execute("SELECT count(*) FROM fonts").fetchone()[0]
+    # Active web fonts lose their association; the WOFF tombstone and the TTF keep theirs.
+    assert kept == {"c" * 32, "e" * 32}
+    assert font_count == 4
