@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -118,16 +118,27 @@ class ImmutableStaticFiles(StaticFiles):
         return response
 
 
-# Serve frontend static assets (JS, CSS, images, etc.)
-if FRONTEND_DIR.is_dir():
+def mount_frontend(app: FastAPI, dist: Path) -> None:
+    """Mount the built frontend (`dist`) on `app`: `/assets` plus the SPA fallback.
+
+    The fallback only serves files listed at mount time directly under `dist`
+    (favicon, manifest…), looked up by exact name; any other path gets
+    `index.html`. No filesystem path is ever built from the request URL.
+    """
     app.mount(
         "/assets",
-        ImmutableStaticFiles(directory=FRONTEND_DIR / "assets"),
+        ImmutableStaticFiles(directory=dist / "assets"),
         name="static",
     )
+    root_files = frozenset(
+        entry.name
+        for entry in dist.iterdir()
+        if entry.is_file() and not entry.is_symlink()
+    )
+    index_html = dist / "index.html"
 
     @app.get("/{full_path:path}")
-    async def spa_fallback(request: Request, full_path: str):
+    async def spa_fallback(full_path: str) -> Response:
         """Serve index.html for all non-API routes (SPA fallback).
 
         Les chemins `/api/*` non résolus renvoient un 404 JSON plutôt que la
@@ -141,7 +152,11 @@ if FRONTEND_DIR.is_dir():
         if full_path == "api" or full_path.startswith("api/"):
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
         headers = {"Cache-Control": _HTML_CACHE_CONTROL}
-        file_path = FRONTEND_DIR / full_path
-        if file_path.is_file():
-            return FileResponse(file_path, headers=headers)
-        return FileResponse(FRONTEND_DIR / "index.html", headers=headers)
+        if full_path in root_files:
+            return FileResponse(dist / full_path, headers=headers)
+        return FileResponse(index_html, headers=headers)
+
+
+# Serve frontend static assets (JS, CSS, images, etc.)
+if FRONTEND_DIR.is_dir():
+    mount_frontend(app, FRONTEND_DIR)
