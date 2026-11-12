@@ -277,3 +277,74 @@ tailscale status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); \
 ```
 
 A node shows `no expiry` once expiry is disabled.
+
+---
+
+## 7. Rotate or revoke the instance token
+
+This procedure is for the NAS install (`docker-compose.nas.yml`, token in
+`.env`). Rotate `FONTSYNC_TOKEN` when it may have leaked (pasted in a chat, a
+log, a screenshot) or when a machine that knew it is retired. The server
+accepts a single token: from the moment the container is recreated with the
+new one, every client still holding the old one gets **HTTP 401** (the web
+interface and its WebSocket ask for the token again). Plan a few minutes with
+all your Macs at hand.
+
+1. **Generate the new token** (keep it out of shell history and of any chat):
+
+   ```bash
+   openssl rand -base64 32
+   ```
+
+   Rotate `WATCHTOWER_TOKEN` in the same pass if it may have leaked too: the
+   same `.env` feeds both the `fontsync` and `watchtower` services.
+
+2. **Back up `.env`**, then edit it next to `docker-compose.nas.yml`:
+
+   ```bash
+   cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
+   # replace the FONTSYNC_TOKEN= (and WATCHTOWER_TOKEN=) value(s)
+   ```
+
+3. **Recreate the containers** — `restart` keeps the old environment, only a
+   recreation reads the new `.env`:
+
+   ```bash
+   docker compose -f docker-compose.nas.yml up -d
+   ```
+
+   In Synology Container Manager, change the variable in the project's
+   environment, then rebuild the project. With Docker's default log driver,
+   the recreated container starts with empty logs: lines written by the old
+   one (which may contain the old token in older versions) go away with it.
+
+4. **Check the switch** from any machine on the network, without putting the
+   tokens in your shell history. Each `read -rs` waits silently: paste the old
+   token (first line) or the new one (second line), then press Enter. Expect
+   `401` for the old token, then `200` for the new one.
+
+   ```bash
+   read -rs OLD && curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $OLD" http://<nas-ip>:8080/api/stats
+   read -rs NEW && curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $NEW" http://<nas-ip>:8080/api/stats
+   unset OLD NEW
+   ```
+
+   Use the NAS's IP address or `*.local` name: another host name gets HTTP 400
+   unless it is listed in `ALLOWED_HOSTS` (§3).
+
+5. **Each Mac with the app**: FontSync menu → **Préférences…** (⌘,) → paste
+   the new token → **Enregistrer**, then click **Installer l'agent** again.
+   Installing reloads both background jobs; the `listen` job keeps the token
+   it read at start-up, so saving alone is not enough. Check that the Mac shows
+   **Connected** under Settings → Devices in the web interface (French UI:
+   Paramètres → Appareils, « Connecté »).
+
+   **Each Mac with the command-line agent** (Homebrew): edit `server.token` in
+   `~/.fontsync/config.yaml`, then run `fontsync-agent setup` (it reloads both
+   jobs the same way).
+
+6. **Each browser, and the app's own web window**, asks for the token again on
+   its next request: paste the new one.
+
+Revoking without a replacement is the same procedure: every client stays at 401
+until it receives the new token.
