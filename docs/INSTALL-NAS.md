@@ -257,3 +257,23 @@ does the job, provided you relay WebSocket and SSE.
 The name the proxy forwards in `Host` (your domain, or the upstream name
 such as `fontsync` if the proxy rewrites it) must be listed in
 `ALLOWED_HOSTS` (§3), otherwise every request gets HTTP 400.
+
+### Remote access through Tailscale
+
+A Tailscale sidecar (`tailscale serve` in front of the container) gives you
+HTTPS on a `*.ts.net` name, accepted by default by the Host check (§3). Tailscale
+node keys **expire** (180 days by default): when the key of the sidecar, of the
+NAS or of a Mac running the agent expires, that node silently drops off the
+tailnet and the agents lose the server — no data is lost, but nothing syncs
+until the node is re-authenticated.
+
+For an always-on server, open the Tailscale admin console → **Machines**, and
+choose **Disable key expiry** for the FontSync sidecar, the NAS itself and
+every Mac whose agent uses the `*.ts.net` URL. To check from a Mac:
+
+```bash
+tailscale status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); \
+  [print(p.get("DNSName"), p.get("KeyExpiry", "no expiry")) for p in [d["Self"], *d.get("Peer", {}).values()]]'
+```
+
+A node shows `no expiry` once expiry is disabled.
