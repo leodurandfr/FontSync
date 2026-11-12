@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
 from backend.database import async_session
+from backend.logging_filters import install_token_redaction
 from backend.routers import (
     agent_events,
     devices,
@@ -36,6 +37,11 @@ from backend.services.storage import get_storage_backend
 from backend.services.trash import run_purge_loop
 
 logger = logging.getLogger(__name__)
+
+# Le token peut arriver en `?token=` (WebSocket navigateur, SSE) : uvicorn
+# journalise le chemin complet, query comprise. Le filtre est posé à l'import,
+# après la configuration des loggers par uvicorn, qui ne retire pas les filtres.
+install_token_redaction()
 
 
 @asynccontextmanager
