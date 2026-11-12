@@ -82,6 +82,9 @@ build_one() {
   #    est fiable ici, contrairement à un find récursif depuis un path absolu).
   ( cd "$dest" && find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true )
   ( cd "$dest" && find . -name '*.pyc' -delete 2>/dev/null || true )
+  # `direct_url.json` (PEP 610) enregistre le chemin du dépôt sur la machine de
+  # build : rien à faire dans un venv distribué dans l'app signée.
+  ( cd "$dest" && find . -path '*.dist-info/direct_url.json' -delete 2>/dev/null || true )
 
   # 5. Garde-fou : codesign/notarisation REFUSENT tout symlink dont la cible est
   #    absolue ou sort du bundle. On les détecte ici (échec du build) plutôt que

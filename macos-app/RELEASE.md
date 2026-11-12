@@ -59,7 +59,7 @@ Créer un mot de passe **app-specific** sur https://account.apple.com puis :
 
 ```bash
 xcrun notarytool store-credentials FontSyncNotary \
-  --apple-id "services@leodurand.com" \
+  --apple-id "<apple-id>" \
   --team-id "TEAMID" \
   --password "xxxx-xxxx-xxxx-xxxx"      # app-specific password
 ```

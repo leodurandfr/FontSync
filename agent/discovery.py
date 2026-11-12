@@ -47,7 +47,7 @@ def _is_ingestible(path: Path, ingest_directories: list[str] | None) -> bool:
     """Le chemin **résolu** est-il sous un des `ingest_directories` ?
 
     Comparaison par `Path.is_relative_to` sur des chemins résolus, jamais un
-    préfixe de chaîne : `~/Library/Fonts` doit valoir `/Users/leo/Library/Fonts`,
+    préfixe de chaîne : `~/Library/Fonts` doit valoir `/Users/<user>/Library/Fonts`,
     pas matcher `~/Library/FontsBackup` par accident de préfixe.
     """
     if ingest_directories is None:

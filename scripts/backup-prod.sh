@@ -28,8 +28,8 @@
 #
 # Déposer le script, puis l'exécuter EN ROOT sur le NAS :
 #
-#   scp -P 93 scripts/backup-prod.sh Leo@192.168.1.140:/volume1/docker/fontsync/
-#   ssh -p 93 Leo@192.168.1.140
+#   scp -P <ssh-port> scripts/backup-prod.sh <user>@<nas>:/volume1/docker/fontsync/
+#   ssh -p <ssh-port> <user>@<nas>
 #   sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 #
 # Ne PAS tenter `ssh … 'sudo bash -s' < ce-fichier` : `sudo` demande un mot de

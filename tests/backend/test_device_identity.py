@@ -52,17 +52,17 @@ async def _push(client: AsyncClient, device_id: str, data: bytes, name: str) -> 
 async def test_changing_hostname_no_longer_creates_a_device(
     api_client: AsyncClient,
 ) -> None:
-    """Le cas de production : `.local` puis `.home` pour le même Mac."""
-    first = await _register(api_client, hostname="Mac-mini-de-Leo.local")
+    """Le cas réel : `.local` puis le nom donné par la box (`.home`) pour le même Mac."""
+    first = await _register(api_client, hostname="Mac-mini-de-Alex.local")
 
     second = await _register(
         api_client,
-        hostname="mac-mini-de-leo1.home",
+        hostname="mac-mini-de-alex1.home",
         deviceId=first["id"],
     )
 
     assert second["id"] == first["id"]
-    assert second["hostname"] == "mac-mini-de-leo1.home"
+    assert second["hostname"] == "mac-mini-de-alex1.home"
     devices = (await api_client.get("/api/devices", headers=AUTH_HEADERS)).json()
     assert len(devices) == 1
 

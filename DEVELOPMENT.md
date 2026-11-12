@@ -130,7 +130,7 @@ this Mac acts as the server on the LAN, and the other Mac connects its agent to 
 
 ```bash
 HOST=0.0.0.0 scripts/dev/run-server.sh        # reuses the already-populated .dev/ database
-# LAN IP of this Mac: `ipconfig getifaddr en0`  (e.g. 192.168.1.172)
+# LAN IP of this Mac: `ipconfig getifaddr en0`  (e.g. 192.0.2.172)
 ```
 
 macOS may ask you to allow incoming connections → accept.
@@ -142,7 +142,7 @@ git clone <repo> FontSync && cd FontSync
 python3 -m venv .venv && .venv/bin/pip install -e .   # provides `fontsync-agent`
 mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
 server:
-  url: http://192.168.1.172:8080      # LAN IP of the 1st Mac
+  url: http://192.0.2.172:8080        # LAN IP of the 1st Mac
   token: <server's FONTSYNC_TOKEN>    # instance token (logged at boot if not set)
   device_id: null
 scan:
@@ -179,8 +179,8 @@ a timestamped snapshot of the database (rotated, `KEEP=14` by default) and an
 incremental rsync mirror of the font blobs.
 
 ```bash
-scp -P 93 scripts/backup-prod.sh Leo@192.168.1.140:/volume1/docker/fontsync/
-ssh -p 93 Leo@192.168.1.140
+scp -P <ssh-port> scripts/backup-prod.sh <user>@<nas>:/volume1/docker/fontsync/
+ssh -p <ssh-port> <user>@<nas>
 sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 ```
 

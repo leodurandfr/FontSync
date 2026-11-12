@@ -119,7 +119,7 @@ soft-delete + B7) est conforme. 2 bugs réels confirmés (1 bloquant S3, 1 majeu
 
 ```bash
 [S] HOST=0.0.0.0 scripts/dev/run-server.sh
-[S] ipconfig getifaddr en0          # → note l'IP, ex. 192.168.1.172
+[S] ipconfig getifaddr en0          # → note l'IP, ex. 192.0.2.172
 ```
 
 > macOS peut demander d'autoriser les connexions entrantes → **accepter**.

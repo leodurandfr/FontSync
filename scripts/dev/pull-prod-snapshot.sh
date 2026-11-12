@@ -22,16 +22,19 @@
 #   scripts/dev/pull-prod-snapshot.sh --reupload     # ré-ingère .dev/snapshot/fonts/ sans retoucher le NAS
 #
 # Pré-requis : serveur local démarré (scripts/dev/up.sh ou run-server.sh) et
-# clé SSH installée sur le NAS (ssh-copy-id -p 93 Leo@192.168.1.140).
+# clé SSH installée sur le NAS (ssh-copy-id -p <ssh-port> <user>@<nas>).
+# NAS_HOST, NAS_USER et NAS_PORT sont obligatoires hors --reupload (aucune
+# valeur par défaut : le dépôt est public et ne porte pas l'adresse d'une infra
+# réelle), par ex. : NAS_HOST=nas.local NAS_USER=admin NAS_PORT=22 scripts/dev/…
 
 set -euo pipefail
 
-# --- Config (surchargeable par variables d'env) ---
-NAS_USER="${NAS_USER:-Leo}"
-NAS_HOST="${NAS_HOST:-192.168.1.140}"
-NAS_PORT="${NAS_PORT:-93}"
+# --- Config (variables d'env) ---
+NAS_USER="${NAS_USER:-}"
+NAS_HOST="${NAS_HOST:-}"
+NAS_PORT="${NAS_PORT:-}"
 NAS_ENV="${NAS_ENV:-/volume1/docker/fontsync/.env}"
-PROD_API="${PROD_API:-http://localhost:8070}"          # vu DEPUIS le NAS
+PROD_API="${PROD_API:-http://localhost:8080}"          # vu DEPUIS le NAS (port hôte du compose)
 LOCAL_API="${LOCAL_API:-http://localhost:8080}"
 LOCAL_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}"
 BATCH="${BATCH:-25}"                                    # fonts par requête /upload
@@ -48,6 +51,12 @@ while [ $# -gt 0 ]; do
     *) echo "Argument inconnu : $1" >&2; exit 2 ;;
   esac
 done
+
+if [ "$MODE" != reupload ]; then
+  for var in NAS_HOST NAS_USER NAS_PORT; do
+    [ -n "${!var}" ] || { echo "$var requis (voir l'en-tête du script)" >&2; exit 2; }
+  done
+fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 snap_dir="$repo_root/.dev/snapshot/fonts"

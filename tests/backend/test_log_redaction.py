@@ -43,7 +43,7 @@ def test_token_in_the_middle_of_the_query_is_redacted() -> None:
     record = _emit(
         "uvicorn.error",
         '%s - "WebSocket %s" 403',
-        (("10.0.0.2", 1), f"/ws/client?a=1&token={TOKEN_URLENCODED}&b=2"),
+        (("192.0.2.2", 1), f"/ws/client?a=1&token={TOKEN_URLENCODED}&b=2"),
     )
     assert record.getMessage().endswith('"WebSocket /ws/client?a=1&token=***&b=2" 403')
 
