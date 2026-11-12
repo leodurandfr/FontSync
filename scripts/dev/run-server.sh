@@ -11,8 +11,10 @@
 #   FONTSYNC_DEV_ROOT   racine des données dev (défaut : <repo>/.dev)
 #   PORT                port d'écoute        (défaut : 8080)
 #   HOST                interface d'écoute   (défaut : 127.0.0.1)
-#                       → mettre 0.0.0.0 pour exposer sur le LAN (test multi-Macs)
-#   FONTSYNC_TOKEN      token d'instance     (défaut dev : fontsync-dev)
+#                       → hors loopback (test multi-Macs), préférer l'IP tailnet
+#                         de ce Mac à 0.0.0.0, et jamais avec le token fontsync-dev
+#   FONTSYNC_TOKEN      token d'instance     (défaut en loopback : fontsync-dev ;
+#                       hors loopback : aléatoire, affiché une fois)
 
 set -euo pipefail
 
@@ -24,12 +26,37 @@ host="${HOST:-127.0.0.1}"
 python_bin="$repo_root/.venv/bin/python"
 [ -x "$python_bin" ] || python_bin="python3"
 
-mkdir -p "$dev_root/server/fonts"
+is_loopback() {
+  case "$1" in
+    127.*|localhost|::1|\[::1\]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# Token d'instance FIXE en dev : sinon `auth.py` en génère un aléatoire à chaque
-# boot, qu'il faudrait re-saisir dans le TokenGate du frontend et re-passer au
-# script de snapshot. Surchargeable via l'env.
-export FONTSYNC_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}"
+# Token d'instance FIXE en loopback : sinon `auth.py` en génère un aléatoire à
+# chaque boot, qu'il faudrait re-saisir dans le TokenGate du frontend et
+# re-passer au script de snapshot. Hors loopback, le token public du dépôt
+# ouvrirait l'API à tout le réseau : refusé, et un token aléatoire le remplace
+# quand aucun n'est fourni.
+# Le serveur retire les espaces autour du token (`str.strip()`, `backend/auth.py`) :
+# comparer la valeur telle qu'il la verra, avec la même règle (pas `tr`, dont la
+# notion d'espace diffère de celle de Python).
+token_seen="$("$python_bin" -c 'import os; print(os.environ.get("FONTSYNC_TOKEN", "").strip())')"
+if is_loopback "$host"; then
+  export FONTSYNC_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}"
+elif [ "$token_seen" = "fontsync-dev" ]; then
+  echo "ERREUR : HOST=$host expose le serveur hors de cette machine avec le token" >&2
+  echo "public « fontsync-dev ». Retirer FONTSYNC_TOKEN (un token aléatoire sera" >&2
+  echo "généré) ou en fournir un autre, ou rester en HOST=127.0.0.1." >&2
+  exit 2
+elif [ -z "$token_seen" ]; then
+  FONTSYNC_TOKEN="$("$python_bin" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  export FONTSYNC_TOKEN
+  echo "==> Serveur exposé sur $host : token aléatoire de cette session (à donner aux agents) :"
+  echo "    $FONTSYNC_TOKEN"
+fi
+
+mkdir -p "$dev_root/server/fonts"
 
 export DATABASE_URL="sqlite+aiosqlite:///$dev_root/server/fontsync.db"
 export STORAGE_BACKEND="filesystem"

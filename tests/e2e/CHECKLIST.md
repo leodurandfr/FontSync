@@ -115,11 +115,12 @@ soft-delete + B7) est conforme. 2 bugs réels confirmés (1 bloquant S3, 1 majeu
 
 ### 0.1 — Lancer le serveur `[S]`
 
-**Option A — Mac sur le LAN (dev, boucle rapide, réutilise `.dev/`) :**
+**Option A — Mac serveur joignable par le 2e Mac (dev, boucle rapide, réutilise `.dev/`) :**
 
 ```bash
-[S] HOST=0.0.0.0 scripts/dev/run-server.sh
-[S] ipconfig getifaddr en0          # → note l'IP, ex. 192.0.2.172
+[S] tailscale ip -4                 # → IP tailnet de ce Mac (sinon IP LAN : ipconfig getifaddr en0)
+[S] HOST=<IP tailnet> scripts/dev/run-server.sh
+#   → affiche un token aléatoire (jamais fontsync-dev hors loopback) : le noter pour l'agent du 2e Mac
 ```
 
 > macOS peut demander d'autoriser les connexions entrantes → **accepter**.

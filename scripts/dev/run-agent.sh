@@ -86,6 +86,34 @@ YAML
   chmod 600 "$config"
 fi
 
+# Config existante : l'URL et le token fournis par l'appelant (preflight, qui
+# peut tirer un nouveau token à chaque lancement) priment sur ceux écrits la
+# première fois, sinon l'agent garde un token périmé et reçoit 401.
+if [ -n "${FONTSYNC_TOKEN:-}" ] || [ -n "${FONTSYNC_SERVER_URL:-}" ]; then
+  "$python_bin" - "$config" <<'PY'
+import os
+import sys
+
+import yaml
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    data = yaml.safe_load(handle) or {}
+if not isinstance(data, dict):
+    data = {}
+server = data.get("server")
+if not isinstance(server, dict):  # `server:` empty or malformed: rebuild it
+    server = {}
+    data["server"] = server
+if os.environ.get("FONTSYNC_TOKEN"):
+    server["token"] = os.environ["FONTSYNC_TOKEN"]
+if os.environ.get("FONTSYNC_SERVER_URL"):
+    server["url"] = os.environ["FONTSYNC_SERVER_URL"]
+with open(path, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(data, handle, sort_keys=False)
+PY
+fi
+
 echo "[dev] profil=$profile  home=$profile_dir  fonts=$profile_fonts" >&2
 cd "$repo_root"
 exec "$python_bin" -m agent "$@"

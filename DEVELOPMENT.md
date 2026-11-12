@@ -126,11 +126,13 @@ this Mac acts as the server on the LAN, and the other Mac connects its agent to 
 > the 2nd Mac's `~/Library/Fonts` (that's the product behavior). Reversible: the
 > files stay on the server, and the agent can uninstall.
 
-**On this Mac (server, exposed on the LAN):**
+**On this Mac (server, reachable from the 2nd Mac):**
 
 ```bash
-HOST=0.0.0.0 scripts/dev/run-server.sh        # reuses the already-populated .dev/ database
-# LAN IP of this Mac: `ipconfig getifaddr en0`  (e.g. 192.0.2.172)
+tailscale ip -4                     # this Mac's tailnet IP (or LAN IP: `ipconfig getifaddr en0`)
+HOST=<tailnet IP> scripts/dev/run-server.sh   # reuses the already-populated .dev/ database
+# Off loopback the script refuses the public `fontsync-dev` token and prints a
+# random one instead: give it to the 2nd Mac's agent below.
 ```
 
 macOS may ask you to allow incoming connections → accept.
@@ -142,8 +144,8 @@ git clone <repo> FontSync && cd FontSync
 python3 -m venv .venv && .venv/bin/pip install -e .   # provides `fontsync-agent`
 mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
 server:
-  url: http://192.0.2.172:8080        # LAN IP of the 1st Mac
-  token: <server's FONTSYNC_TOKEN>    # instance token (logged at boot if not set)
+  url: http://192.0.2.172:8080        # tailnet (or LAN) IP of the 1st Mac
+  token: <token printed by run-server.sh>   # random token of that session
   device_id: null
 scan:
   directories: ['~/Library/Fonts', '/Library/Fonts']

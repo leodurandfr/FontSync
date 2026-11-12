@@ -23,7 +23,10 @@
 #
 # Variables d'env :
 #   PORT         port serveur            (défaut : 8080)
-#   HOST         interface d'écoute      (défaut : 0.0.0.0 → joignable sur le LAN)
+#   HOST         interface d'écoute      (défaut : 127.0.0.1 ; pour un 2e Mac,
+#                l'IP tailnet de ce Mac plutôt que 0.0.0.0)
+#   FONTSYNC_TOKEN  token partagé par le serveur et les agents (défaut en
+#                loopback : fontsync-dev ; hors loopback : aléatoire, affiché)
 #   NO_FRONTEND  =1 pour ne pas lancer Vite (banc serveur + 2 agents seulement)
 
 set -euo pipefail
@@ -32,11 +35,35 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dev_root="${FONTSYNC_DEV_ROOT:-$repo_root/.dev}"
 log_dir="$dev_root/e2e"
 port="${PORT:-8080}"
-host="${HOST:-0.0.0.0}"
-server_url="http://localhost:$port"
+host="${HOST:-127.0.0.1}"
+
+# URL que la sonde de santé et les agents utilisent : `localhost` si le serveur
+# écoute en loopback ou sur toutes les interfaces, sinon l'interface choisie
+# (un serveur lié à la seule IP tailnet n'est pas joignable via localhost).
+case "$host" in
+  127.*|localhost|::1|\[::1\]|0.0.0.0|::|\[::\]) server_url="http://localhost:$port" ;;
+  *:*) server_url="http://[${host#[}]:$port"; server_url="${server_url/]]/]}" ;;
+  *) server_url="http://$host:$port" ;;
+esac
 
 python_bin="$repo_root/.venv/bin/python"
 [ -x "$python_bin" ] || python_bin="python3"
+
+# Un seul token pour le serveur ET les agents (sinon les agents partent sans
+# token et reçoivent 401). Hors loopback, jamais le token public du dépôt ; le
+# serveur retire les espaces autour du token, la comparaison aussi.
+token_seen="$("$python_bin" -c 'import os; print(os.environ.get("FONTSYNC_TOKEN", "").strip())')"
+case "$host" in
+  127.*|localhost|::1|\[::1\])
+    export FONTSYNC_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}" ;;
+  *)
+    echo "ATTENTION : HOST=$host expose le serveur hors de cette machine." >&2
+    if [ -z "$token_seen" ] || [ "$token_seen" = "fontsync-dev" ]; then
+      FONTSYNC_TOKEN="$("$python_bin" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+      export FONTSYNC_TOKEN
+      echo "    token aléatoire de cette session : $FONTSYNC_TOKEN" >&2
+    fi ;;
+esac
 
 mkdir -p "$log_dir"
 
