@@ -1,0 +1,5 @@
+# Outils de développement (lint, tests). Les dépendances d'exécution sont dans
+# requirements.txt. ruff est épinglé : son jeu de règles par défaut bouge d'une
+# version à l'autre, la base L0 doit rester reproductible.
+-r requirements.txt
+ruff==0.16.2

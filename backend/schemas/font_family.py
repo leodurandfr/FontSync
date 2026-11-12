@@ -8,7 +8,6 @@ from pydantic import Field
 
 from backend.schemas.base import CamelModel
 
-
 # ---------- Enums ----------
 
 
