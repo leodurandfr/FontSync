@@ -49,6 +49,7 @@ from agent.discovery import DiscoveredFont, discover_fonts, discover_via_directo
 from agent.font_installer import (
     DISABLED_DIR,
     INSTALL_DIR,
+    INSTALLABLE_FORMATS,
     activate_font,
     deactivate_font,
     install_font,
@@ -424,6 +425,16 @@ def _pull_and_install(
     if not font_id:
         logger.warning("Référence de font sans id, ignorée : %s", ref)
         result.pull_errors += 1
+        return
+
+    # Format non installable (woff/woff2) : ne jamais le télécharger. Le format
+    # vient de la référence serveur, à défaut de l'extension du nom d'origine.
+    file_format = (
+        ref.get("fileFormat") or Path(str(ref.get("originalFilename") or "")).suffix
+    )
+    if f".{str(file_format).lower().lstrip('.')}" not in INSTALLABLE_FORMATS:
+        logger.info("Format non installable, non téléchargé : %s", label)
+        result.pull_skipped += 1
         return
 
     # Le hash attendu (issu du delta serveur) sert de vérification d'intégrité et

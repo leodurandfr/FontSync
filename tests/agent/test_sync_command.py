@@ -180,23 +180,54 @@ def test_respects_server_auto_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.installed == 0
 
 
-def test_unsupported_format_counts_as_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_fonts_are_never_pulled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WOFF/WOFF2 cannot be installed: never downloaded, counted as skipped."""
     _stub_scan(monkeypatch, [])
-    # install_font renvoie None pour un format non installable (woff/woff2).
-    monkeypatch.setattr(sync_command, "install_font", lambda fn, data, **kw: None)
+    installed: list[str] = []
+    monkeypatch.setattr(
+        sync_command,
+        "install_font",
+        lambda fn, data, **kw: installed.append(fn) or Path(f"/fake/{fn}"),
+    )
 
     client = FakeClient(
         delta={
             "unknownToServer": [],
-            "missingOnDevice": [{"id": "font-w", "originalFilename": "X.woff2"}],
+            "missingOnDevice": [
+                {"id": "font-w", "originalFilename": "X.woff", "fileFormat": "woff"},
+                {"id": "font-t", "originalFilename": "Y.ttf", "fileFormat": "ttf"},
+                # No fileFormat: the filename's extension decides, case-insensitively.
+                {"id": "font-w2", "originalFilename": "Z.WOFF2"},
+                {"id": "font-T", "originalFilename": "U.TTF"},
+            ],
             "alreadySynced": 0,
         }
     )
 
     result = run_sync(_config(), client=client)
 
-    assert client.pulled_ids == ["font-w"]
-    assert result.installed == 0
+    assert client.pulled_ids == ["font-t", "font-T"]
+    assert result.installed == 2
+    assert result.pull_skipped == 2
+
+
+def test_uninstallable_download_still_counts_as_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A format the server labels installable but install_font refuses is skipped."""
+    _stub_scan(monkeypatch, [])
+    monkeypatch.setattr(sync_command, "install_font", lambda fn, data, **kw: None)
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [{"id": "font-x", "originalFilename": "X.ttf"}],
+            "alreadySynced": 0,
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert client.pulled_ids == ["font-x"]
     assert result.pull_skipped == 1
 
 
