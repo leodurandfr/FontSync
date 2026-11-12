@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
 from backend.database import async_session
+from backend.host_guard import HostGuardMiddleware
 from backend.logging_filters import install_token_redaction
 from backend.routers import (
     agent_events,
@@ -77,6 +78,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="FontSync", version="0.1.0", lifespan=lifespan)
+
+# Garde anti DNS rebinding : un `Host` inattendu est refusé avant toute route
+# (400, ou fermeture 1008 pour le WebSocket). Réglage `ALLOWED_HOSTS`, cf.
+# `backend.host_guard` et docs/INSTALL-NAS.md.
+app.add_middleware(HostGuardMiddleware)
 
 # Auth par token partagé d'instance (P1) : tout `/api/*` exige le token. Les
 # routes REST le veulent en en-tête `Authorization: Bearer` ; le flux SSE

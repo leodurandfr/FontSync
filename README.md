@@ -206,6 +206,9 @@ server {
 
 Once behind TLS, point the browser and the agent at
 `https://fontsync.example.com`: WebSockets switch automatically to `wss://`.
+Add that name to the server's allowed hosts (`ALLOWED_HOSTS=fontsync.example.com`,
+see [docs/INSTALL-NAS.md](docs/INSTALL-NAS.md) §3): requests whose `Host` is not
+an IP, `localhost`, `*.local`, `*.ts.net` or a listed name are refused with HTTP 400.
 
 ---
 

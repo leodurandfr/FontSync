@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     # utilisateurs (ça reste le mode cloud / Phase 7).
     fontsync_token: str = ""
 
+    # Noms d'hôte acceptés dans l'en-tête `Host` en plus des défauts (IP
+    # littérales, `localhost`, `*.local`, `*.ts.net`) : liste séparée par des
+    # virgules, motifs `*.suffixe` admis ; `*` désactive la garde anti DNS
+    # rebinding (cf. `backend.host_guard`). Lu à chaque requête.
+    allowed_hosts: str = ""
+
     # ---------- Corbeille et suppression propagée ----------
 
     # Purge automatique des polices supprimées depuis plus de N jours.

@@ -40,6 +40,11 @@ services:
       # Vide → désactivée ; ce compose l'active par défaut. Détail : §5 de
       # docs/INSTALL-NAS.md.
       BACKUP_DIR: /backups
+      # Noms d'hôte acceptés en plus des défauts (IP, localhost, *.local,
+      # *.ts.net) : nom de domaine perso, reverse proxy, nas.home.arpa…
+      # Virgules, motifs `*.suffixe`, sans port ; `*` désactive la garde.
+      # Détail : §3 de docs/INSTALL-NAS.md.
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
     labels:
       # Watchtower tourne en `--label-enable` : il ne surveille que ce qui porte
       # ce label. Installer FontSync ne fait donc pas de lui le gestionnaire de

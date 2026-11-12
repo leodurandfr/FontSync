@@ -162,6 +162,19 @@ async def db() -> AsyncGenerator[AsyncSession, None]:
     await engine.dispose()
 
 
+# ---------- Garde de l'en-tête Host ----------
+
+
+@pytest.fixture(autouse=True)
+def _test_hosts_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Accepte les hôtes des clients de test (`http://test`, `TestClient`).
+
+    Sans cela, la garde anti DNS rebinding répondrait 400 (ou fermerait le WS
+    en 1008) à tous les tests qui passent par l'app réelle.
+    """
+    monkeypatch.setattr(settings, "allowed_hosts", "test,testserver,localhost")
+
+
 # ---------- Client API complet (routeurs montés, auth armée) ----------
 
 API_TOKEN = "test-secret-token"

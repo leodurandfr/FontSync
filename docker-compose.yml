@@ -11,6 +11,8 @@ services:
       # ne supprime de fichier tout seul sans qu'on l'ait demandé. Vider retire
       # le fichier et conserve l'empreinte (cf. ARCHITECTURE.md §4.4).
       TRASH_RETENTION_DAYS: "0"
+      # Noms d'hôte acceptés en plus des défauts (cf. docs/INSTALL-NAS.md §3).
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
     volumes:
       - db_data:/data
       - font_data:/data/fonts

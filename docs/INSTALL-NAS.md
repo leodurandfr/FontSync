@@ -83,11 +83,23 @@ This is the simplest and most reproducible method, including on Synology whose
 | `WATCHTOWER_TOKEN`  | Shared secret for the update button (see §4)       | output of `openssl rand -base64 32`           |
 | `WATCHTOWER_URL`    | Where the update request goes; already set by the compose file | `http://watchtower:8080`          |
 | `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |
+| `ALLOWED_HOSTS`     | Extra host names accepted in the `Host` header (comma-separated, `*.suffix` allowed). `*` disables the check | `nas.home.lan,*.example.com` |
 
 > If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
 > startup and **logs** it (never an open server by default). The example
 > compose makes it **mandatory** to prevent it from changing at every
 > restart.
+
+> **Host check (DNS rebinding protection).** The server answers only when the
+> `Host` header is an IP address, `localhost`, a `*.local` name or a Tailscale
+> `*.ts.net` name. Any other name — a custom domain, a reverse proxy name, a
+> router-provided name like `nas.home.lan`, a single-label name like `nas` —
+> gets **HTTP 400 "Invalid Host header"** (a WebSocket handshake is refused
+> with HTTP 403) until it is added to `ALLOWED_HOSTS`. List **names without
+> port**, comma-separated; `*.example.com` matches subdomains only, not
+> `example.com` itself. The example compose passes `ALLOWED_HOSTS` from your
+> `.env` to the container. Setting `ALLOWED_HOSTS=*` disables the check
+> entirely (not recommended).
 
 | Volume  | Mounted on | Content                                         |
 |---------|-----------|-------------------------------------------------|
@@ -242,3 +254,6 @@ place a **TLS reverse proxy** (Caddy / nginx) in front — see the
 "Transport & network security" section of the [README](../README.md). On Synology, the
 built-in **Reverse Proxy** (Control Panel → Application Portal)
 does the job, provided you relay WebSocket and SSE.
+The name the proxy forwards in `Host` (your domain, or the upstream name
+such as `fontsync` if the proxy rewrites it) must be listed in
+`ALLOWED_HOSTS` (§3), otherwise every request gets HTTP 400.
