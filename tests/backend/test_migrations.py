@@ -85,3 +85,15 @@ def test_alembic_head_matches_orm_metadata(tmp_path, monkeypatch) -> None:
         assert _foreign_keys(migrated_inspector, table) == _foreign_keys(
             reference_inspector, table
         ), f"clés étrangères divergentes sur {table}"
+
+
+def test_upgrade_keeps_app_loggers_enabled(tmp_path, monkeypatch) -> None:
+    """`alembic upgrade` in-process must not disable the app's existing loggers."""
+    import logging
+
+    import backend.auth  # noqa: F401  (creates the "backend.auth" logger)
+
+    logger = logging.getLogger("backend.auth")
+    assert logger.disabled is False
+    _upgrade_head(tmp_path / "loggers.db", monkeypatch)
+    assert logging.getLogger("backend.auth").disabled is False
