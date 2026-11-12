@@ -24,6 +24,8 @@ terminant. Le détail de chaque lot est en §8 ; ne pas commencer un lot sans av
 
 Le journal détaillé de chaque lot (déploiements, accès, opérations sur les machines) est tenu hors du dépôt, dans `.dev/OPS-JOURNAL.md` (ignoré par git) : ce document est public et ne porte que le modèle, le plan et l'état des lots.
 
+**Récolte suspendue** (`TOMBSTONE_HARVEST_ENABLED=false`) depuis novembre 2026, le temps d'ajouter la garde serveur qui refuse de récolter une pierre tombale qu'un appareil vivant déclare encore ; elle ne sera réactivée qu'après cette garde (cf. journal d'exploitation).
+
 ---
 
 ## 1. Ce qui change, en un tableau
