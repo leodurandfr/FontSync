@@ -32,6 +32,13 @@ de flux de mise à jour Sparkle (`SUFeedURL` →
 
 ## Étapes d'une release
 
+> **Un tag `v*` publié ne se déplace jamais et ne se supprime pas** : pour
+> corriger une release, on publie la version de patch suivante. Le dépôt
+> l'impose (ruleset `protect-release-tags`), comme il interdit le force-push et
+> la suppression de `main` (ruleset `protect-main`). Les actions des workflows
+> doivent être épinglées par SHA de commit (réglage du dépôt) ;
+> `scripts/check-repo-settings.sh` vérifie ces réglages.
+
 ### 1. Tagger la version
 
 ```bash
