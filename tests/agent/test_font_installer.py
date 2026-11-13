@@ -4,9 +4,9 @@ Vérifie les deux invariants de `agent/font_installer.py` :
 - **install** : ne jamais écraser une font homonyme au contenu différent
   (désambiguïsation par hash), idempotence sur contenu identique, refus d'un
   contenu corrompu (hash attendu ≠ reçu), formats non installables ignorés.
-- **uninstall** : suppression gardée par le hash — un homonyme au contenu
-  différent n'est jamais supprimé ; un fichier renommé mais de même contenu
-  l'est (repli par balayage).
+- **uninstall** (`remove_verified`) : suppression gardée par le hash, revérifiée
+  juste avant le retrait, jamais hors de ~/Library/Fonts et disabled/ (les
+  cibles viennent du scan du sync : cf. test_sync_command.py).
 
 Vérifie aussi que toute mise en place ou tout retrait de fichier déclenche la
 **réindexation macOS** (macOS 14+ n'indexe plus ~/Library/Fonts tout seul) : sans
@@ -138,63 +138,6 @@ def test_install_accepts_matching_expected_hash(dirs: tuple[Path, Path]) -> None
     assert dest == install / "Inter.ttf"
 
 
-def test_uninstall_removes_matching_hash(dirs: tuple[Path, Path]) -> None:
-    install, _ = dirs
-    data = b"INTER"
-    install.mkdir(parents=True)
-    (install / "Inter.ttf").write_bytes(data)
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(data)) is True
-    assert not (install / "Inter.ttf").exists()
-
-
-def test_uninstall_spares_local_homonym(dirs: tuple[Path, Path]) -> None:
-    """Un homonyme au contenu différent (font de l'utilisateur) n'est pas supprimé."""
-    install, _ = dirs
-    user_data = b"USER-FONT"
-    install.mkdir(parents=True)
-    (install / "Inter.ttf").write_bytes(user_data)
-
-    # On demande la désinstallation d'un AUTRE contenu (hash serveur).
-    removed = font_installer.uninstall_font("Inter.ttf", _sha(b"SERVER-FONT"))
-
-    assert removed is False
-    assert (install / "Inter.ttf").read_bytes() == user_data
-
-
-def test_uninstall_also_clears_disabled(dirs: tuple[Path, Path]) -> None:
-    install, disabled = dirs
-    data = b"INTER"
-    disabled.mkdir(parents=True)
-    (disabled / "Inter.ttf").write_bytes(data)
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(data)) is True
-    assert not (disabled / "Inter.ttf").exists()
-
-
-def test_uninstall_fallback_scan_for_renamed_file(dirs: tuple[Path, Path]) -> None:
-    """Un fichier renommé par l'utilisateur mais de même contenu est retrouvé par hash."""
-    install, _ = dirs
-    data = b"INTER"
-    install.mkdir(parents=True)
-    (install / "MaPoliceRenommee.ttf").write_bytes(data)
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(data)) is True
-    assert not (install / "MaPoliceRenommee.ttf").exists()
-
-
-def test_uninstall_nothing_matches(dirs: tuple[Path, Path]) -> None:
-    install, _ = dirs
-    install.mkdir(parents=True)
-    (install / "Other.ttf").write_bytes(b"OTHER")
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(b"INTER")) is False
-    assert (install / "Other.ttf").exists()
-
-
-# ---------- Prise en compte par macOS (le fichier posé ne suffit pas) ----------
-
-
 def test_install_triggers_reindex(
     dirs: tuple[Path, Path], registry: _RegistrySpy
 ) -> None:
@@ -247,41 +190,6 @@ def test_failed_install_does_not_reindex(
     assert (
         font_installer.install_font("Inter.ttf", b"X", expected_hash="0" * 64) is None
     )
-    assert registry.reindexed == []
-
-
-def test_uninstall_reindexes(dirs: tuple[Path, Path], registry: _RegistrySpy) -> None:
-    """Retirer le fichier ne suffit pas : macOS continue de servir la font."""
-    install, _ = dirs
-    data = b"INTER"
-    install.mkdir(parents=True)
-    (install / "Inter.ttf").write_bytes(data)
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(data)) is True
-    assert registry.reindexed == [install]
-
-
-def test_uninstall_from_disabled_does_not_reindex(
-    dirs: tuple[Path, Path], registry: _RegistrySpy
-) -> None:
-    """`disabled/` est hors du champ de macOS : rien à réindexer."""
-    _, disabled = dirs
-    data = b"INTER"
-    disabled.mkdir(parents=True)
-    (disabled / "Inter.ttf").write_bytes(data)
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(data)) is True
-    assert registry.reindexed == []
-
-
-def test_uninstall_nothing_removed_does_not_reindex(
-    dirs: tuple[Path, Path], registry: _RegistrySpy
-) -> None:
-    install, _ = dirs
-    install.mkdir(parents=True)
-    (install / "Inter.ttf").write_bytes(b"USER-FONT")
-
-    assert font_installer.uninstall_font("Inter.ttf", _sha(b"AUTRE")) is False
     assert registry.reindexed == []
 
 
@@ -619,3 +527,76 @@ def test_move_no_clobber_refuses_existing_destination(tmp_path: Path) -> None:
 def test_move_result_has_no_truth_value() -> None:
     with pytest.raises(TypeError):
         bool(font_installer.MoveResult.MISSING)
+
+
+# --- remove_verified : la seule suppression du chemin de sync (M-04) -------
+
+
+def test_remove_verified_deletes_matching_file(dirs: tuple[Path, Path]) -> None:
+    install, _ = dirs
+    install.mkdir(parents=True)
+    target = install / "Foo.ttf"
+    target.write_bytes(_v1())
+
+    assert font_installer.remove_verified(target, _sha(_v1())) is True
+    assert not any(install.iterdir())
+
+
+def test_remove_verified_keeps_changed_file_in_place(dirs: tuple[Path, Path]) -> None:
+    install, _ = dirs
+    install.mkdir(parents=True)
+    target = install / "Foo.ttf"
+    target.write_bytes(_v2())
+
+    assert font_installer.remove_verified(target, _sha(_v1())) is False
+    assert target.read_bytes() == _v2()
+    assert [p.name for p in install.iterdir()] == ["Foo.ttf"]
+
+
+def test_remove_verified_refuses_symlink_and_outside_paths(
+    dirs: tuple[Path, Path], tmp_path: Path
+) -> None:
+    install, _ = dirs
+    install.mkdir(parents=True)
+    outside = tmp_path / "Library-Fonts-systeme" / "Foo.ttf"
+    outside.parent.mkdir()
+    outside.write_bytes(_v1())
+    link = install / "Lien.ttf"
+    link.symlink_to(outside)
+
+    assert font_installer.remove_verified(outside, _sha(_v1())) is False
+    assert font_installer.remove_verified(link, _sha(_v1())) is False
+    assert outside.read_bytes() == _v1() and link.is_symlink()
+
+
+def test_remove_verified_never_deletes_a_file_rewritten_meanwhile(
+    dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le fichier est mis à l'écart AVANT d'être haché : une police réécrite à
+    son emplacement pendant le hachage n'est pas celle qu'on supprime."""
+    install, _ = dirs
+    install.mkdir(parents=True)
+    target = install / "Foo.ttf"
+    target.write_bytes(_v1())
+    real_hash = font_installer._hash_or_none
+
+    def _hash_while_user_writes(path: Path) -> str | None:
+        target.write_bytes(_v2())  # écriture concurrente au nom d'origine
+        return real_hash(path)
+
+    monkeypatch.setattr(font_installer, "_hash_or_none", _hash_while_user_writes)
+
+    assert font_installer.remove_verified(target, _sha(_v1())) is True
+    assert target.read_bytes() == _v2()
+
+
+def test_remove_verified_recovers_from_crash_leftover(dirs: tuple[Path, Path]) -> None:
+    install, _ = dirs
+    install.mkdir(parents=True)
+    target = install / "Foo.ttf"
+    target.write_bytes(_v1())
+    leftover = install / ".Foo.ttf.fontsync-remove"
+    os.link(target, leftover)  # arrêt brutal entre le lien et le retrait
+
+    assert font_installer.remove_verified(target, _sha(_v1())) is True
+    assert not any(install.iterdir())

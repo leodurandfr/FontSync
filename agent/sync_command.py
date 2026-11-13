@@ -55,7 +55,7 @@ from agent.font_installer import (
     deactivate_font,
     install_font,
     reindex_installed,
-    uninstall_font,
+    remove_verified,
 )
 from agent.font_registry import REINDEX_DELAY_HINT_SECONDS
 from agent.hash_cache import HashCache
@@ -267,29 +267,35 @@ def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResul
                 "%d fonts à envoyer ignorées (auto_push désactivé)", len(unknown)
             )
 
-        # 6. Désinstallation des fonts tombées côté serveur. La liste est vide
-        #    tant que la propagation n'est pas activée sur cet appareil : c'est
-        #    le serveur qui arbitre, l'agent ne fait qu'exécuter.
-        for ref in to_uninstall:
-            _uninstall(ref, result)
-
-        # 7. Activation/désactivation demandées par le serveur (`toDeactivate`).
-        #    Comparaison purement locale : ce run a déjà scanné ~/Library/Fonts
-        #    et disabled/ (`scanned`), donc on sait où se trouve chaque hash
-        #    sans rappeler activate/deactivate sur une font déjà à sa place —
-        #    qui réindexerait pour rien (cf. docstring du module).
+        # Ce run a déjà scanné ~/Library/Fonts et disabled/ : on sait où se
+        # trouve chaque hash, sans re-hacher un dossier (M-04) ni rappeler
+        # activate/deactivate sur une font déjà à sa place.
         by_hash: dict[str, list[ScannedFont]] = {}
         for sf in scanned:
             by_hash.setdefault(sf.file_hash, []).append(sf)
 
+        # 6. Désinstallation des fonts tombées côté serveur. La liste est vide
+        #    tant que la propagation n'est pas activée sur cet appareil : c'est
+        #    le serveur qui arbitre, l'agent ne fait qu'exécuter.
+        removed: set[Path] = set()
+        for ref in to_uninstall:
+            removed |= _uninstall(ref, result, by_hash)
+        # Une police à désinstaller n'est jamais réactivée, même si son retrait
+        # a échoué ici (elle le sera au prochain sync).
+        uninstall_hashes = {str(r.get("fileHash")) for r in to_uninstall}
+
+        # 7. Activation/désactivation demandées par le serveur (`toDeactivate`).
         for file_hash in deactivate_hashes:
             for sf in by_hash.get(file_hash, []):
-                if _is_within(sf.path, INSTALL_DIR):
+                if sf.path not in removed and _is_within(sf.path, INSTALL_DIR):
                     _deactivate(sf, result)
 
         for sf in scanned:
-            if sf.file_hash not in deactivate_hashes and _is_within(
-                sf.path, DISABLED_DIR
+            if (
+                sf.file_hash not in deactivate_hashes
+                and sf.file_hash not in uninstall_hashes
+                and sf.path not in removed
+                and _is_within(sf.path, DISABLED_DIR)
             ):
                 _activate(sf, result)
 
@@ -352,30 +358,62 @@ def _declared_fonts(config: AgentConfig) -> tuple[list[DiscoveredFont], int]:
     return fonts + added, len(added)
 
 
-def _uninstall(ref: dict[str, Any], result: SyncResult) -> None:
+def _uninstall(
+    ref: dict[str, Any],
+    result: SyncResult,
+    by_hash: dict[str, list[ScannedFont]],
+) -> set[Path]:
     """Retire une font tombée côté serveur. Une erreur isolée n'arrête pas le sync.
 
-    La suppression reste gardée par le hash côté `font_installer` : une police
-    personnelle homonyme n'est jamais touchée. Un fichier introuvable n'est pas
-    une erreur — la police a pu être retirée à la main entre deux syncs.
+    Les fichiers visés sont ceux que le scan de ce run a trouvés avec ce hash,
+    sous ~/Library/Fonts ou disabled/ seulement — jamais un balayage de dossier
+    (re-hacher toute la bibliothèque par entrée introuvable faisait durer un
+    sync plusieurs minutes, M-04) ni un fichier hors des dossiers gérés.
+    `remove_verified` revérifie le contenu juste avant de supprimer. Rien
+    trouvé n'est pas une erreur : la police a pu partir à la main.
+
+    Returns:
+        Les chemins effectivement supprimés (la suite du sync les ignore).
     """
     filename = ref.get("originalFilename")
     file_hash = ref.get("fileHash")
     if not filename or not file_hash:
         logger.warning("Référence de désinstallation incomplète, ignorée : %s", ref)
         result.uninstall_errors += 1
-        return
+        return set()
 
+    candidates: list[Path] = []
+    for sf in by_hash.get(str(file_hash), []):
+        path = sf.path
+        # La découverte peut ne garder qu'un lien vers un fichier voisin : c'est
+        # le fichier réel, s'il est lui aussi dans un dossier géré, qu'on retire.
+        if path.is_symlink():
+            path = path.resolve()
+        if (
+            _is_within(path, INSTALL_DIR) or _is_within(path, DISABLED_DIR)
+        ) and path not in candidates:
+            candidates.append(path)
+    removed: set[Path] = set()
     try:
-        # `refresh_index=False` : réindexation groupée en fin de sync.
-        if uninstall_font(str(filename), str(file_hash), refresh_index=False):
-            result.uninstalled += 1
-            logger.info("Désinstallée (supprimée côté serveur) : %s", filename)
-        else:
-            result.uninstall_missing += 1
+        for path in candidates:
+            if remove_verified(path, str(file_hash)):
+                removed.add(path)
     except Exception:
         logger.exception("Échec de la désinstallation de %s", filename)
         result.uninstall_errors += 1
+        return removed
+    if removed:
+        result.uninstalled += 1
+        logger.info("Désinstallée (supprimée côté serveur) : %s", filename)
+    elif candidates:
+        # Présente mais pas retirée (contenu changé, nom de mise à l'écart pris) :
+        # à signaler, pas à confondre avec « déjà partie ».
+        result.uninstall_errors += 1
+        logger.warning("Désinstallation non faite pour %s : fichier conservé", filename)
+    else:
+        result.uninstall_missing += 1
+        logger.debug("Rien à désinstaller pour %s (%s)", filename, str(file_hash)[:12])
+    return removed
 
 
 def _is_within(path: Path, directory: Path) -> bool:

@@ -272,11 +272,12 @@ def test_declares_disabled_folder(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_uninstalls_fonts_deleted_on_server(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_scan(monkeypatch, ["a" * 64])
-    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(sync_command, "INSTALL_DIR", Path("/fake"))
+    calls: list[tuple[Path, str]] = []
     monkeypatch.setattr(
         sync_command,
-        "uninstall_font",
-        lambda fn, h, **kw: calls.append((fn, h)) or True,
+        "remove_verified",
+        lambda path, h: calls.append((path, h)) or True,
     )
     reindexed: list[bool] = []
     monkeypatch.setattr(
@@ -293,7 +294,7 @@ def test_uninstalls_fonts_deleted_on_server(monkeypatch: pytest.MonkeyPatch) -> 
                 {
                     "id": "font-x",
                     "originalFilename": "Gone.ttf",
-                    "fileHash": "f" * 64,
+                    "fileHash": "a" * 64,
                 }
             ],
         }
@@ -301,7 +302,8 @@ def test_uninstalls_fonts_deleted_on_server(monkeypatch: pytest.MonkeyPatch) -> 
 
     result = run_sync(_config(), client=client)
 
-    assert calls == [("Gone.ttf", "f" * 64)]
+    # La cible vient du scan de ce run (chemin et hash), pas d'un nom.
+    assert calls == [(Path("/fake/" + "a" * 64 + ".ttf"), "a" * 64)]
     assert result.uninstalled == 1
     assert result.deleted_on_server == 1
     # Une seule réindexation pour tout le lot (la relancer par fichier ferait
@@ -314,7 +316,7 @@ def test_uninstall_of_absent_file_is_not_an_error(
 ) -> None:
     """La police a pu être retirée à la main entre deux syncs : rien à signaler."""
     _stub_scan(monkeypatch, [])
-    monkeypatch.setattr(sync_command, "uninstall_font", lambda fn, h, **kw: False)
+    monkeypatch.setattr(sync_command, "remove_verified", lambda path, h: False)
     monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
 
     client = FakeClient(
@@ -344,7 +346,7 @@ def test_empty_uninstall_list_is_the_default(monkeypatch: pytest.MonkeyPatch) ->
     def _boom(*a: Any, **k: Any) -> bool:
         raise AssertionError("aucune désinstallation ne doit être tentée")
 
-    monkeypatch.setattr(sync_command, "uninstall_font", _boom)
+    monkeypatch.setattr(sync_command, "remove_verified", _boom)
 
     result = run_sync(_config(), client=FakeClient())
 
@@ -838,3 +840,177 @@ def test_deactivation_of_exact_duplicate_counts_and_reindexes(
     assert reindexed == [True]
     assert not (install / "Foo.ttf").exists()
     assert (disabled / "Foo.ttf").read_bytes() == v1
+
+
+# --- Désinstallation résolue depuis le scan du run (M-04) ------------------
+
+
+def _uninstall_delta(*hashes: str) -> dict[str, Any]:
+    return {
+        "unknownToServer": [],
+        "missingOnDevice": [],
+        "toDeactivate": [],
+        "deletedOnServer": len(hashes),
+        "toUninstall": [
+            {"id": f"f{i}", "originalFilename": f"Gone{i}.ttf", "fileHash": h}
+            for i, h in enumerate(hashes)
+        ],
+    }
+
+
+def test_missing_uninstall_targets_cost_no_rehash(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent import font_installer
+    from tests.backend.conftest import build_ttf
+
+    install, _ = homonym_dirs
+    for i in range(300):
+        (install / f"F{i:03d}.ttf").write_bytes(build_ttf(family=f"Fam {i:03d}"))
+    hashed: list[Path] = []
+    real_hash = font_installer._hash_or_none
+    monkeypatch.setattr(
+        font_installer,
+        "_hash_or_none",
+        lambda path: hashed.append(path) or real_hash(path),
+    )
+    monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
+
+    result = run_sync(
+        _config(),
+        client=FakeClient(delta=_uninstall_delta(*[f"{i}" * 64 for i in range(5)])),
+    )
+
+    assert hashed == []
+    assert (result.uninstalled, result.uninstall_missing) == (0, 5)
+
+
+def test_uninstall_removes_scanned_file_and_reindexes(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    install, disabled = homonym_dirs
+    v1, _ = _foo_versions()
+    (install / "Foo.ttf").write_bytes(v1)
+    (disabled / "Foo-copy.ttf").write_bytes(v1)
+    reindexed: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "reindex_installed", lambda: reindexed.append(True) or True
+    )
+
+    result = run_sync(
+        _config(),
+        client=FakeClient(delta=_uninstall_delta(hashlib.sha256(v1).hexdigest())),
+    )
+
+    assert (result.uninstalled, result.uninstall_missing) == (1, 0)
+    assert not any(install.iterdir()) and not any(disabled.iterdir())
+    assert reindexed == [True]
+
+
+def test_uninstall_rechecks_hash_before_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent import font_installer
+
+    install = tmp_path / "Fonts"
+    install.mkdir()
+    for module in (sync_command, font_installer):
+        monkeypatch.setattr(module, "INSTALL_DIR", install)
+        monkeypatch.setattr(module, "DISABLED_DIR", tmp_path / "disabled")
+    target = install / "Foo.ttf"
+    target.write_bytes(b"nouveau contenu, ecrit apres le scan")
+    stale = ScannedFont(
+        path=target, filename="Foo.ttf", file_hash="a" * 64, file_size=10
+    )
+    _stub_scanned(monkeypatch, [stale])
+    monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
+
+    result = run_sync(_config(), client=FakeClient(delta=_uninstall_delta("a" * 64)))
+
+    assert target.read_bytes() == b"nouveau contenu, ecrit apres le scan"
+    assert (result.uninstalled, result.uninstall_errors) == (0, 1)
+
+
+def test_uninstall_ignores_paths_outside_managed_dirs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from agent import font_installer
+
+    for module in (sync_command, font_installer):
+        monkeypatch.setattr(module, "INSTALL_DIR", tmp_path / "Fonts")
+        monkeypatch.setattr(module, "DISABLED_DIR", tmp_path / "disabled")
+    system = tmp_path / "Library-Fonts-systeme"
+    system.mkdir()
+    data = b"police systeme"
+    target = system / "Foo.ttf"
+    target.write_bytes(data)
+    h = hashlib.sha256(data).hexdigest()
+    _stub_scanned(
+        monkeypatch,
+        [
+            ScannedFont(
+                path=target, filename="Foo.ttf", file_hash=h, file_size=len(data)
+            )
+        ],
+    )
+    monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
+
+    result = run_sync(_config(), client=FakeClient(delta=_uninstall_delta(h)))
+
+    assert target.read_bytes() == data
+    assert (result.uninstalled, result.uninstall_missing) == (0, 1)
+
+
+def test_uninstall_follows_scanned_link_to_its_sibling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from agent import font_installer
+
+    install = tmp_path / "Fonts"
+    install.mkdir()
+    for module in (sync_command, font_installer):
+        monkeypatch.setattr(module, "INSTALL_DIR", install)
+        monkeypatch.setattr(module, "DISABLED_DIR", tmp_path / "disabled")
+    data, _ = _foo_versions()
+    real = install / "Real.ttf"
+    real.write_bytes(data)
+    link = install / "Link.ttf"
+    link.symlink_to(real)
+    h = hashlib.sha256(data).hexdigest()
+    _stub_scanned(
+        monkeypatch,
+        [ScannedFont(path=link, filename="Link.ttf", file_hash=h, file_size=len(data))],
+    )
+    monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
+
+    result = run_sync(_config(), client=FakeClient(delta=_uninstall_delta(h)))
+
+    assert not real.exists()
+    assert result.uninstalled == 1
+
+
+def test_font_to_uninstall_is_never_reactivated(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    install, disabled = homonym_dirs
+    v1, _ = _foo_versions()
+    (disabled / "Foo.ttf").write_bytes(v1)
+    monkeypatch.setattr(sync_command, "remove_verified", lambda path, h: False)
+    monkeypatch.setattr(sync_command, "reindex_installed", lambda: True)
+
+    result = run_sync(
+        _config(),
+        client=FakeClient(delta=_uninstall_delta(hashlib.sha256(v1).hexdigest())),
+    )
+
+    assert (disabled / "Foo.ttf").exists() and not any(install.iterdir())
+    assert result.newly_activated == 0
+    assert (result.uninstalled, result.uninstall_errors) == (0, 1)

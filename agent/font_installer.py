@@ -20,11 +20,15 @@ Sécurité (B7) — deux invariants protègent les données locales de l'utilisa
   déjà pris par un contenu différent, la font FontSync est posée sous un nom
   désambiguïsé dérivé de son hash. Un nom déjà occupé par le **même** contenu est
   une no-op idempotente.
-- **Uninstall** : la suppression est **gardée par le hash**. On ne supprime qu'un
-  fichier dont le contenu correspond exactement au hash demandé ; un fichier
-  homonyme au contenu différent n'est jamais touché. L'identification par hash
-  reste *stateless* : elle est dérivée du disque réel (re-hachage des candidats),
-  pas d'un manifeste mutable.
+- **Uninstall** (`remove_verified`) : la suppression est **gardée par le hash**.
+  Les cibles viennent du scan du run en cours (fichiers de ce hash sous
+  ~/Library/Fonts ou disabled/, jamais ailleurs, jamais un balayage de dossier),
+  et chaque fichier est re-haché juste avant d'être retiré : un fichier
+  homonyme ou modifié depuis le scan n'est jamais touché. L'identification
+  reste *stateless* : elle est dérivée du disque réel, pas d'un manifeste.
+- **Activation / désactivation** : un déplacement n'écrase jamais un contenu
+  différent (nom désambiguïsé) ; seul un doublon exact vérifié par hash est
+  retiré.
 """
 
 from __future__ import annotations
@@ -356,80 +360,44 @@ def reindex_installed() -> bool:
     return font_registry.reindex(INSTALL_DIR)
 
 
-def uninstall_font(
-    filename: str, file_hash: str, *, refresh_index: bool = True
-) -> bool:
-    """Désinstalle la font de hash `file_hash` de ~/Library/Fonts/ et de disabled.
+def remove_verified(path: Path, expected_hash: str) -> bool:
+    """Supprime `path` seulement s'il a encore le contenu `expected_hash`.
 
-    La suppression est **gardée par le hash** : seuls les fichiers dont le contenu
-    correspond exactement à `file_hash` sont supprimés. Un fichier homonyme au
-    contenu différent (font locale de l'utilisateur) n'est jamais touché. Ne
-    touche jamais /Library/Fonts ni /System/Library/Fonts.
-
-    Args:
-        filename: nom du fichier attendu (ex: "Inter-Regular.ttf"), utilisé comme
-            chemin rapide ; non suffisant à lui seul pour autoriser la suppression.
-        file_hash: hash SHA-256 de la font à désinstaller (autorité de suppression).
-        refresh_index: déclencher la réindexation macOS. Même règle qu'à
-            l'installation : un appelant qui traite un lot passe False et groupe
-            un seul `reindex_installed()` à la fin.
+    Chemin de suppression du sync : la cible vient du scan de ce run (aucun
+    balayage de dossier), elle doit être un fichier ordinaire sous
+    ~/Library/Fonts ou disabled/ (jamais /Library/Fonts ni ailleurs), et son
+    contenu est revérifié juste avant le retrait. Le fichier est d'abord mis
+    à l'écart sous un nom caché, puis haché : un fichier réécrit à cet
+    emplacement pendant ce temps n'est pas celui qu'on supprime. Contenu
+    changé depuis le scan → remis en place, conservé.
 
     Returns:
-        True si au moins un fichier correspondant a été supprimé, False sinon.
+        True si le fichier a été supprimé.
     """
-    safe_name = Path(filename).name
-    removed = False
-    # Une suppression dans ~/Library/Fonts est aussi invisible du système qu'un
-    # ajout tant qu'il n'a pas réindexé : on note s'il faut le lui demander.
-    touched_install_dir = False
-
-    def _remove(path: Path, *, from_install_dir: bool, note: str) -> None:
-        nonlocal removed, touched_install_dir
-        touched_install_dir = touched_install_dir or from_install_dir
-        path.unlink()
-        removed = True
-        logger.info("Font désinstallée%s : %s", note, path)
-
-    # Chemin rapide : noms attendus (nom direct + nom désambiguïsé éventuel),
-    # supprimés uniquement si le hash correspond.
-    candidate_names = {safe_name, _disambiguated_name(safe_name, file_hash)}
-    for directory in (INSTALL_DIR, DISABLED_DIR):
-        for name in candidate_names:
-            path = directory / name
-            if not _is_within(path, directory):
-                logger.error(
-                    "Tentative de suppression hors de %s : %s", directory, path
-                )
-                continue
-            if path.is_file() and _hash_or_none(path) == file_hash:
-                _remove(path, from_install_dir=directory == INSTALL_DIR, note="")
-
-    # Repli : la font a pu être renommée par l'utilisateur. On balaie les dossiers
-    # gérés et on ne supprime que ce qui correspond au hash (jamais un homonyme).
-    if not removed:
-        for directory in (INSTALL_DIR, DISABLED_DIR):
-            if not directory.is_dir():
-                continue
-            for path in directory.iterdir():
-                if not path.is_file() or path.name in candidate_names:
-                    continue
-                if _hash_or_none(path) == file_hash:
-                    _remove(
-                        path,
-                        from_install_dir=directory == INSTALL_DIR,
-                        note=" (nom divergent)",
-                    )
-
-    if touched_install_dir:
-        _maybe_reindex(refresh_index)
-
-    if not removed:
-        logger.warning(
-            "Aucune font de hash %s trouvée pour désinstallation (%s)",
-            file_hash[:12],
-            safe_name,
-        )
-    return removed
+    if path.is_symlink() or not path.is_file():
+        return False
+    if not (_is_within(path, INSTALL_DIR) or _is_within(path, DISABLED_DIR)):
+        logger.error("Suppression refusée hors des dossiers gérés : %s", path)
+        return False
+    held = path.with_name(f".{path.name}.fontsync-remove")
+    # Reliquat d'un arrêt entre le lien et le retrait du nom d'origine : c'est
+    # le MÊME fichier sous deux noms, retirer l'un ne perd rien.
+    try:
+        if not held.is_symlink() and held.exists() and os.path.samefile(held, path):
+            held.unlink()
+    except OSError:
+        pass
+    if held.is_symlink() or not _move_no_clobber(path, held):
+        logger.error("Suppression impossible (nom de mise à l'écart pris) : %s", path)
+        return False
+    if _hash_or_none(held) == expected_hash:
+        held.unlink()
+        return True
+    if _move_no_clobber(held, path):
+        logger.warning("Contenu changé depuis le scan, conservé : %s", path)
+    else:
+        logger.error("Contenu changé depuis le scan, conservé sous %s", held)
+    return False
 
 
 def _managed_source(local_path: str, directory: Path) -> Path:
