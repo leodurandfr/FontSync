@@ -110,8 +110,14 @@ Un Mac déjà installé en version antérieure doit proposer la mise à jour
 
 ## Rollback
 
-- **Serveur** : repinner le tag dans le compose (`image: …:1.0.0` au lieu de
-  `latest`) puis `docker compose up -d`.
+- **Serveur** : chaque build publie aussi un tag **immuable** `sha-<7 caractères>`
+  (les tags de version et de branche peuvent bouger, `latest` ne suit que la
+  plus haute version). Avant toute mise à jour, noter l'image en cours :
+  `docker inspect --format '{{.Image}}' fontsync`. Pour revenir en arrière,
+  épingler dans le compose l'image précédente par son tag
+  (`image: ghcr.io/<owner>/<repo>:sha-<court>`) ou son digest, puis
+  `docker compose -f docker-compose.nas.yml up -d`. Ne jamais déplacer un tag
+  `v*` déjà publié.
 - **App** : republier l'`appcast.xml` sans l'entrée défaillante (Sparkle ne
   proposera plus la version retirée) ; les `.dmg` déjà téléchargés restent
   valides. Ne **jamais** réutiliser un numéro `BUILD` déjà publié.

@@ -133,6 +133,12 @@ idempotent — no effect if the schema is already up to date.
 **Settings → Server** shows the running version and, when it is set up, an
 **Update** button — nothing to do beyond the `WATCHTOWER_TOKEN` from §1.
 
+Before clicking it, note the image you are running, so you can come back to
+it: `docker inspect --format '{{.Image}}' fontsync`. Every published build also
+carries an immutable `sha-<7 characters>` tag; to roll back, pin that tag (or
+the digest) in the `image:` line of the compose file and run
+`docker compose -f docker-compose.nas.yml up -d`.
+
 The button reaches a **Watchtower** container included in the example compose
 file. FontSync itself never touches the Docker socket: a container cannot
 replace itself without access to the Docker daemon, and giving FontSync that

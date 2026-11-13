@@ -37,6 +37,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tous les tags v*, pour décider de :latest
+
+      # `latest` ne bouge que pour le plus haut tag v* hors pré-release : un
+      # correctif publié sur une ancienne branche ne doit jamais le reculer.
+      - name: Version la plus haute ? (pour :latest)
+        id: latest
+        run: |
+          highest="$(git tag -l 'v*' --sort=-v:refname | grep -v -- - | head -1)"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" = "$highest" ]; then
+            echo "is_highest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_highest=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up QEMU (émulation pour le build arm64)
         uses: docker/setup-qemu-action@v3
@@ -56,12 +70,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # sha-<court> : tag immuable de chaque build, pour revenir en arrière
+          # sur une image précise (les tags de version ou de branche bougent).
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ steps.latest.outputs.is_highest == 'true' }}
           flavor: |
-            latest=auto
+            latest=false
 
       # Version affichée dans l'interface (Réglages → Serveur). `metadata-action`
       # donne la version sémantique pour un tag et le nom de branche pour un

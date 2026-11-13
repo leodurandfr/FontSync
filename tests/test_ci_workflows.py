@@ -58,3 +58,25 @@ def test_publish_has_concurrency() -> None:
     assert concurrency.get("group")
     # A tag build is never cancelled; only a newer manual dispatch replaces one.
     assert "workflow_dispatch" in str(concurrency.get("cancel-in-progress"))
+
+
+def _metadata_step(publish: dict[str, Any]) -> dict[str, Any]:
+    for step in publish["jobs"]["build-and-push"]["steps"]:
+        if str(step.get("uses", "")).startswith("docker/metadata-action"):
+            return step
+    raise AssertionError("no docker/metadata-action step")
+
+
+def test_metadata_emits_sha_tag() -> None:
+    tags = str(_metadata_step(_load("docker-publish.yml"))["with"]["tags"])
+    assert "type=sha" in tags
+    assert "prefix=sha-" in tags
+
+
+def test_latest_not_auto() -> None:
+    step = _metadata_step(_load("docker-publish.yml"))
+    flavor = str(step["with"].get("flavor", ""))
+    assert "latest=auto" not in flavor
+    assert "latest=false" in flavor
+    # `latest` only moves for the highest non-prerelease v* tag.
+    assert "is_highest" in str(step["with"]["tags"])
