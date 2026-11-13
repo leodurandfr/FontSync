@@ -1,26 +1,37 @@
 """Auth par token partagé d'instance (P1 — PLAN-PUBLICATION.md).
 
 Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
-- tout `/api/*` exige le token (`401` sans / avec mauvais token, `200` avec) ;
-- `/health` reste public ;
+- tout `/api/*` exige le token (`401` sans / avec mauvais token, `200` avec),
+  vérifié route par route par énumération de l'app (M-49) ; REST n'accepte
+  que l'en-tête `Authorization` ;
+- `/health` reste public, et aucune autre route publique n'apparaît en douce ;
 - le flux **SSE** accepte l'en-tête `Authorization` **ou** un query param ;
 - les **WebSocket** refusent le handshake sans token et l'acceptent via query
-  param ou cookie (le navigateur ne peut pas poser d'en-tête au handshake) ;
-- un token est généré + loggé quand `FONTSYNC_TOKEN` est absent.
+  param, en-tête ou cookie (le navigateur ne peut pas poser d'en-tête au
+  handshake) ;
+- les quasi-égalités (préfixe, suffixe, casse, substitution) sont refusées ;
+- un token est généré + loggé quand `FONTSYNC_TOKEN` est absent ou blanc.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import AsyncGenerator
+import re
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
+from urllib.parse import urlencode
 
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException, WebSocketDisconnect
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute, iter_route_contexts
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.testclient import TestClient
 
 from backend import auth
@@ -34,8 +45,9 @@ from backend.services.ws_manager import WebSocketManager
 
 TOKEN = "test-secret-token"
 
-# Tout `/api/*` exige le token : on couvre chaque router monté avec
-# `Depends(require_token)` (fonts, devices, sync, font-families, stats).
+# Échantillon de GET qui répondent 200 avec le bon token. La couverture du
+# rejet, elle, s'obtient par énumération de `app.routes` (plus bas, M-49) :
+# un nouveau router oublié ici est couvert d'office.
 _MISSING_UUID = "00000000-0000-0000-0000-000000000000"
 REST_GET_PATHS = [
     "/api/stats",
@@ -166,13 +178,17 @@ async def test_sync_accepts_valid_token(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_sse_rejects_without_token(client: AsyncClient) -> None:
-    resp = await client.get("/api/agent/dev-x/events")
+    # Sous délai : un flux ouvert par erreur doit faire échouer le test, pas
+    # bloquer la suite.
+    resp = await asyncio.wait_for(client.get("/api/agent/dev-x/events"), 5)
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_sse_rejects_wrong_query_token(client: AsyncClient) -> None:
-    resp = await client.get("/api/agent/dev-x/events", params={"token": "nope"})
+    resp = await asyncio.wait_for(
+        client.get("/api/agent/dev-x/events", params={"token": "nope"}), 5
+    )
     assert resp.status_code == 401
 
 
@@ -240,3 +256,238 @@ def test_generates_and_logs_token_when_unset(
     assert first  # non vide
     assert first == second  # stable sur la durée de vie du process
     assert any("FONTSYNC_TOKEN" in r.getMessage() for r in caplog.records)
+
+
+# ---- Énumération structurelle et quasi-égalités (M-49) ----
+#
+# Chaque route `/api/*` de l'app réelle, telle que montée : un router ajouté
+# sans `Depends(require_token)` (ou un `include_router` qui la perd) fait
+# échouer la suite, sans qu'il faille penser à l'ajouter à une liste.
+
+# REST : en-tête seulement (`require_token`) ; le query param `?token=` n'est
+# admis que sur le flux SSE (`EventSource` ne pose pas d'en-tête).
+_SSE_PATH = "/api/agent/{device_id}/events"
+# Hors `/api` : la santé et, si le frontend est buildé, le repli SPA.
+_PUBLIC_ROUTES = {"/health", "/{full_path:path}"}
+# Routes Starlette (pas FastAPI) admises : la doc OpenAPI, publique jusqu'à
+# P1-5, et les assets du frontend buildé. Toute autre (`add_route`, `mount`,
+# `WebSocketRoute` brute) échappe à l'énumération ci-dessous : refusée.
+_STARLETTE_PUBLIC = {
+    "/openapi.json",
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/redoc",
+    "/assets",
+}
+_WEBSOCKET_ROUTES = {"/ws/client"}
+# Relevé à l'import, avant que la fixture `client` ne vide les surcharges : un
+# `app.dependency_overrides[require_token] = …` dans l'app ouvrirait tout.
+_OVERRIDES_AT_IMPORT = dict(app.dependency_overrides)
+
+
+def _routes(kind: type) -> list:
+    """Routes effectives de l'app, routers inclus aplatis.
+
+    Depuis FastAPI 0.16x, `app.routes` garde chaque `include_router` en un
+    seul nœud ; `iter_route_contexts` rend les routes telles que servies,
+    dépendances du router comprises."""
+    return [
+        c for c in iter_route_contexts(app.routes) if isinstance(c.original_route, kind)
+    ]
+
+
+def _api_routes() -> list:
+    return [r for r in _routes(APIRoute) if r.path.startswith("/api/")]
+
+
+def _dependency_calls(dependant: Dependant) -> set[Callable[..., Any]]:
+    calls: set[Callable[..., Any]] = set()
+    for sub in dependant.dependencies:
+        if sub.call is not None:
+            calls.add(sub.call)
+        calls |= _dependency_calls(sub)
+    return calls
+
+
+def _concrete(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", _MISSING_UUID, path)
+
+
+_API_CALLS = sorted(
+    (method, route.path) for route in _api_routes() for method in route.methods
+)
+
+
+def test_route_enumeration_sees_every_router() -> None:
+    prefixes = {path.split("/")[2] for _method, path in _API_CALLS}
+    assert prefixes >= {
+        "agent",
+        "devices",
+        "font-families",
+        "fonts",
+        "stats",
+        "sync",
+        "system",
+    }
+    assert ("POST", "/api/system/update") in _API_CALLS
+
+
+@pytest.mark.parametrize(("method", "path"), _API_CALLS)
+def test_every_api_route_declares_the_token_dependency(method: str, path: str) -> None:
+    route = next(r for r in _api_routes() if r.path == path and method in r.methods)
+    expected = auth.require_token_stream if path == _SSE_PATH else auth.require_token
+    assert expected in _dependency_calls(route.dependant), (
+        f"{method} {path} n'exige pas {expected.__name__}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("method", "path"), _API_CALLS)
+async def test_every_api_route_rejects_a_missing_token(
+    client: AsyncClient, method: str, path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Une régression ne doit rien déclencher pour de vrai (POST /api/system/update
+    # appellerait Watchtower si l'environnement du test le configure).
+    monkeypatch.setattr(settings, "watchtower_url", "")
+    monkeypatch.setattr(settings, "watchtower_token", "")
+    # Délai : une route SSE sans auth ouvrirait un flux infini.
+    resp = await asyncio.wait_for(client.request(method, _concrete(path)), 5)
+    assert resp.status_code == 401, f"{method} {path} → {resp.status_code}"
+
+
+def test_no_unexpected_public_route() -> None:
+    sockets = set()
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.original_route
+        if isinstance(route, APIRoute):
+            if not route.path.startswith("/api/"):
+                assert route.path in _PUBLIC_ROUTES, f"route publique : {route.path}"
+        elif isinstance(route, WebSocketRoute):  # APIWebSocketRoute comprise
+            sockets.add(route.path)
+        elif isinstance(route, (Route, Mount)):
+            assert route.path in _STARLETTE_PUBLIC, f"route hors FastAPI : {route.path}"
+        else:
+            pytest.fail(f"type de route inattendu : {route!r}")
+    assert sockets == _WEBSOCKET_ROUTES, sockets
+
+
+def test_no_low_priority_route() -> None:
+    """`app.frontend(…)` (FastAPI 0.16x) range ses routes à part, hors de
+    `iter_route_contexts` : il n'y en a pas, il ne doit pas y en avoir."""
+    routers = [app.router] + [
+        r.original_router for r in app.routes if hasattr(r, "original_router")
+    ]
+    for router in routers:
+        assert not getattr(router, "_low_priority_routes", []), router
+
+
+def test_auth_dependencies_are_never_overridden() -> None:
+    assert not set(_OVERRIDES_AT_IMPORT) & {
+        auth.require_token,
+        auth.require_token_stream,
+    }
+
+
+# Préfixe, suffixe, casse, troncature, substitution à longueur égale : une
+# comparaison relâchée (préfixe, `in`, insensible à la casse, partielle) en
+# accepterait au moins un.
+_NEAR_MISSES = [TOKEN[:-1], TOKEN + "x", TOKEN.upper(), TOKEN[1:], TOKEN[:-1] + "X"]
+
+
+@pytest.mark.parametrize("candidate", [*_NEAR_MISSES, " " + TOKEN, ""])
+def test_token_is_valid_rejects_near_misses(candidate: str) -> None:
+    assert auth.token_is_valid(TOKEN)
+    assert not auth.token_is_valid(candidate)
+
+
+@pytest.mark.asyncio
+async def test_rest_ignores_query_and_cookie_tokens(client: AsyncClient) -> None:
+    """REST : en-tête seulement. Un token en query (journaux, historique) ou
+    en cookie (envoyé d'office par le navigateur, forme CSRF) ne vaut rien."""
+    resp = await client.get("/api/stats", params={"token": TOKEN})
+    assert resp.status_code == 401
+    resp = await client.get("/api/stats", cookies={"fontsync_token": TOKEN})
+    assert resp.status_code == 401
+
+
+def test_blank_configured_token_is_never_the_server_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`FONTSYNC_TOKEN="   "` vaut « absent » : un token est généré, et une
+    suite d'espaces n'ouvre rien."""
+    monkeypatch.setattr(settings, "fontsync_token", "   ")
+    monkeypatch.setattr(auth, "_generated_token", None)
+    assert auth.get_server_token().strip()
+    assert not auth.token_is_valid("   ")
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(
+    strict=True,
+    raises=TypeError,
+    reason="Constat de relecture P1-4c : `compare_digest` lève TypeError sur un "
+    "token non ASCII (500 au lieu de 401). Corrigé avec P1-5e (comparaison sur "
+    "octets) : retirer ce marqueur alors.",
+)
+async def test_non_ascii_token_is_rejected_not_an_error() -> None:
+    assert not auth.token_is_valid(TOKEN + "é")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("candidate", _NEAR_MISSES)
+async def test_rest_rejects_near_miss_bearer(
+    client: AsyncClient, candidate: str
+) -> None:
+    resp = await client.get("/api/stats", headers=_bearer(candidate))
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("candidate", _NEAR_MISSES)
+async def test_require_token_stream_rejects_near_misses(candidate: str) -> None:
+    for kwargs in (
+        {"authorization": f"Bearer {candidate}", "token": None},
+        {"authorization": None, "token": candidate},
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await asyncio.wait_for(auth.require_token_stream(**kwargs), 2)
+        assert exc.value.status_code == 401
+
+
+def test_ws_client_rejected_with_wrong_cookie() -> None:
+    client = TestClient(app)
+    client.cookies.set("fontsync_token", "nope")
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/client"):
+            pass
+
+
+@pytest.mark.parametrize("via", ["query", "header", "cookie"])
+@pytest.mark.parametrize("candidate", _NEAR_MISSES)
+def test_ws_client_rejects_near_misses(candidate: str, via: str) -> None:
+    client = TestClient(app)
+    url, headers = "/ws/client", {}
+    if via == "query":
+        url = f"/ws/client?{urlencode({'token': candidate})}"
+    elif via == "header":
+        headers = _bearer(candidate)
+    else:
+        client.cookies.set("fontsync_token", candidate)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(url, headers=headers):
+            pass
+
+
+def test_ws_client_rejected_with_wrong_header() -> None:
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            "/ws/client", headers={"Authorization": "Bearer nope"}
+        ):
+            pass
+
+
+def test_ws_client_accepts_header() -> None:
+    client = TestClient(app)
+    with client.websocket_connect("/ws/client", headers=_bearer()) as ws:
+        ws.close()
