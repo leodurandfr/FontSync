@@ -437,28 +437,35 @@ checksum duplicate groups, against **918 faces held by several files** and
 « GT-Maru-Mono-Bold-Oblique.ttf » and « GTMaruMono-BoldOblique.otf » are three
 names, three checksums, one face — and Font Book shows it three times.
 
-The identity of a face is `(nameID 16 else 1, nameID 17 else 2)` — typographic
-family and style. `font_analyzer` already stores exactly those as `family_name`
-and `subfamily_name`, so
-[`duplicate_faces.py`](backend/services/duplicate_faces.py) needs no migration
-and no re-parsing.
+The identity of a face is `(nameID 16 else 1, nameID 17 else 2, italic, weight
+class, width class)` — typographic family, declared style, and the three OS/2
+style axes: an upright and an italic both declaring "Normal", or a 400 and a 700
+both declaring "Text", are two faces. `font_analyzer` already stores all five,
+so [`duplicate_faces.py`](backend/services/duplicate_faces.py) needs no
+migration and no re-parsing. The price of that caution: two exports of one face
+whose declared weight differs (800 vs 850) are no longer matched — the miss is
+on the safe side.
 
 Reviewing ~900 groups by hand is hours of work, so the resolution is **one
 gesture over a deterministic rule** rather than a group-by-group choice. What
 the user reviews is the rule's output. Three properties make that safe:
 
-1. **Incomplete identity is never grouped.** Missing family *or* style and the
-   font is left alone — a malformed font is stored with partial metadata
-   (cf. CLAUDE.md), it must not end up stacked under an empty identity where a
-   bulk resolution would trash all but one of them.
+1. **Incomplete or bogus identity is never grouped.** Missing family *or* style,
+   or a family reading `false`/`null`/`none`/`undefined` (a tool wrote an empty
+   variable), and the font is left alone — a malformed font is stored with
+   partial metadata (cf. CLAUDE.md), it must not end up stacked under an empty
+   identity where a bulk resolution would trash all but one of them.
 2. **Nothing covering several styles is ever proposed for removal.** A variable
    font declares named instances from a single file, a `.ttc` carries several
    fonts; in both cases the stored identity describes only the first. They are
    always kept, and preferred as the keeper — this is « prefer the file that
    covers the most styles », applied where it can be seen.
-3. **The ranking is total**, ending on `file_hash`, so the proposal is
-   reproducible. A recommendation that moved between two loads would not be
-   reviewable.
+3. **An installable file is kept first**, and the ranking is total. A TTF/OTF
+   beats a richer WOFF (web fonts are never installed), and a face whose
+   automatic keepers are all web files (a variable or collection WOFF) also
+   keeps its best installable copy. The ranking ends on `file_hash`, so the
+   proposal is reproducible. A recommendation that moved between two loads
+   would not be reviewable.
 
 The redundant files get `deleted_reason = manual`: this is a user's gesture, so
 it is durable (no push revives it) and it reaches the devices that opted into

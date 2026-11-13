@@ -7,10 +7,14 @@ exemplaires et **1 019 fichiers en trop**. « GT Maru Mono Bold Oblique.otf »,
 noms et trois empreintes pour une seule face — et Livre des polices les affiche
 en triple. Un taux de détection nul, donc, sur ce qui gêne vraiment.
 
-L'identité d'une face est `(nameID 16 sinon 1, nameID 17 sinon 2)` — famille
-typographique et style. Elle est **déjà en base** : `font_analyzer` remplit
-`family_name` et `subfamily_name` avec exactement ces retombées. Rien à
-re-parser, rien à migrer.
+L'identité d'une face est `(nameID 16 sinon 1, nameID 17 sinon 2, italique,
+graisse, chasse)` — famille typographique, style déclaré, et les trois axes de
+l'en-tête OS/2. Le style déclaré ne suffit pas : « Normal » romain et « Normal »
+italique, ou « Text » 400 et « Text » 700, sont deux faces (M-37, audit
+2026-10). Tout est **déjà en base** (`font_analyzer`) : rien à re-parser, rien à
+migrer. Prix assumé de la prudence : deux exports d'une même face dont la
+graisse déclarée diffère (800 et 850, ou un bit italique mal posé) ne sont plus
+rapprochés — le manque va dans le sens sûr.
 
 **Ce module ne supprime jamais de lui-même.** Il propose : un gardé, des
 redondants. C'est l'appelant — un geste explicite de l'utilisateur — qui tranche,
@@ -18,27 +22,34 @@ et ce qui part va en corbeille, récupérable.
 
 Trois règles protègent contre la perte de matière :
 
-1. **Identité incomplète, aucun regroupement.** Sans famille *et* sans style, on
-   ne sait pas ce qu'on tient. Une police malformée est stockée avec des
-   métadonnées partielles (cf. CLAUDE.md) ; elle ne doit pas pour autant se
-   retrouver empilée avec ses semblables sous une identité vide.
+1. **Identité incomplète ou suspecte, aucun regroupement.** Sans famille *et*
+   sans style, on ne sait pas ce qu'on tient ; une famille `false`/`null`/
+   `none`/`undefined` trahit un outil qui a écrit une variable vide. Une police
+   malformée est stockée avec des métadonnées partielles (cf. CLAUDE.md) ; elle
+   ne doit pas pour autant se retrouver empilée avec ses semblables sous une
+   identité vide ou factice.
 2. **Un fichier qui couvre plusieurs styles n'est jamais proposé au retrait.**
    Une police variable déclare plusieurs instances nommées depuis un seul
    fichier, une collection `.ttc` embarque plusieurs polices ; dans les deux cas
    l'identité lue ne décrit que la première. Les retirer perdrait le reste. Ils
    sont donc toujours gardés, et préférés comme gardé — c'est la traduction
    directe de « préférer le fichier qui couvre le plus de styles ».
-3. **Le gardé est le plus complet**, et le classement est *total* : à
-   caractéristiques égales l'empreinte départage, donc deux exécutions donnent
+3. **Le gardé est le plus complet des installables** : une TTF/OTF passe devant
+   une WOFF même plus riche (une police web n'est jamais installée), et une face
+   dont seuls des fichiers web sont gardés d'office (variable ou collection
+   WOFF) garde aussi sa meilleure copie installable. Le classement est *total* :
+   à caractéristiques égales l'empreinte départage, donc deux exécutions donnent
    le même résultat. Une proposition qui changerait d'une fois sur l'autre ne
    serait pas révisable.
 
 Limite assumée : une variable n'est rapprochée des statiques qu'elle redit que
 si le style qu'elle *déclare* coïncide. Ses instances nommées (`fvar`) ne sont
 pas stockées ; les rapprocher toutes demanderait une migration et une
-ré-analyse de la bibliothèque. Sur la mesure ci-dessus, cela concerne 87 des
-918 faces — le manque va toujours dans le sens sûr : ces groupes ne sont pas
-détectés, jamais mal résolus.
+ré-analyse de la bibliothèque. Sur la mesure ci-dessus (identité à deux champs),
+cela concernait 87 des 918 faces — le manque va toujours dans le sens sûr : ces
+groupes ne sont pas détectés, jamais mal résolus. Remesuré avec l'identité à
+cinq champs sur la bibliothèque du 10 août 2026 : 917 → 913 groupes, 1 015 →
+1 001 fichiers proposés.
 """
 
 from __future__ import annotations
@@ -63,8 +74,17 @@ _FORMAT_RANK: dict[str, int] = {"otf": 0, "ttf": 1, "ttc": 2, "woff2": 3, "woff"
 _FORMAT_RANK_UNKNOWN = 9
 
 _COLLECTION_FORMATS = frozenset({"ttc", "otc"})
+# Formats proposés à l'installation système (jamais WOFF/WOFF2, cf. CLAUDE.md).
+_INSTALLABLE_FORMATS = frozenset({"otf", "ttf", "ttc", "otc"})
 
-FaceKey = tuple[str, str]
+# Familles qui trahissent des métadonnées cassées (un outil a écrit la valeur
+# d'une variable vide) : les regrouper empilerait des polices sans rapport.
+_BOGUS_FAMILIES = frozenset({"false", "null", "none", "undefined"})
+
+# (famille, sous-famille, italique, graisse, chasse), normalisés. La
+# sous-famille déclarée ne suffit pas : « Normal » romain et « Normal »
+# italique, ou « Text » 400 et « Text » 700, sont deux faces (M-37).
+FaceKey = tuple[str, str, str, str, str]
 
 # Séparateur d'identité côté API. Un caractère de contrôle (Unit Separator)
 # plutôt qu'un « / » ou un « | » : ceux-là apparaissent dans de vrais noms de
@@ -78,11 +98,12 @@ def encode_key(key: FaceKey) -> str:
 
 
 def decode_key(raw: str) -> FaceKey | None:
-    """Relit une identité sérialisée, ou None si elle est malformée."""
+    """Relit une identité sérialisée, ou None si elle est malformée (dont une
+    clé à deux champs d'avant M-37, envoyée par une page restée ouverte)."""
     parts = raw.split(_KEY_SEPARATOR)
-    if len(parts) != 2:
+    if len(parts) != 5:
         return None
-    return parts[0], parts[1]
+    return parts[0], parts[1], parts[2], parts[3], parts[4]
 
 
 def covers_several_styles(font: Font) -> bool:
@@ -105,25 +126,53 @@ def _normalize(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
 
 
+def _axis(value: object) -> str:
+    return "" if value is None else str(int(value))
+
+
 def face_key(font: Font) -> FaceKey | None:
-    """Identité de face, ou None si elle est incomplète (cf. règle 1)."""
+    """Identité de face, ou None si elle est incomplète ou suspecte (cf. règle 1).
+
+    Suspecte : une famille `false`/`null`/`none`/`undefined` (valeur d'une
+    variable vide écrite par un outil) — ces polices sont écartées du
+    recensement plutôt qu'empilées à tort. Une famille égale au nom PostScript
+    n'est PAS écartée : c'est le cas normal d'un Regular à nom d'un seul mot
+    (« Georgia »), et le nom PostScript étant propre à une face, l'égalité ne
+    peut pas réunir deux faces différentes.
+    """
     family = (font.family_name or "").strip()
     subfamily = (font.subfamily_name or "").strip()
     if not family or not subfamily:
         return None
-    return _normalize(family), _normalize(subfamily)
+    normalized = _normalize(family)
+    if normalized in _BOGUS_FAMILIES:
+        return None
+    return (
+        normalized,
+        _normalize(subfamily),
+        _axis(font.is_italic),
+        _axis(font.weight_class),
+        _axis(font.width_class),
+    )
+
+
+def _installable(font: Font) -> bool:
+    return font.file_format.lower() in _INSTALLABLE_FORMATS
 
 
 def _rank(font: Font) -> tuple:
     """Clé de tri : le meilleur candidat au rôle de gardé vient en premier.
 
-    Ordre : couverture (styles, glyphes, scripts, points de code), puis format,
-    puis taille, puis empreinte — cette dernière garantit un ordre **total**,
-    donc une proposition reproductible.
+    Ordre : couvre plusieurs styles, puis installable (une WOFF plus riche ne
+    passe jamais devant la seule TTF/OTF de la face : la garder retirerait la
+    dernière copie installable), puis couverture (glyphes, scripts, points de
+    code), format, taille, et enfin empreinte — cette dernière garantit un
+    ordre **total**, donc une proposition reproductible.
     """
     unicode_ranges = font.unicode_ranges or {}
     return (
         0 if covers_several_styles(font) else 1,
+        0 if _installable(font) else 1,
         -(font.glyph_count or 0),
         -len(font.supported_scripts or []),
         -sum(v for v in unicode_ranges.values() if isinstance(v, int)),
@@ -147,7 +196,7 @@ class DuplicateGroup:
     """Identité normalisée — c'est elle qui sert de référence à la résolution."""
 
     keeper: Font
-    """Le fichier gardé : le plus complet du groupe."""
+    """Le fichier gardé : le plus complet du groupe, installable d'abord."""
 
     redundant: list[Font]
     """Les fichiers en trop, proposés à la corbeille. Jamais un fichier qui
@@ -178,7 +227,8 @@ def group_by_face(fonts: list[Font]) -> list[DuplicateGroup]:
 
     if skipped:
         logger.info(
-            "%d police(s) écartée(s) du recensement : identité de face incomplète.",
+            "%d police(s) écartée(s) du recensement : identité de face incomplète "
+            "ou suspecte.",
             skipped,
         )
 
@@ -196,6 +246,15 @@ def group_by_face(fonts: list[Font]) -> list[DuplicateGroup]:
         else:
             ordered = sorted(members, key=_rank)
             keeper, redundant, also_kept = ordered[0], ordered[1:], []
+
+        # Une variable ou une collection WOFF gardée d'office n'est pas
+        # installable : la seule TTF/OTF de la face ne doit pas partir pour
+        # autant. La meilleure copie installable reste aussi gardée.
+        if not any(_installable(f) for f in (keeper, *also_kept)):
+            installable = [f for f in redundant if _installable(f)]
+            if installable:
+                redundant.remove(installable[0])
+                also_kept.append(installable[0])
 
         if not redundant:
             # Un groupe sans rien à retirer n'est pas un doublon actionnable :

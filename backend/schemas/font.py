@@ -142,12 +142,12 @@ class DuplicateFaceGroup(CamelModel):
     family: str
     subfamily: str
     key: str
-    """Identité normalisée, `famille\\x1fstyle`. C'est cette chaîne que la
-    résolution attend : la paire brute ne survivrait pas à un aller-retour JSON
-    sans ambiguïté de séparateur."""
+    """Identité normalisée, `famille\\x1fstyle\\x1fitalique\\x1fgraisse\\x1fchasse`.
+    C'est cette chaîne que la résolution attend : le tuple brut ne survivrait
+    pas à un aller-retour JSON sans ambiguïté de séparateur."""
 
     keeper: FontResponse
-    """Le fichier gardé : le plus complet du groupe."""
+    """Le fichier gardé : le plus complet du groupe, installable d'abord."""
 
     redundant: list[FontResponse]
     """Les fichiers en trop, proposés à la corbeille."""

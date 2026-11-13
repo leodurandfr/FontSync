@@ -217,7 +217,7 @@ def test_keeper_does_not_depend_on_input_order() -> None:
 
 def test_key_survives_a_round_trip_through_the_api() -> None:
     """Un nom de famille peut contenir « / » ou « | » : le séparateur, non."""
-    key = ("gt maru mono | display / text", "bold oblique")
+    key = ("gt maru mono | display / text", "bold oblique", "1", "700", "5")
 
     assert decode_key(encode_key(key)) == key
     assert decode_key("pas-de-separateur") is None
@@ -402,3 +402,202 @@ async def test_a_resolved_duplicate_does_not_come_back_on_the_next_sync(
     assert pushed.json()["refusedDeleted"] is True
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
     assert listing.json()["total"] == 1
+
+
+# =====================================================================
+# 5. Axes de style dans l'identité, installable avant couverture (M-37, B-117)
+# =====================================================================
+
+
+def _woff_from(data: bytes) -> bytes:
+    """Ré-encode une vraie TTF en WOFF (mêmes tables, autre enveloppe)."""
+    from io import BytesIO
+
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(BytesIO(data))
+    font.flavor = "woff"
+    out = BytesIO()
+    font.save(out)
+    return out.getvalue()
+
+
+async def _import_all(db, storage, files: list[tuple[str, bytes]]) -> None:
+    from backend.services.font_importer import import_font
+
+    for name, data in files:
+        await import_font(name, data, storage, db)
+
+
+@pytest.mark.asyncio
+async def test_italic_not_grouped_with_upright(db, storage, font_factory) -> None:
+    """M-37 : même famille, même sous-famille déclarée, mais l'une est
+    italique — deux faces, pas un doublon (l'italique proposée au retrait
+    perdrait la face)."""
+    from backend.services.duplicate_faces import find_duplicate_faces
+
+    await _import_all(
+        db,
+        storage,
+        [
+            ("Switz-Normal.ttf", font_factory(family="Switz", subfamily="Normal")),
+            (
+                "Switz-NormalItalic.ttf",
+                font_factory(family="Switz", subfamily="Normal", italic=True),
+            ),
+        ],
+    )
+
+    assert await find_duplicate_faces(db) == []
+
+
+@pytest.mark.asyncio
+async def test_weight_mismatch_not_grouped(db, storage, font_factory) -> None:
+    """M-37 : sous-famille identique, graisses différentes — deux faces."""
+    from backend.services.duplicate_faces import find_duplicate_faces
+
+    await _import_all(
+        db,
+        storage,
+        [
+            ("Kern-400.ttf", font_factory(family="Kern", subfamily="Text")),
+            (
+                "Kern-700.ttf",
+                font_factory(family="Kern", subfamily="Text", weight_class=700),
+            ),
+        ],
+    )
+
+    assert await find_duplicate_faces(db) == []
+
+
+@pytest.mark.parametrize("family", ["false", "False", "NULL", "none", " undefined "])
+def test_bogus_family_excluded(family: str) -> None:
+    """B-117 : une famille « false » (valeur d'une variable vide écrite par un
+    outil) trahit des métadonnées cassées : hors recensement plutôt qu'un faux
+    groupe, quelle que soit la casse."""
+    bogus = [_font(family=family, subfamily="Regular") for _ in range(2)]
+    assert [face_key(f) for f in bogus] == [None, None]
+    assert group_by_face(bogus) == []
+
+
+def test_single_word_family_equal_to_postscript_name_is_grouped() -> None:
+    """Un Regular à nom d'un seul mot a pour nom PostScript sa famille
+    (« Georgia ») : c'est normal, et sa paire OTF/TTF reste un doublon. (Une
+    règle « famille = nom PostScript → écartée » cachait 52 polices système et
+    leurs vrais doublons.)"""
+    fonts = [
+        _font(family="Georgia", subfamily="Regular", fmt=f) for f in ("otf", "ttf")
+    ]
+    for f in fonts:
+        f.postscript_name = "Georgia"
+    groups = group_by_face(fonts)
+    assert len(groups) == 1 and len(groups[0].redundant) == 1
+
+
+def test_otf_kept_over_ttf_of_equal_coverage() -> None:
+    """Deux installables de même couverture : l'OTF (outline du fondeur)
+    reste le gardé, comme avant."""
+    otf = _font(fmt="otf")
+    ttf = _font(fmt="ttf")
+    group = group_by_face([ttf, otf])[0]
+    assert group.keeper is otf and group.redundant == [ttf]
+
+
+@pytest.mark.asyncio
+async def test_variable_woff_never_costs_the_only_installable_copy(
+    db, storage, font_factory
+) -> None:
+    """B-117 : une variable WOFF est gardée d'office (elle porte plusieurs
+    styles), mais elle n'est pas installable — la seule TTF de la face ne doit
+    pas être proposée au retrait pour autant."""
+    from backend.services.duplicate_faces import find_duplicate_faces
+
+    variable = font_factory(
+        family="Vary", subfamily="Regular", variable_axes=[("wght", 100, 400, 900)]
+    )
+    await _import_all(
+        db,
+        storage,
+        [
+            ("Vary-VF.woff", _woff_from(variable)),
+            ("Vary-Regular.ttf", font_factory(family="Vary", subfamily="Regular")),
+        ],
+    )
+
+    from sqlalchemy import select
+
+    fonts = (await db.execute(select(Font))).scalars().all()
+    woff = next(f for f in fonts if f.file_format.lower() == "woff")
+    ttf = next(f for f in fonts if f.file_format.lower() == "ttf")
+    assert woff.is_variable and face_key(woff) == face_key(ttf) is not None
+
+    for group in await find_duplicate_faces(db):
+        assert all(f.file_format.lower() != "ttf" for f in group.redundant)
+
+
+@pytest.mark.asyncio
+async def test_installable_ttf_kept_over_richer_woff(db, storage, font_factory) -> None:
+    """B-117 : une WOFF plus riche en glyphes ne passe pas devant la TTF — la
+    WOFF n'est jamais installée, la garder retirerait la seule copie
+    installable de la face."""
+    from backend.services.duplicate_faces import find_duplicate_faces
+
+    base = font_factory(family="Webby", subfamily="Regular")
+    richer = font_factory(
+        family="Webby", subfamily="Regular", extra_codepoints=list(range(0x100, 0x180))
+    )
+    await _import_all(
+        db, storage, [("Webby.ttf", base), ("Webby.woff", _woff_from(richer))]
+    )
+
+    groups = await find_duplicate_faces(db)
+    assert len(groups) == 1
+    assert groups[0].keeper.file_format.lower() == "ttf"
+    assert [f.file_format.lower() for f in groups[0].redundant] == ["woff"]
+
+
+def test_key_roundtrip_five_fields() -> None:
+    """La clé porte famille, sous-famille, italique, graisse, chasse ; une
+    clé à deux champs (ancienne page restée ouverte) est refusée."""
+    font = _font(family="Switz", subfamily="Normal")
+    font.is_italic = True
+    font.weight_class = 700
+    font.width_class = 5
+    key = face_key(font)
+    assert key == ("switz", "normal", "1", "700", "5")
+    assert decode_key(encode_key(key)) == key
+    assert decode_key("switz\x1fnormal") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_refuses_a_two_field_key(api_client: AsyncClient) -> None:
+    """Une page ouverte avant le passage à l'identité à cinq champs renvoie
+    une clé à deux champs : 400 (la page recharge alors sa liste), jamais une
+    résolution sur une autre face."""
+    resp = await api_client.post(
+        "/api/fonts/duplicates/resolve",
+        headers=AUTH_HEADERS,
+        json={"keys": ["switz\x1fnormal"]},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_width_mismatch_not_grouped(db, storage, font_factory) -> None:
+    """M-37 : sous-famille identique, chasses différentes — deux faces."""
+    from backend.services.duplicate_faces import find_duplicate_faces
+
+    await _import_all(
+        db,
+        storage,
+        [
+            ("Wide-5.ttf", font_factory(family="Wide", subfamily="Text")),
+            (
+                "Wide-3.ttf",
+                font_factory(family="Wide", subfamily="Text", width_class=3),
+            ),
+        ],
+    )
+
+    assert await find_duplicate_faces(db) == []

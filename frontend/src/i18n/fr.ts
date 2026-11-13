@@ -207,7 +207,7 @@ const fr: typeof en = {
       "{files} fichier en trop sur {faces} face, {size} à libérer. | {files} fichiers en trop sur {faces} faces, {size} à libérer.",
     // Dire la règle, pas seulement le chiffre : c'est elle qu'on révise ici,
     // groupe par groupe ce serait des heures.
-    rule: "Pour chaque face, le fichier le plus complet est gardé — une police variable ou une collection l'emporte toujours, puisqu'elle porte des styles que les autres n'ont pas.",
+    rule: "Pour chaque face, le fichier le plus complet est gardé, un format installable (OTF, TTF) passant avant une police web — une police variable ou une collection l'emporte toujours, puisqu'elle porte des styles que les autres n'ont pas.",
     reversible:
       "Rien n'est effacé : les fichiers partent à la corbeille, d'où ils reviennent d'un clic tant que vous ne l'avez pas vidée.",
     resolve:

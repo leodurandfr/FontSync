@@ -89,3 +89,9 @@ extend-ignore = [
     "B008", "B017", "BLE001", "DTZ001", "PYI034", "PYI036", "RUF012", "RUF059",
     "RUF100", "S110", "SIM117", "UP017", "UP035", "UP037", "UP041",
 ]
+
+# Couverture (`pytest --cov`, B-171) : les services async tournent dans des
+# greenlets SQLAlchemy ; sans ce réglage, coverage ne voit pas les lignes
+# exécutées dans le contexte de la session et les déclare non couvertes.
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]

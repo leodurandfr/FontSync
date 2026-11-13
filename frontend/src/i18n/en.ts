@@ -202,7 +202,7 @@ export default {
       "{files} redundant file across {faces} face, {size} to reclaim. | {files} redundant files across {faces} faces, {size} to reclaim.",
     // State the rule, not just the number: the rule is what you review here —
     // group by group would take hours.
-    rule: "For each face the most complete file is kept — a variable font or a collection always wins, since it carries styles the others don't.",
+    rule: "For each face the most complete file is kept, an installable format (OTF, TTF) coming before a web font — a variable font or a collection always wins, since it carries styles the others don't.",
     reversible:
       "Nothing is erased: files go to the trash, one click away from coming back for as long as you haven't emptied it.",
     resolve: "Move {n} file to trash | Move {n} files to trash",

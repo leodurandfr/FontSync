@@ -40,6 +40,7 @@ from backend.schemas.font import (
 )
 from backend.services.duplicate_faces import (
     DuplicateGroup,
+    FaceKey,
     decode_key,
     encode_key,
     find_duplicate_faces,
@@ -255,9 +256,10 @@ async def list_duplicate_faces(
 ) -> DuplicateFacesResponse:
     """Faces présentes en plusieurs exemplaires, groupe par groupe.
 
-    Le recensement porte sur `(famille typographique, style)` — l'identité
-    réelle d'une face — là où la déduplication à l'import ne compare que des
-    empreintes de fichier. Trois noms différents pour une seule face donnent
+    Le recensement porte sur `(famille typographique, style, italique, graisse,
+    chasse)` — l'identité réelle d'une face — là où la déduplication à l'import
+    ne compare que des empreintes de fichier. Trois noms différents pour une
+    seule face donnent
     trois empreintes : par hash, aucun de ces doublons n'est visible.
 
     Lecture pure. Les totaux décrivent l'ensemble du recensement, pas la page :
@@ -302,14 +304,16 @@ async def resolve_duplicate_faces_endpoint(
 
     Réviser 918 groupes un par un se compte en heures ; ce que l'utilisateur
     révise ici, c'est le **résultat de la règle** — un gardé par face, le plus
-    complet, choisi par un classement total donc reproductible. La corbeille est
+    complet des installables, choisi par un classement total donc reproductible.
+    Une clé à deux champs (page ouverte avant le passage à l'identité à cinq
+    champs) est refusée en 400 : la page recharge alors la liste. La corbeille est
     ce qui rend le geste en bloc acceptable : rien n'est effacé, tout se
     restaure, et les fichiers ne quittent le stockage qu'au vidage.
 
     `dry_run` compte sans rien déplacer, pour confirmer le chiffre avant de le
     déclencher. Sans `keys`, toutes les faces recensées y passent.
     """
-    keys: set[tuple[str, str]] | None = None
+    keys: set[FaceKey] | None = None
     if body.keys is not None:
         decoded = [decode_key(raw) for raw in body.keys]
         if any(k is None for k in decoded):

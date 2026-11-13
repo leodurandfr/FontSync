@@ -14,7 +14,7 @@ import type {
  * Le geste que cet écran propose est **en bloc**, et c'est délibéré : une
  * bibliothèque réelle en compte près d'un millier, et les réviser un par un se
  * compterait en heures. Ce que l'utilisateur révise, c'est le résultat de la
- * règle — un gardé par face, le plus complet — pas chaque groupe. Deux choses
+ * règle — un gardé par face, le plus complet des installables — pas chaque groupe. Deux choses
  * rendent ça tenable, et il faut les garder en tête en touchant à ce store :
  *
  * - `exclude` retire des faces du geste, plutôt que d'exiger de les cocher une
@@ -114,6 +114,10 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
+        // 400 : la liste affichée ne correspond plus au serveur (page restée
+        // ouverte pendant une mise à jour qui a changé l'identité d'une face).
+        // Recharger plutôt que laisser réessayer en boucle la même requête.
+        if (res.status === 400) await fetchDuplicates();
         throw new Error(data?.detail ?? `HTTP ${res.status}`);
       }
       const outcome: ResolveDuplicatesResponse = await res.json();
