@@ -33,8 +33,10 @@ cloud (Phase 7) et n'est pas utilisé pour l'authentification HTTP du v1.
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
 import platform
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,7 +47,45 @@ from agent.paths import state_dir
 CONFIG_DIR = state_dir()
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
-AGENT_VERSION = "0.2.0"
+_DISTRIBUTION = "fontsync-agent"
+# Le serveur refuse au-delà (schéma `DeviceRegister.agent_version`) : un
+# enregistrement refusé arrêterait tous les syncs.
+_MAX_VERSION_LENGTH = 20
+
+
+def _resolve_version(package_root: Path | None = None) -> str:
+    """Version du paquet de l'agent, telle que déclarée au serveur.
+
+    Depuis le dépôt, `pyproject.toml` fait foi (une installation éditable
+    garde la version du moment où elle a été faite) ; dans l'app, le dépôt est
+    installé comme distribution et sa métadonnée la porte. À défaut :
+    `0+unknown`, jamais une constante qui dérive en silence. Ne lève jamais :
+    appelée à l'import de toutes les commandes de l'agent.
+    """
+    root = package_root or Path(__file__).resolve().parents[1]
+    version: str | None = None
+    try:
+        with (root / "pyproject.toml").open("rb") as handle:
+            project = tomllib.load(handle).get("project")
+        if (
+            isinstance(project, dict)
+            and project.get("name") == _DISTRIBUTION
+            and project.get("version")
+        ):
+            version = str(project["version"])
+    except (OSError, ValueError):  # ValueError : TOML ou UTF-8 invalide
+        pass
+    if version is None:
+        try:
+            version = importlib.metadata.version(_DISTRIBUTION)
+        except importlib.metadata.PackageNotFoundError:
+            version = "0+unknown"
+    if len(version) > _MAX_VERSION_LENGTH:
+        version = version.split("+", 1)[0][:_MAX_VERSION_LENGTH]
+    return version
+
+
+AGENT_VERSION = _resolve_version()
 
 # Dossiers de fonts macOS (per-user + système partagé, pas /System/Library/Fonts)
 DEFAULT_MACOS_DIRECTORIES = [

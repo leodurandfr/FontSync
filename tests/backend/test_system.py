@@ -362,3 +362,13 @@ def test_database_error_does_not_overwrite_mirror_error() -> None:
     state.record_success("database")
 
     assert state.latest_error()[1] == "RuntimeError: miroir en panne"
+
+
+def test_openapi_version_follows_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.main import app
+
+    monkeypatch.setattr(settings, "fontsync_version", "main+abc1234")
+    assert app.openapi()["info"]["version"] == "main+abc1234"
+
+    monkeypatch.setattr(settings, "fontsync_version", "")
+    assert app.openapi()["info"]["version"] == "dev"

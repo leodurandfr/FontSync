@@ -174,3 +174,56 @@ def test_hostname_falls_back_to_platform_node(
     monkeypatch.delenv("FONTSYNC_HOSTNAME", raising=False)
     monkeypatch.setattr(config_module.platform, "node", lambda: "real-mac")
     assert AgentConfig.load().get_hostname() == "real-mac"
+
+
+def test_agent_version_matches_pyproject() -> None:
+    """La version déclarée au serveur est celle du paquet, pas une constante
+    qui dérive (B-51 : 0.2.0 en dur pour un paquet en 0.1.1)."""
+    import tomllib
+    from pathlib import Path
+
+    from agent.config import AGENT_VERSION
+
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    with pyproject.open("rb") as handle:
+        expected = tomllib.load(handle)["project"]["version"]
+    assert AGENT_VERSION == expected
+
+
+def test_agent_version_from_installed_metadata_without_pyproject(
+    tmp_path, monkeypatch
+) -> None:
+    """Chemin de l'app : pas de pyproject.toml à côté du paquet installé."""
+    import importlib.metadata
+
+    from agent import config
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "1.2.3")
+    assert config._resolve_version(tmp_path) == "1.2.3"
+
+
+def test_agent_version_unknown_without_any_source(tmp_path, monkeypatch) -> None:
+    import importlib.metadata
+
+    from agent import config
+
+    def _missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", _missing)
+    (tmp_path / "pyproject.toml").write_bytes(b"\xff\xfe pas du toml")
+    assert config._resolve_version(tmp_path) == "0+unknown"
+
+
+def test_agent_version_never_exceeds_server_limit(tmp_path, monkeypatch) -> None:
+    import importlib.metadata
+
+    from agent import config
+
+    monkeypatch.setattr(
+        importlib.metadata, "version", lambda name: "0.2.0.dev20261113+g1234567abcdef"
+    )
+    version = config._resolve_version(tmp_path)
+    assert len(version) <= 20
+    assert version.startswith("0.2.0")
+    assert len(config.AGENT_VERSION) <= 20

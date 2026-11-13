@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.auth import get_server_token, require_token, require_token_stream
+from backend.config import settings
 from backend.database import async_session
 from backend.host_guard import HostGuardMiddleware
 from backend.logging_filters import install_token_redaction
@@ -77,7 +78,23 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 await task
 
 
-app = FastAPI(title="FontSync", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="FontSync", version=settings.fontsync_version or "dev", lifespan=lifespan
+)
+_default_openapi = app.openapi
+
+
+def _versioned_openapi() -> dict:
+    """Schéma OpenAPI dont `info.version` suit `FONTSYNC_VERSION` (injectée au
+    build de l'image), au lieu d'une constante qui ne bougeait jamais."""
+    version = settings.fontsync_version or "dev"
+    if app.version != version:
+        app.version = version
+        app.openapi_schema = None
+    return _default_openapi()
+
+
+app.openapi = _versioned_openapi  # type: ignore[method-assign]
 
 # Garde anti DNS rebinding : un `Host` inattendu est refusé avant toute route
 # (400, ou fermeture 1008 pour le WebSocket). Réglage `ALLOWED_HOSTS`, cf.
