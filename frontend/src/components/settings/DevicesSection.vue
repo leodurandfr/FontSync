@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import {
   Monitor,
   RefreshCw,
@@ -12,6 +12,12 @@ import {
 import { useI18n } from "vue-i18n";
 import { useDevicesStore } from "@/stores/devices";
 import { apiFetch } from "@/lib/api";
+import {
+  deviceStatus,
+  type DeviceStatusKind,
+  type Translate,
+} from "@/lib/deviceStatus";
+import type { Device } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -25,8 +31,23 @@ const { t } = useI18n();
 const devicesStore = useDevicesStore();
 const saving = ref<Set<string>>(new Set());
 
+// Page ouverte (la fenêtre de l'app Mac reste ouverte des jours) : sans
+// rafraîchissement, un appareil dont le sync casse resterait « Connecté », et
+// un portable réveillé resterait « en retard » après son premier sync.
+const REFRESH_MS = 30_000;
+const now = ref(Date.now());
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
 onMounted(() => {
   devicesStore.fetchDevices();
+  refreshTimer = setInterval(() => {
+    now.value = Date.now();
+    void devicesStore.fetchDevices({ quiet: true });
+  }, REFRESH_MS);
+});
+
+onUnmounted(() => {
+  clearInterval(refreshTimer);
 });
 
 async function handleRescan(deviceId: string) {
@@ -100,16 +121,28 @@ async function handleDelete(deviceId: string, name: string) {
   }
 }
 
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return t("devices.never");
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 0 || diff < 60_000) return t("devices.justNow");
-  if (diff < 3_600_000)
-    return t("devices.minutesAgo", { n: Math.floor(diff / 60_000) });
-  if (diff < 86_400_000)
-    return t("devices.hoursAgo", { n: Math.floor(diff / 3_600_000) });
-  return t("devices.daysAgo", { n: Math.floor(diff / 86_400_000) });
+const translate: Translate = (key, params) => t(key, params ?? {});
+
+function statusOf(device: Device) {
+  return deviceStatus(
+    device,
+    devicesStore.isOnline(device.id),
+    translate,
+    now.value,
+  );
 }
+
+const STATUS_TEXT: Record<DeviceStatusKind, string> = {
+  connected: "text-green-600",
+  overdue: "text-amber-600",
+  offline: "text-muted-foreground",
+};
+
+const STATUS_DOT: Record<DeviceStatusKind, string> = {
+  connected: "bg-green-500",
+  overdue: "bg-amber-500",
+  offline: "bg-muted-foreground/40",
+};
 </script>
 
 <template>
@@ -151,11 +184,7 @@ function formatRelativeTime(dateStr: string | null): string {
                 <div class="flex items-center gap-2">
                   <span
                     class="h-2 w-2 shrink-0 rounded-full"
-                    :class="
-                      devicesStore.isOnline(device.id)
-                        ? 'bg-green-500'
-                        : 'bg-muted-foreground/40'
-                    "
+                    :class="STATUS_DOT[statusOf(device).kind]"
                   />
                   <p class="font-semibold truncate">{{ device.name }}</p>
                 </div>
@@ -166,20 +195,11 @@ function formatRelativeTime(dateStr: string | null): string {
                     &middot; Agent v{{ device.agentVersion }}
                   </span>
                 </p>
-                <p class="text-xs mt-0.5">
-                  <span
-                    v-if="devicesStore.isOnline(device.id)"
-                    class="text-green-600"
-                  >
-                    {{ t("devices.connected") }}
-                  </span>
-                  <span v-else class="text-muted-foreground">
-                    {{
-                      t("devices.seenAgo", {
-                        time: formatRelativeTime(device.lastSeenAt),
-                      })
-                    }}
-                  </span>
+                <p
+                  class="text-xs mt-0.5"
+                  :class="STATUS_TEXT[statusOf(device).kind]"
+                >
+                  {{ statusOf(device).text }}
                 </p>
               </div>
             </div>

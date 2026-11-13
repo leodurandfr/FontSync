@@ -171,12 +171,17 @@ const fr: typeof en = {
     none: "Aucun appareil enregistré.",
     installHint: "Installez l'agent FontSync sur une machine pour commencer.",
     connected: "Connecté",
+    // Connecté (listen vivant) mais l'agent n'est pas passé depuis le seuil
+    // serveur : son job sync ne démarre peut-être plus (M-39).
+    connectedOverdue: "Connecté — dernier sync {time}",
+    connectedNeverSynced: "Connecté — aucun sync enregistré",
     seenAgo: "Vu {time}",
-    never: "Jamais",
-    justNow: "À l'instant",
-    minutesAgo: "Il y a {n} min",
-    hoursAgo: "Il y a {n} h",
-    daysAgo: "Il y a {n} j",
+    // En minuscules : insérés dans une phrase (« Vu il y a 5 min »).
+    never: "jamais",
+    justNow: "à l'instant",
+    minutesAgo: "il y a {n} min",
+    hoursAgo: "il y a {n} h",
+    daysAgo: "il y a {n} j",
     rescan: "Re-scan",
     autoPush: "Push automatique",
     autoPushDesc: "Envoie les nouvelles polices au serveur",

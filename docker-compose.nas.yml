@@ -45,6 +45,9 @@ services:
       # Virgules, motifs `*.suffixe`, sans port ; `*` désactive la garde.
       # Détail : §3 de docs/INSTALL-NAS.md.
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      # Appareil « en retard » (Réglages → Appareils) : aucun sync de son
+      # agent depuis N minutes, même connecté. Défaut 30 (3 × 600 s).
+      DEVICE_OVERDUE_MINUTES: ${DEVICE_OVERDUE_MINUTES:-30}
     labels:
       # Watchtower tourne en `--label-enable` : il ne surveille que ce qui porte
       # ce label. Installer FontSync ne fait donc pas de lui le gestionnaire de

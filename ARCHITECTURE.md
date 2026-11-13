@@ -145,7 +145,7 @@ The frontend maintains a permanent WebSocket connection (`WS /ws/client`) and up
 
 No more WebSocket on the agent side. The server exposes an **SSE** endpoint (`GET /api/agent/{device_id}/events`) that the agent's `listen` process consumes. When a font becomes available for that device, the server emits a **`sync`** event: a **simple signal with no exploited payload** (no `font_id` to interpret → no key bug). On receipt, `listen` simply **triggers the `sync` command** (with debounce), which recomputes the delta from the real disk state.
 
-The agent does not "push" real-time events to the server: everything goes through the HTTP calls of the `sync` command (register/update device, `POST /api/sync/delta`, push, pull). The device's `last_seen_at` is updated on every HTTP call from the agent.
+The agent does not "push" real-time events to the server: everything goes through the HTTP calls of the `sync` command (register/update device, `POST /api/sync/delta`, push, pull). The device's `last_seen_at` is the agent's last sync activity: it moves on `POST /api/sync/delta`, push and pull (pull at most once a minute), and is set when a device is first registered. It does not move on a later `register` (which precedes the delta, so a delta failing at every sync would otherwise look healthy) nor on a settings change from the UI (`PATCH`). Being connected (`listen` holds the SSE stream) says nothing about syncing: `listen` survives a `sync` job that no longer starts, so `GET /api/devices` also reports `syncOverdue` — no agent pass for more than `DEVICE_OVERDUE_MINUTES` (default 30 = 3 × the 600 s `StartInterval`), or never. The UI shows a connected but overdue device in amber with the age of its last sync, and refreshes the device list every 30 s while Settings → Devices is open.
 
 ---
 
@@ -214,9 +214,7 @@ Machines registered with the server.
 | `os` | VARCHAR(50) | `macos`, `linux`, `windows` |
 | `os_version` | VARCHAR(100) | |
 | `agent_version` | VARCHAR(20) | |
-| `last_seen_at` | DateTime (tz) | Last heartbeat |
-| `last_sync_at` | DateTime (tz) | Last full sync |
-| `sync_status` | VARCHAR(20) | `idle`, `syncing`, `error` |
+| `last_seen_at` | DateTime (tz) | Last agent sync activity (delta, push, pull) — basis of `syncOverdue` |
 | `font_directories` | JSON | Watched directories |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
@@ -508,7 +506,7 @@ way — those groups go undetected, never mis-resolved.
 | Method | Endpoint | Description |
 |---------|----------|-------------|
 | `POST` | `/api/devices/register` | Register a device — keyed on `device_id`, hostname only as a fallback |
-| `GET` | `/api/devices` | List the devices |
+| `GET` | `/api/devices` | List the devices, with `isOnline` (SSE presence) and `syncOverdue` (no agent pass for 30 min) |
 | `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`, `propagate_deletions`…) |
 | `POST` | `/api/devices/{id}/merge` | Absorb duplicate devices, keeping their font registry |
 | `DELETE` | `/api/devices/{id}` | Delete (its `device_fonts` rows go with it; the library does not) |

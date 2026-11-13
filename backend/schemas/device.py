@@ -77,6 +77,9 @@ class DeviceResponse(CamelModel):
     # Présence « en ligne » : calculée à la volée depuis les connexions SSE
     # `listen` (cf. routeur), pas une colonne en base.
     is_online: bool = False
+    # L'agent n'est pas passé depuis plus de `device_overdue_minutes` (ou jamais) :
+    # un appareil connecté peut l'être, si son job `sync` ne démarre plus.
+    sync_overdue: bool = False
 
     model_config = {
         "from_attributes": True,

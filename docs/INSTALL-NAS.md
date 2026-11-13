@@ -84,6 +84,7 @@ This is the simplest and most reproducible method, including on Synology whose
 | `WATCHTOWER_URL`    | Where the update request goes; already set by the compose file | `http://watchtower:8080`          |
 | `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |
 | `ALLOWED_HOSTS`     | Extra host names accepted in the `Host` header (comma-separated, `*.suffix` allowed). `*` disables the check | `nas.home.lan,*.example.com` |
+| `DEVICE_OVERDUE_MINUTES` | A device whose agent has not synced for this long is flagged "overdue" in Settings → Devices, even when connected. Default `30` (3 × the agent's 600 s interval) | `30` |
 
 > If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
 > startup and **logs** it (never an open server by default). The example

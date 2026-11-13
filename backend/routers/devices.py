@@ -18,6 +18,7 @@ from backend.schemas.device import (
     DeviceResponse,
     DeviceUpdate,
 )
+from backend.services.device_activity import sync_overdue
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -41,15 +42,19 @@ async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
 
 
 def _to_response(device: Device) -> DeviceResponse:
-    """Sérialise un device en y injectant la présence « en ligne ».
+    """Sérialise un device en y injectant la présence « en ligne » et le retard.
 
     Le statut online n'est pas une colonne : il vient des connexions SSE
     `listen` actives (`ws_manager`). L'exposer dans le REST permet au frontend
     d'afficher le bon état **dès le chargement**, sans dépendre uniquement des
     événements WebSocket `device.connected` (qui ne rejouent pas l'historique).
+
+    Être connecté ne dit pas que l'appareil se synchronise : `listen` survit à
+    un job `sync` qui ne démarre plus (M-39). `sync_overdue` le signale.
     """
     resp = DeviceResponse.model_validate(device)
     resp.is_online = str(device.id) in ws_manager.connected_sse_devices
+    resp.sync_overdue = sync_overdue(device.last_seen_at)
     return resp
 
 
@@ -98,7 +103,9 @@ async def register_device(
         device.os_version = body.os_version
         device.agent_version = body.agent_version
         device.font_directories = body.font_directories
-        device.last_seen_at = datetime.now(timezone.utc)
+        # Pas de `last_seen_at` ici : le register précède le delta, qui peut
+        # échouer à chaque sync — l'appareil paraîtrait à jour sans qu'aucun
+        # sync n'aboutisse (cf. `services/device_activity.py`).
     else:
         device = Device(
             name=body.name,
@@ -138,14 +145,17 @@ async def update_device(
     body: DeviceUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceResponse:
-    """Met à jour un device."""
+    """Met à jour un device.
+
+    Ne touche pas `last_seen_at` : un réglage changé depuis l'interface n'est
+    pas un passage de l'agent, et masquerait un appareil en retard.
+    """
     device = await _get_device_or_404(device_id, db)
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="Aucun champ à modifier.")
     for field, value in update_data.items():
         setattr(device, field, value)
-    device.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(device)
     return _to_response(device)

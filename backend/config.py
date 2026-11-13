@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -45,6 +46,13 @@ class Settings(BaseSettings):
     # seule police sur une machine qui en a trente serait bloqué par le
     # pourcentage, et la fonctionnalité paraîtrait cassée.
     deletion_propagation_min_fonts: int = 3
+
+    # ---------- Appareils ----------
+
+    # Un appareil est « en retard » quand son agent n'est pas passé depuis plus
+    # de N minutes, même connecté : `listen` peut survivre à un job `sync` qui
+    # ne démarre plus (cas du Mac mini, M-39). 30 = 3 × le StartInterval de 600 s.
+    device_overdue_minutes: int = Field(default=30, ge=1)
 
     # ---------- Récolte des pierres tombales (`docs/PLAN-ETATS-FONTS.md` §3.4) ----------
 

@@ -19,6 +19,10 @@ from backend.services.deletion_propagation import (
     DeletionDetection,
     detect_local_deletions,
 )
+from backend.services.device_activity import (
+    PULL_ACTIVITY_INTERVAL,
+    note_sync_activity,
+)
 from backend.services.font_importer import FontImportError, import_font
 from backend.services.harvest import harvest_tombstones
 from backend.services.inventory import reconcile_inventory
@@ -96,6 +100,8 @@ async def delta_sync(
     """
     device = await _get_device_or_404(body.device_id, db)
     declared = {entry.hash for entry in body.fonts}
+    # Le delta est le sync lui-même : l'agent est passé (cf. `sync_overdue`).
+    note_sync_activity(device)
 
     detection = await detect_local_deletions(device.id, declared, db)
 
@@ -159,6 +165,9 @@ async def push_font(
     """
     # Vérifier que le device existe
     device = await _get_device_or_404(device_id, db)
+    # Un premier sync de milliers de polices dure plus que le seuil de retard :
+    # chaque push compte comme un passage (écrit avec l'association plus bas).
+    note_sync_activity(device)
 
     filename = file.filename or "unknown"
     file_data = await file.read()
@@ -245,7 +254,11 @@ async def pull_font(
     jamais passer pour une suppression locale.
     """
     # Vérifier que le device existe
-    await _get_device_or_404(device_id, db)
+    device = await _get_device_or_404(device_id, db)
+    # Même raison que pour le push ; un pull n'écrit rien d'autre, d'où au
+    # plus une écriture par minute.
+    if note_sync_activity(device, min_interval=PULL_ACTIVITY_INTERVAL):
+        await db.commit()
 
     result = await db.execute(
         select(Font).where(Font.id == font_id, Font.deleted_at.is_(None))

@@ -14,11 +14,13 @@ class Device(UUIDPrimaryKey, Base):
     os: Mapped[str] = mapped_column(String(50), nullable=False)
     os_version: Mapped[str | None] = mapped_column(String(100))
     agent_version: Mapped[str | None] = mapped_column(String(20))
+    # Dernier passage de sync de l'agent (delta, push, pull) — base de l'état
+    # « en retard » (`services/device_activity.py`). Ni le register d'un appareil
+    # existant ni un PATCH depuis l'UI ne le déplacent.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Dernier delta CRÉDIBLE traité (déclaration non vide, non suspecte). Sert de
     # borne à la récolte de pierres tombales : `last_seen_at` ne peut pas jouer ce
-    # rôle, il est posé par le register HTTP — donc avant le delta — et déplacé
-    # par un simple PATCH depuis l'UI.
+    # rôle, il avance aussi sur une déclaration vide ou suspecte, et au push/pull.
     last_declaration_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

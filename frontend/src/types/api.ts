@@ -160,6 +160,12 @@ export interface Device {
   createdAt: string;
   /** Présence « en ligne » (connexion SSE `listen` active), calculée serveur. */
   isOnline?: boolean;
+  /**
+   * L'agent n'est pas passé depuis le seuil serveur (30 min par défaut), ou
+   * jamais. Un appareil connecté peut l'être : `listen` survit à un job `sync`
+   * qui ne démarre plus.
+   */
+  syncOverdue?: boolean;
 }
 
 export interface SystemInfo {

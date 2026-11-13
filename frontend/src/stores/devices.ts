@@ -17,8 +17,12 @@ export const useDevicesStore = defineStore('devices', () => {
     return onlineDeviceIds.value.has(deviceId)
   }
 
-  async function fetchDevices() {
-    loading.value = true
+  /**
+   * Recharge la liste. `quiet` : rafraîchissement de fond (sans squelette de
+   * chargement), pour suivre `syncOverdue`/`lastSeenAt` page ouverte.
+   */
+  async function fetchDevices(options: { quiet?: boolean } = {}) {
+    if (!options.quiet) loading.value = true
     error.value = null
     try {
       const res = await apiFetch('/api/devices')
@@ -32,7 +36,7 @@ export const useDevicesStore = defineStore('devices', () => {
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Erreur inconnue'
     } finally {
-      loading.value = false
+      if (!options.quiet) loading.value = false
     }
   }
 
