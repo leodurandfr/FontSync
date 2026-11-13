@@ -1,14 +1,14 @@
-fastapi==0.162.0
+fastapi==0.162.3
 starlette==1.10.0
-uvicorn[standard]==0.34.0
-pydantic==2.13.4
-sqlalchemy[asyncio]==2.0.36
-aiosqlite==0.20.0
-alembic==1.14.1
-fonttools==4.60.2
-python-multipart==0.0.32
-websockets==14.1
-pydantic-settings==2.7.1
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+sqlalchemy[asyncio]==2.1.8
+aiosqlite==0.22.1
+alembic==1.20.1
+fonttools==4.68.0
+python-multipart==0.0.33
+websockets==17.4
+pydantic-settings==2.16.2
 aiofiles==25.1.0
 # Appel sortant vers l'API de Watchtower (mise à jour depuis l'interface).
 httpx==0.28.1
