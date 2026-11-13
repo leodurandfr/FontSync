@@ -15,3 +15,11 @@ swiftc -o "$out/launchd-status-checks" \
   "$here/../FontSync/LaunchdStatus.swift" \
   "$here/LaunchdStatusChecks.swift"
 "$out/launchd-status-checks"
+
+swiftc -o "$out/webview-ui-delegate-checks" \
+  "$here/../FontSync/WebView.swift" \
+  "$here/WebViewUIDelegateChecks.swift"
+# La vérification héberge une vraie WKWebView : son magasin de données (caches,
+# WebsiteData) atterrit dans un dossier jetable, pas dans ~/Library.
+mkdir -p "$out/home"
+CFFIXED_USER_HOME="$out/home" "$out/webview-ui-delegate-checks"

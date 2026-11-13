@@ -220,6 +220,7 @@ Machines registered with the server.
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
 | `propagate_deletions` | BOOLEAN | Apply *other* devices' deletions here, i.e. uninstall (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded |
 | `created_at` | DateTime (tz) | |
+| `deleted_at` | DateTime (tz) | Soft delete: hidden from the list; its `device_fonts` rows are kept; `register` revives it |
 
 #### `device_fonts`
 
@@ -550,7 +551,7 @@ way — those groups go undetected, never mis-resolved.
 | `GET` | `/api/devices` | List the devices, with `isOnline` (SSE presence) and `syncOverdue` (no agent pass for 30 min) |
 | `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`, `propagate_deletions`…) |
 | `POST` | `/api/devices/{id}/merge` | Absorb duplicate devices, keeping their font registry |
-| `DELETE` | `/api/devices/{id}` | Delete (its `device_fonts` rows go with it; the library does not) |
+| `DELETE` | `/api/devices/{id}` | Remove from the list — soft delete: its `device_fonts` rows and the library stay; a still-running agent brings it back at its next sync |
 
 > **Identity is the `device_id`, not the hostname.** macOS changes its hostname
 > with the network (`.local` under Bonjour, `.home` under DHCP), and an upsert

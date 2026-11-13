@@ -12,6 +12,7 @@ const fr: typeof en = {
     loadError: "Erreur de chargement",
     unknownError: "Erreur inconnue",
     variable: "Variable",
+    cancel: "Annuler",
   },
   sidebar: {
     library: "Bibliothèque",
@@ -193,8 +194,9 @@ const fr: typeof en = {
     propagateDeletionsDesc:
       "Désinstalle de cet appareil les polices supprimées du serveur. Désactivé par défaut : sans ça, aucun fichier n'est jamais effacé ici. Les suppressions faites sur cet appareil, elles, sont enregistrées par le serveur dans tous les cas — ce réglage ne commande que ce qui s'efface.",
     delete: "Retirer l'appareil",
+    deleteTitle: "Retirer « {name} » ?",
     deleteConfirm:
-      "Retirer « {name} » ? Vos polices restent sur le serveur. Ce qui est perdu, c'est la trace des polices que cette machine détenait — la base de la détection des suppressions locales.",
+      "L'appareil sort de cette liste. Rien n'est effacé : vos polices restent sur le serveur et sur la machine. Si son agent tourne encore, il réapparaîtra à son prochain sync — pour le retirer pour de bon, désinstallez d'abord l'agent sur cette machine.",
     watchedFolders: "Dossiers surveillés",
   },
   duplicates: {

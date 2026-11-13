@@ -107,11 +107,7 @@ struct WebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
-        // Sans délégué de navigation, la WKWebView ignore les téléchargements :
-        // le front télécharge les fonts via un blob authentifié + `<a download>`
-        // (le token ne peut pas voyager dans un `href` direct sur route `/api`),
-        // et un clic sur un tel lien ne produit rien sans `WKDownloadDelegate`.
-        webView.navigationDelegate = context.coordinator
+        Self.attachDelegates(webView, to: context.coordinator)
         webView.load(freshRequest())
         context.coordinator.webView = webView
         context.coordinator.currentURL = url
@@ -129,14 +125,31 @@ struct WebView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Les deux délégués de la WebView, posés au même endroit.
+    ///
+    /// - navigation : sans lui, la WKWebView ignore les téléchargements (le front
+    ///   télécharge les fonts via un blob authentifié + `<a download>`, le token
+    ///   ne pouvant pas voyager dans un `href` direct sur une route `/api`) ;
+    /// - interface (`WKUIDelegate`) : sans lui, `window.confirm` répond `false`
+    ///   en silence, `window.alert` ne s'affiche pas, `<input type=file>` n'ouvre
+    ///   rien et un lien `target=_blank` reste mort (M-38).
+    static func attachDelegates(_ webView: WKWebView, to coordinator: Coordinator) {
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
+    }
+
     /// Pont JS→AppKit. Conserve une réf faible à la webview pour atteindre son
     /// `NSWindow` ; les actions utilisent les méthodes directes (pas `perform*`)
     /// pour ne jamais émettre de bip même sans boutons de titre visibles.
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate,
-        WKDownloadDelegate
+        WKDownloadDelegate, WKUIDelegate
     {
         var currentURL: URL?
         weak var webView: WKWebView?
+
+        /// Ouvre une URL hors de l'app (navigateur par défaut). Remplaçable par
+        /// les vérifications, qui s'assurent qu'aucune URL non http(s) n'y arrive.
+        var openExternally: (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
 
         /// Destination choisie pour chaque téléchargement en cours, pour pouvoir
         /// révéler le fichier dans le Finder une fois terminé (`WKDownload` n'expose
@@ -188,6 +201,129 @@ struct WebView: NSViewRepresentable {
             default:
                 break
             }
+        }
+
+        // MARK: Interface JavaScript (WKUIDelegate)
+
+        /// Présente une alerte en feuille sur la fenêtre de la WebView, ou en
+        /// modale si elle n'en a pas encore.
+        private func present(_ alert: NSAlert, in webView: WKWebView, done: @escaping (NSApplication.ModalResponse) -> Void) {
+            if let window = webView.window {
+                alert.beginSheetModal(for: window, completionHandler: done)
+            } else {
+                done(alert.runModal())
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptAlertPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping () -> Void
+        ) {
+            let alert = NSAlert()
+            alert.messageText = message
+            alert.addButton(withTitle: "OK")
+            present(alert, in: webView) { _ in completionHandler() }
+        }
+
+        /// `window.confirm` (ex. suppression d'un appareil) : sans ce délégué la
+        /// WKWebView répond `false` sans rien montrer, et le geste ne fait rien.
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (Bool) -> Void
+        ) {
+            let alert = Self.confirmAlert(message: message)
+            present(alert, in: webView) { response in
+                completionHandler(Self.accepted(response))
+            }
+        }
+
+        static func confirmAlert(message: String) -> NSAlert {
+            let alert = NSAlert()
+            alert.messageText = message
+            alert.addButton(withTitle: "OK")
+            addCancelButton(to: alert)
+            return alert
+        }
+
+        /// « OK » est le premier bouton ; tout le reste (Annuler, Échap) refuse.
+        static func accepted(_ response: NSApplication.ModalResponse) -> Bool {
+            response == .alertFirstButtonReturn
+        }
+
+        /// L'app n'est localisée qu'en anglais : AppKit ne donne Échap qu'à un
+        /// bouton titré « Cancel ». « Annuler » le reçoit donc explicitement.
+        static func addCancelButton(to alert: NSAlert) {
+            let button = alert.addButton(withTitle: "Annuler")
+            button.keyEquivalent = "\u{1b}"
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (String?) -> Void
+        ) {
+            let alert = NSAlert()
+            alert.messageText = prompt
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+            field.stringValue = defaultText ?? ""
+            alert.accessoryView = field
+            alert.addButton(withTitle: "OK")
+            Self.addCancelButton(to: alert)
+            present(alert, in: webView) { response in
+                completionHandler(Self.accepted(response) ? field.stringValue : nil)
+            }
+        }
+
+        /// `<input type=file>` (import de polices) : sans ce délégué, rien ne
+        /// s'ouvre.
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping ([URL]?) -> Void
+        ) {
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.canChooseDirectories = parameters.allowsDirectories
+            panel.canChooseFiles = true
+            let finish: (NSApplication.ModalResponse) -> Void = { response in
+                completionHandler(response == .OK ? panel.urls : nil)
+            }
+            if let window = webView.window {
+                panel.beginSheetModal(for: window, completionHandler: finish)
+            } else {
+                finish(panel.runModal())
+            }
+        }
+
+        /// Lien `target=_blank` (licence d'une police, site d'un fondeur) : ouvert
+        /// dans le navigateur par défaut, jamais dans une nouvelle WebView. Seuls
+        /// http et https sortent : un `file:`, `javascript:` ou schéma d'app ne
+        /// doit pas pouvoir être lancé depuis une page.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let url = Self.externalURL(for: navigationAction.request.url) {
+                openExternally(url)
+            }
+            return nil
+        }
+
+        /// L'URL à confier au navigateur, ou nil si elle n'est pas http(s).
+        static func externalURL(for url: URL?) -> URL? {
+            guard let url, let scheme = url.scheme?.lowercased(),
+                scheme == "http" || scheme == "https"
+            else { return nil }
+            return url
         }
 
         // MARK: Téléchargements

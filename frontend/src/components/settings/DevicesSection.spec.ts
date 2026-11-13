@@ -173,3 +173,151 @@ describe("DevicesSection : ligne d'état (P1-3g)", () => {
     );
   });
 });
+
+describe("DevicesSection : retrait d'un appareil (P1-6e)", () => {
+  function deleteButton(root: HTMLElement, name: string): HTMLButtonElement {
+    const card = statusLine(root, name).closest(".rounded-lg") as HTMLElement;
+    const button = card.querySelector(
+      'button[aria-label="Retirer l\'appareil"]',
+    ) as HTMLButtonElement | null;
+    if (!button) throw new Error("bouton de retrait introuvable");
+    return button;
+  }
+
+  it("demande confirmation dans un dialogue de l'app, jamais par window.confirm", async () => {
+    // Dans la WebView de l'app Mac, window.confirm répondait false en silence :
+    // le bouton ne faisait rien.
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    const id = crypto.randomUUID();
+    const root = await render([device({ id, name: "Mac mini" })]);
+
+    deleteButton(root, "Mac mini").click();
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Retirer « Mac mini » ?");
+    expect(document.body.textContent).toContain("Rien n'est effacé");
+
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const confirmButton = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Retirer l'appareil",
+    );
+    expect(confirmButton).toBeDefined();
+    confirmButton!.click();
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === "DELETE",
+    );
+    expect(deletes.map(([url]) => String(url))).toEqual([`/api/devices/${id}`]);
+  });
+
+  async function settle(): Promise<void> {
+    await flush();
+    for (let i = 0; i < 3; i++) await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function dialog(): HTMLElement | null {
+    return document.body.querySelector('[role="dialog"]');
+  }
+
+  function button(text: string): HTMLButtonElement {
+    const found = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === text,
+    );
+    if (!found) throw new Error(`bouton « ${text} » introuvable`);
+    return found;
+  }
+
+  function deletes(): string[] {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    return fetchMock.mock.calls
+      .filter(
+        ([, init]) => (init as RequestInit | undefined)?.method === "DELETE",
+      )
+      .map(([url]) => String(url));
+  }
+
+  it("annuler ferme le dialogue sans rien retirer", async () => {
+    const root = await render([device({ name: "MacBook" })]);
+
+    deleteButton(root, "MacBook").click();
+    await settle();
+    expect(dialog()).not.toBeNull();
+    button("Annuler").click();
+    await settle();
+
+    expect(dialog()).toBeNull();
+    expect(deletes()).toEqual([]);
+  });
+
+  it("Échap ferme le dialogue sans rien retirer, et il se rouvre", async () => {
+    const root = await render([device({ name: "MacBook" })]);
+
+    deleteButton(root, "MacBook").click();
+    await settle();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await settle();
+    expect(dialog()).toBeNull();
+    expect(deletes()).toEqual([]);
+
+    deleteButton(root, "MacBook").click();
+    await settle();
+    expect(dialog()).not.toBeNull();
+  });
+
+  it("un double clic sur « Retirer » n'envoie qu'une suppression", async () => {
+    const id = crypto.randomUUID();
+    const root = await render([device({ id, name: "Mac mini" })]);
+
+    deleteButton(root, "Mac mini").click();
+    await settle();
+    const remove = button("Retirer l'appareil");
+    remove.click();
+    remove.click();
+    await settle();
+
+    expect(deletes()).toEqual([`/api/devices/${id}`]);
+  });
+
+  it("le titre garde le nom pendant l'animation de fermeture", async () => {
+    // jsdom n'anime rien : on simule l'animation de sortie de reka (Presence
+    // garde le contenu monté tant que `animationName` n'est pas « none »).
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) => {
+        const style = real(el, pseudo);
+        const slot = el.getAttribute?.("data-slot");
+        if (slot !== "dialog-content" && slot !== "dialog-overlay")
+          return style;
+        const closed = el.getAttribute("data-state") === "closed";
+        return new Proxy(style, {
+          get: (target, key) =>
+            key === "animationName"
+              ? closed
+                ? "exit"
+                : "enter"
+              : key === "display"
+                ? "block"
+                : Reflect.get(target, key),
+        });
+      },
+    );
+    const root = await render([device({ name: "Mac mini" })]);
+
+    deleteButton(root, "Mac mini").click();
+    await settle();
+    button("Annuler").click();
+    await settle();
+
+    const closing = dialog();
+    expect(closing?.getAttribute("data-state")).toBe("closed");
+    expect(closing?.textContent).toContain("Retirer « Mac mini » ?");
+    vi.restoreAllMocks();
+  });
+});

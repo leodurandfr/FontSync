@@ -19,6 +19,14 @@ import {
 } from "@/lib/deviceStatus";
 import type { Device } from "@/types/api";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -104,11 +112,31 @@ async function togglePropagateDeletions(deviceId: string, value: boolean) {
 }
 
 // Le serveur reste la source de vérité : retirer un appareil n'ampute pas la
-// bibliothèque. La confirmation porte sur autre chose — le registre « quelle
-// machine détient quelle police » disparaît avec lui, et c'est ce registre qui
-// permet de détecter les suppressions locales.
-async function handleDelete(deviceId: string, name: string) {
-  if (!window.confirm(t("devices.deleteConfirm", { name }))) return;
+// bibliothèque, et c'est un retrait de la liste (soft delete) — l'agent qui
+// tourne encore le fait réapparaître à son prochain sync.
+//
+// Confirmation par un Dialog de l'app, pas `window.confirm` : dans la WebView de
+// l'app Mac, ce dernier répondait `false` en silence (M-38).
+//
+// La cible survit à la fermeture : le dialogue reste affiché le temps de son
+// animation de sortie, et son titre ne doit pas se vider sous les yeux.
+const deleteTarget = ref<{ id: string; name: string } | null>(null);
+const deleteOpen = ref(false);
+
+function handleDelete(deviceId: string, name: string) {
+  deleteTarget.value = { id: deviceId, name };
+  deleteOpen.value = true;
+}
+
+function onDeleteDialog(open: boolean) {
+  deleteOpen.value = open;
+}
+
+async function confirmDelete() {
+  // Fermé avant l'appel : un double clic n'envoie qu'une suppression.
+  if (!deleteOpen.value || !deleteTarget.value) return;
+  deleteOpen.value = false;
+  const deviceId = deleteTarget.value.id;
   saving.value = new Set([...saving.value, deviceId]);
   try {
     await devicesStore.deleteDevice(deviceId);
@@ -325,5 +353,26 @@ const STATUS_DOT: Record<DeviceStatusKind, string> = {
         </div>
       </div>
     </Panel>
+
+    <Dialog :open="deleteOpen" @update:open="onDeleteDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {{ t("devices.deleteTitle", { name: deleteTarget?.name ?? "" }) }}
+          </DialogTitle>
+          <DialogDescription>
+            {{ t("devices.deleteConfirm") }}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" @click="onDeleteDialog(false)">
+            {{ t("common.cancel") }}
+          </Button>
+          <Button variant="destructive" @click="confirmDelete">
+            {{ t("devices.delete") }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </section>
 </template>

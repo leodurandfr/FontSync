@@ -10,6 +10,7 @@ export default {
     loadError: "Failed to load",
     unknownError: "Unknown error",
     variable: "Variable",
+    cancel: "Cancel",
   },
   sidebar: {
     library: "Library",
@@ -188,8 +189,9 @@ export default {
     propagateDeletionsDesc:
       "Uninstalls from this device the fonts deleted on the server. Off by default: without it, no file is ever erased here. Deletions made on this device are recorded by the server either way — this setting only governs what gets erased.",
     delete: "Remove device",
+    deleteTitle: "Remove “{name}”?",
     deleteConfirm:
-      "Remove “{name}”? Your fonts stay on the server. What is lost is the record of which fonts this machine held — the basis for detecting local deletions.",
+      "The device leaves this list. Nothing is erased: your fonts stay on the server and on the machine. If its agent is still running, it will reappear at its next sync — to remove it for good, uninstall the agent on that machine first.",
     watchedFolders: "Watched folders",
   },
   duplicates: {
