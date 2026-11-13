@@ -123,7 +123,10 @@ docker compose -f docker-compose.nas.yml up -d
 
 At every startup, the entrypoint re-runs `alembic upgrade head`: the schema
 migrations are applied automatically, without intervention. `alembic` is
-idempotent — no effect if the schema is already up to date.
+idempotent — no effect if the schema is already up to date. When a migration
+is pending, the container first writes a `pre-migrate-<revision>-<date>.db`
+snapshot into `/backups` — the way back if the update goes wrong (§5, Roll
+back an update).
 
 > Pin a version tag (`:1.0.0`) rather than `:latest` if you want to
 > control when updates happen.
@@ -134,10 +137,11 @@ idempotent — no effect if the schema is already up to date.
 **Update** button — nothing to do beyond the `WATCHTOWER_TOKEN` from §1.
 
 Before clicking it, note the image you are running, so you can come back to
-it: `docker inspect --format '{{.Image}}' fontsync`. Every published build also
-carries an immutable `sha-<7 characters>` tag; to roll back, pin that tag (or
-the digest) in the `image:` line of the compose file and run
-`docker compose -f docker-compose.nas.yml up -d`.
+it: `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+fontsync` gives its commit; every published build also carries an immutable
+`sha-<7 characters>` tag. Rolling back is pinning that
+tag (or the digest) in the `image:` line — plus restoring the pre-migration
+snapshot if the update migrated the database: see §5, Roll back an update.
 
 The button reaches a **Watchtower** container included in the example compose
 file. FontSync itself never touches the Docker socket: a container cannot
@@ -193,10 +197,13 @@ when fonts could not be mirrored (same data: `GET /api/system/backups`).
 Inspect what's there with `docker compose -f docker-compose.nas.yml exec
 fontsync ls -la /backups /backups/fonts`.
 
-This is enough on its own. The two methods below are for a **one-off**
-manual copy (e.g. right before a risky operation, or to export a copy to
-external storage) — `scripts/backup-prod.sh` in the repo does the same thing
-as Method B, callable straight from the NAS shell.
+It protects against a bad migration, a mistaken trash emptying or a damaged
+database — **not against losing the NAS**: `/backups` sits on the same disks
+as the data. Copy it elsewhere as well (Hyper Backup, `rclone`, an external
+drive). The two methods below are for a **one-off** manual copy (e.g. right
+before a risky operation, or to export a copy to external storage) —
+`scripts/backup-prod.sh` in the repo does the same thing as Method B, callable
+straight from the NAS shell.
 
 ### Method A — cold backup (the safest)
 
@@ -245,31 +252,136 @@ Back up the `fonts` volume **as well** (the files are not in the database).
 While running, a `tar` copy of the `fonts` folder is safe: the files are
 write-once (named by hash), never modified in place.
 
-### Restore
+### Restore from `/backups` (database snapshot)
+
+Use this after a damaged database, a mistaken mass deletion, or a failed
+update. The snapshots are `/backups/fontsync-<date>.db` (daily) and
+`/backups/pre-migrate-<revision>-<date>.db` (taken by the container before
+every schema migration; after a failed update, take the **first** one written
+since the update).
+
+**With the script** (recommended) — on the NAS, as root, in the folder of the
+compose file. Copy it there once from a checkout of the repository (`scp`
+does not work on DSM; a `tar` pipe does):
+
+```bash
+# On your Mac, from the repository
+COPYFILE_DISABLE=1 tar czf - scripts/restore-from-backup.sh \
+  | ssh -p <ssh-port> <user>@<nas> 'tar xzf - -C <compose-folder>'
+
+# On the NAS, in <compose-folder>
+sudo scripts/restore-from-backup.sh fontsync-20261112-030000.db
+```
+
+The compose file must point to an image that ships the restore tool (this
+version or later): the script needs it for its checks and for the restore
+itself. It asks before each step, deletes nothing, and numbers its steps
+like this:
+
+1. **Checks**, server still running: docker reachable under `sudo`, the image
+   has the restore tool, the snapshot is valid (its schema revision is
+   printed). A refusal here changes nothing.
+2. **Stop** (`docker compose down`, volumes kept).
+3. **Restore**, in a throwaway container: the snapshot is copied and checked;
+   **auto-pull and *Propagate deletions* are switched off on every device in
+   the restored database** (hidden ones included; previous values saved in
+   `/backups/pre-restore-devices-<date>.json`); then `fontsync.db`,
+   `fontsync.db-wal` and `fontsync.db-shm` are **moved** into
+   `/data/pre-restore-<date>/` (an old `-wal` left in place would replay on
+   top of the snapshot and silently undo the restore), next to a copy of the
+   restored snapshot, and the prepared copy takes their place. The existing
+   daily snapshots are moved into `/backups/pre-restore-<date>/`, out of reach
+   of the rotation that runs at every server start. Fonts are copied back from
+   `/backups/fonts` without removing anything.
+4. **Restart with a maintenance token** (printed once): the script first lets
+   you pin the previous image (rollback, see below), shows the image about to
+   start, then starts it. The Macs get `401` and write nothing ("invalid
+   token" — do not type the maintenance token into the Mac app). If the token
+   does not take effect, the script stops the server again.
+5. **Audit** in the web interface, with the maintenance token.
+6. **Back to the real token**: every service of the compose file restarts with
+   `.env`; the script checks that the real token answers and the maintenance
+   one is refused.
+
+At every step it writes where things stand, and the exact command to type
+next, into `restore-state-<date>.txt` (compose folder, readable by root only),
+and prints it if it stops — your answer, an error, a dropped SSH session. Even
+a premature `docker compose up -d` after step 3 reinstalls and propagates
+nothing, since the restored database has those settings off; it only lets the
+Macs reconnect before you have looked.
+
+Then turn auto-pull and propagation back on device by device (Settings →
+Devices), after each Mac has synced once and you have looked at the trash.
+
+**What to expect** (measured on a rehearsal, 2026-11-13). Fonts deleted
+**after** the snapshot are active again. Those the Macs had removed — deleted
+on a Mac, or in the web interface with *Propagate deletions* on — go back to
+the trash at each Mac's first sync (to quarantine, waiting for your
+confirmation, when many are missing at once); they are **not** reinstalled. A
+font deleted in the web interface *without* propagation stays active, since the
+Macs still have it — trash it again if needed. Fonts uploaded after the
+snapshot are no longer in the library (their files stay in `/fonts`; a Mac
+that has them sends them again). After a **mistaken mass deletion**: let each
+Mac sync once, restore the fonts from the trash, and only then turn auto-pull
+back on to reinstall them — and keep *Propagate deletions* off until the trash
+holds only what you mean to delete.
+
+**By hand** — the same steps: `docker compose down`; in the `db` volume,
+**move** `fontsync.db`, `fontsync.db-wal` and `fontsync.db-shm` into a
+`pre-restore-<date>/` folder (never leave the old `-wal` next to the restored
+file, never overwrite the old database), then copy the snapshot in as
+`fontsync.db`; copy `/backups/fonts` back into the `fonts` volume without
+`--delete`; start with a temporary token — as root on DSM, `env` and the
+full path matter: `sudo env FONTSYNC_TOKEN=<temporary> /usr/local/bin/docker
+compose -f docker-compose.nas.yml up -d fontsync` (a variable placed before
+`sudo` is dropped, and the server would start with the real token); switch
+auto-pull and propagation off on every device, audit, then `sudo
+/usr/local/bin/docker compose -f docker-compose.nas.yml up -d` with the real
+token.
+
+### Restore from archives (methods A/B)
 
 1. `docker compose -f docker-compose.nas.yml down` (without `-v`: keeps the volumes).
-2. Restore the content of the archives into the `db` and `fonts` volumes
-   (symmetric to method A: `tar xzf … -C /data` / `-C /fonts`).
-3. `docker compose -f docker-compose.nas.yml up -d`. The migrations
-   re-apply at boot if needed.
+2. Move the current content of the `db` volume aside, then restore the
+   archives into the `db` and `fonts` volumes (symmetric to method A:
+   `tar xzf … -C /data` / `-C /fonts`).
+3. Start with a maintenance token and audit as above. At boot, an **older**
+   database is migrated forward (after a `pre-migrate` snapshot); a database
+   written by a **newer** image is refused — see below.
 
-**From a database snapshot** (`/backups/fontsync-*.db`, or the
-`pre-migrate-<revision>-*.db` the container takes before every schema
-migration):
+### Roll back an update
 
-1. `docker compose -f docker-compose.nas.yml down`.
-2. In the `db` volume, **delete `fontsync.db-wal` and `fontsync.db-shm`
-   first** — otherwise SQLite replays the old journal on top of the restored
-   file and silently undoes the restore.
-3. Copy the chosen snapshot over `fontsync.db`. After a failed update, take
-   the **first** `pre-migrate-*` snapshot written since the update.
-4. Start the image that created that snapshot (pin its `sha-<short>` tag,
-   cf. [RELEASE.md](RELEASE.md) → Rollback); a newer image migrates it again.
+Before any update, note the commit of the running image — every build is also
+published under an immutable `sha-<first 7 characters>` tag:
 
-At boot, the container refuses to start — with a message saying why — on a
-database migrated by a newer image, on a half-applied migration it cannot
-repair safely, or after three failed migration attempts within 24 h (it
-stops taking a snapshot on every restart).
+```bash
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' fontsync
+```
+
+- **The update ran no migration** (no new `pre-migrate-*` file in
+  `/backups`): pin the previous tag in the `image:` line
+  (`ghcr.io/<owner>/<repo>:sha-<short>`) and `docker compose -f
+  docker-compose.nas.yml up -d`. Done.
+- **It did migrate**: run the restore script on the first `pre-migrate-*`
+  snapshot written since the update, **with the compose file still on the new
+  image** (its checks and restore need it), and pin the previous tag at its
+  step 4, just before it restarts the server. Writes made since the
+  update are lost — that is what the audit is for.
+
+Images from this version on refuse to start on a database migrated by a newer
+image, with a message naming the revision; older images fail in Alembic
+("Can't locate revision"). Either way, nothing is changed.
+
+`alembic downgrade` is an alternative only when the migration's `downgrade()`
+loses nothing — the release notes say so for each migrating release; read it in
+`alembic/versions/` otherwise. Then: keep the new image pinned, `docker compose
+-f docker-compose.nas.yml stop fontsync`, copy the `db` volume aside (Method A),
+`docker compose -f docker-compose.nas.yml run --rm --entrypoint alembic fontsync
+downgrade <previous revision>`, pin the previous tag, `up -d`.
+
+At boot, the container also refuses — with a message saying why — a
+half-applied migration it cannot repair safely, and stops after three failed
+migration attempts within 24 h instead of taking a snapshot on every restart.
 
 ---
 

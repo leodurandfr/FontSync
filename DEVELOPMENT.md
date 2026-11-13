@@ -201,14 +201,15 @@ a timestamped snapshot of the database (rotated, `KEEP=14` by default) and an
 incremental rsync mirror of the font blobs.
 
 ```bash
-scp -P <ssh-port> scripts/backup-prod.sh <user>@<nas>:/volume1/docker/fontsync/
+COPYFILE_DISABLE=1 tar czf - -C scripts backup-prod.sh | ssh -p <ssh-port> <user>@<nas> 'tar xzf - -C /volume1/docker/fontsync'
 ssh -p <ssh-port> <user>@<nas>
 sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 ```
 
-The file has to be *placed* on the NAS, not piped: `sudo` asks for a password
-there, and with the script on standard input there is no terminal left to type it
-on. Docker also lives in `/usr/local/bin`, which DSM leaves out of the PATH of a
+The file has to be *placed* on the NAS, not piped into `bash -s`: `sudo` asks
+for a password there, and with the script on standard input there is no terminal
+left to type it on. `scp` fails against this NAS; the `tar` pipe above places it.
+Docker also lives in `/usr/local/bin`, which DSM leaves out of the PATH of a
 non-interactive SSH shell — the script puts it back itself.
 
 The database goes through `sqlite3.Connection.backup` **inside the container**,
@@ -218,14 +219,13 @@ beside it. The copy is checked with `PRAGMA integrity_check` before it leaves th
 container. The blob mirror never deletes (`rsync` without `--delete`): emptying
 the trash in production must not propagate to the backup.
 
-The script's footer carries the two scheduled tasks to create (daily for the
-database, weekly for the blobs) and the restore procedure — including the part
-that is easy to get wrong: **delete `fontsync.db-wal` and `fontsync.db-shm`
-before putting a snapshot back**, and keep the agents off while auditing the
-trash, since an older database re-activates fonts deleted since and `auto_pull`
-would reinstall them.
+With `BACKUP_DIR` set (the default in `docker-compose.nas.yml`), the server
+already takes these backups by itself; this script is for a one-off copy or an
+export outside the Docker volumes. Restoring is not done by hand from here:
+follow [docs/INSTALL-NAS.md](docs/INSTALL-NAS.md) §5
+(`scripts/restore-from-backup.sh`).
 
-Schedule it through **DSM → Task Scheduler**, as root, not by hand-editing
-`/etc/crontab`: DSM materialises its own tasks into that file and rewrites it, so
-a hand-added line disappears silently. A backup that quietly stops is worse than
-no backup — you think you have a net.
+Scheduling the script as well is **optional**. If you do, use **DSM → Task
+Scheduler**, as root, not a hand-edited `/etc/crontab`: DSM materialises its own
+tasks into that file and rewrites it, so a hand-added line disappears silently. A
+backup that quietly stops is worse than no backup — you think you have a net.

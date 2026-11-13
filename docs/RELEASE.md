@@ -135,11 +135,22 @@ Un Mac déjà installé en version antérieure doit proposer la mise à jour
 - **Serveur** : chaque build publie aussi un tag **immuable** `sha-<7 caractères>`
   (les tags de version et de branche peuvent bouger, `latest` ne suit que la
   plus haute version). Avant toute mise à jour, noter l'image en cours :
-  `docker inspect --format '{{.Image}}' fontsync`. Pour revenir en arrière,
+  `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' fontsync`
+  (le commit ; `--cleanup` de Watchtower efface l'ancienne image locale, son
+  identifiant ne sert donc à rien). Pour revenir en arrière,
   épingler dans le compose l'image précédente par son tag
   (`image: ghcr.io/<owner>/<repo>:sha-<court>`) ou son digest, puis
   `docker compose -f docker-compose.nas.yml up -d`. Ne jamais déplacer un tag
   `v*` déjà publié.
+- **Release avec migration de schéma** : le conteneur prend un instantané
+  `pre-migrate-<révision>-<date>.db` avant de migrer, et une image plus
+  ancienne refuse de démarrer sur la base migrée (message explicite). Revenir
+  en arrière = restaurer cet instantané (`scripts/restore-from-backup.sh`)
+  puis épingler l'image précédente : procédure complète dans
+  [INSTALL-NAS.md](INSTALL-NAS.md) §5 (« Roll back an update »). Une release
+  qui migre le schéma le signale dans ses notes, en précisant si le
+  `downgrade()` de la migration est sans perte (seul cas où `alembic
+  downgrade` est une alternative) — à écrire à la main avant de publier.
 - **App** : republier l'`appcast.xml` sans l'entrée défaillante (Sparkle ne
   proposera plus la version retirée) ; les `.dmg` déjà téléchargés restent
   valides. Ne **jamais** réutiliser un numéro `BUILD` déjà publié.

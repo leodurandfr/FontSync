@@ -197,7 +197,9 @@ async def backup_database(
     return dest_path
 
 
-def write_snapshot(source_path: Path, dest_path: Path) -> None:
+def write_snapshot(
+    source_path: Path, dest_path: Path, *, immutable_source: bool = False
+) -> None:
     """Écrit atomiquement un instantané vérifié de `source_path` en `dest_path`.
 
     Copie via `sqlite3.Connection.backup()` dans `<dest>.tmp`, puis
@@ -207,13 +209,17 @@ def write_snapshot(source_path: Path, dest_path: Path) -> None:
 
     Bloquant : à appeler via `asyncio.to_thread` depuis du code asynchrone.
 
+    `immutable_source` : la source est un fichier figé (un instantané qu'on
+    restaure) ; SQLite la lit sans verrou ni `-shm`, sans rien écrire à côté.
+
     Raises:
         RuntimeError: si `integrity_check` ne renvoie pas `ok` ou si la copie
             ne contient aucune table.
     """
     tmp_path = dest_path.with_name(dest_path.name + ".tmp")
     try:
-        src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
+        mode = "ro&immutable=1" if immutable_source else "ro"
+        src = sqlite3.connect(f"file:{source_path}?mode={mode}", uri=True)
         try:
             dst = sqlite3.connect(str(tmp_path))
             try:

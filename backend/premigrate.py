@@ -55,11 +55,12 @@ EXIT_RETRY_LIMIT = 6
 EXIT_UNREADABLE = 7
 
 _RESTORE_HOWTO = (
-    "Restaurer : arrêter le conteneur, supprimer fontsync.db-wal et "
-    "fontsync.db-shm (sinon l'ancien journal se rejoue par-dessus), copier "
-    "l'instantané pre-migrate-*.db choisi à la place de fontsync.db, puis "
-    "redémarrer avec l'image qui l'a créé (docs/INSTALL-NAS.md §5, Restore ; "
-    "docs/RELEASE.md, Rollback)."
+    "Restaurer avec scripts/restore-from-backup.sh <instantané> (sur le NAS, "
+    "en root) : il met de côté la base ET ses fichiers -wal/-shm (un ancien "
+    "journal laissé en place se rejouerait par-dessus), pose l'instantané et "
+    "redémarre d'abord avec un jeton de maintenance. Pour revenir à l'image "
+    "précédente, l'épingler à l'étape 4 du script. Procédure complète : "
+    "docs/INSTALL-NAS.md §5, « Restore from /backups » et « Roll back an update »."
 )
 
 

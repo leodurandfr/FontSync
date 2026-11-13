@@ -539,12 +539,7 @@ def downgrade() -> None:
 
 **Le plan de retour n'est pas `alembic downgrade`.** Le `downgrade()` de la révision **actuelle** supprime `deleted_reason` (`b7c31a4d90e2:62-64`) et son `upgrade()` re-backfille `'manual'` sur toute ligne supprimée sans motif (`:52-55`) : un aller-retour transformerait des quarantaines retenues en suppressions **propageables**, sur deux machines à `propagate_deletions = 1`. Les `downgrade()` restent écrits et testés (règle projet) pour la réversibilité en développement et pour prouver qu'on sait défaire ce qu'on fait — **pas** comme procédure d'urgence.
 
-**Procédure de retour officielle, exacte :**
-
-1. `docker compose down` (arrêt complet, pas un restart).
-2. Sur le volume de données : **supprimer `fontsync.db-wal` et `fontsync.db-shm`** avant de poser le `.db` de l'instantané. La base tourne en WAL (`database.py:20`) et l'instantané de référence est lui-même accompagné d'un `-wal` et d'un `-shm` de 32 Ko : déposer le seul `.db` fait rejouer des frames étrangères sur une base restaurée.
-3. Remettre le tag d'image précédent, `docker compose up -d`.
-4. **Garder les agents éteints pendant ET après**, le temps d'auditer la corbeille : la restauration ramène l'état du 10 août, donc **toute police supprimée depuis redevient `deleted_at IS NULL`**, tombe dans `missing_on_device` (`sync_manager.py:86`), et `auto_pull = 1` sur **les deux** appareils (vérifié) la réinstalle. Un retour arrière annule des suppressions sans qu'on l'ait demandé — la règle centrale du projet, en sens inverse.
+**Procédure de retour officielle** : [`docs/INSTALL-NAS.md`](INSTALL-NAS.md) §5 (« Restore from /backups » et « Roll back an update »), outillée par `scripts/restore-from-backup.sh` (P1-2d : script répété le 2026-11-13 sur une pile Docker locale montée sur une copie de la base de prod, sans DSM ; logique de restauration testée avec un serveur et deux agents réels ; retour arrière d'image à répéter quand une migration sera disponible). Elle déplace la base et ses `-wal`/`-shm` au lieu de les supprimer, et redémarre d'abord avec un jeton de maintenance (agents en 401) pour auditer. Comportement mesuré à la restauration : une police supprimée depuis l'instantané redevient active ; l'appareil qui l'avait retirée la repasse en corbeille à son premier sync (en quarantaine si elles sont nombreuses) — **elle n'est pas réinstallée** par auto-pull ; une police supprimée seulement dans l'interface, sans propagation, reste active (les Macs l'ont encore).
 
 **Runbook « la migration a échoué au boot »** : **ne pas rejouer**. Chercher `SELECT name FROM sqlite_master WHERE name LIKE '_alembic_tmp_%'`, et si quelque chose sort, restaurer le `.db` (les migrations SQLite ne sont pas atomiques, `transactional_ddl = False` vérifié). Vérifier aussi l'espace libre du volume avant M3, qui recrée `fonts`.
 
@@ -762,7 +757,7 @@ Le seul autre candidat était la désactivation par appareil, et il se tranche d
 **Accès temporaires du chantier.** Les accès ouverts pour les déploiements de ce chantier ont été
 retirés en novembre 2026 (détail au journal d'exploitation, hors dépôt).
 
-**Installer la sauvegarde sans stocker de mot de passe.** Le NAS est un Synology ; docker y
+**Installer la sauvegarde sans stocker de mot de passe** (facultatif depuis que `BACKUP_DIR` fait sauvegarder le serveur lui-même ; utile pour planifier `scripts/backup-prod.sh` en plus). Le NAS est un Synology ; docker y
 exige `sudo` avec mot de passe et le chemin complet `/usr/local/bin/docker` (PATH absent sous
 sudo). Ne **pas** poser d'entrée crontab sous le compte administrateur du NAS : elle échouerait sur `docker exec` faute
 de droits, et l'échec ne se verrait qu'au moment d'avoir besoin de la sauvegarde. Passer par

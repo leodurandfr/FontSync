@@ -28,16 +28,18 @@
 #
 # Déposer le script, puis l'exécuter EN ROOT sur le NAS :
 #
-#   scp -P <ssh-port> scripts/backup-prod.sh <user>@<nas>:/volume1/docker/fontsync/
+#   COPYFILE_DISABLE=1 tar czf - -C scripts backup-prod.sh | ssh -p <ssh-port> <user>@<nas> 'tar xzf - -C /volume1/docker/fontsync'
 #   ssh -p <ssh-port> <user>@<nas>
 #   sudo bash /volume1/docker/fontsync/backup-prod.sh --db-only
 #
 # Ne PAS tenter `ssh … 'sudo bash -s' < ce-fichier` : `sudo` demande un mot de
 # passe sur ce NAS (vérifié), et avec le script sur l'entrée standard il n'y a
 # pas de terminal pour le saisir — au mieux ça échoue, au pire sudo lit la
-# première ligne du script comme mot de passe. Il faut que le fichier soit posé.
+# première ligne du script comme mot de passe. Il faut que le fichier soit posé
+# (`scp` échoue sur ce NAS : le tube `tar` ci-dessus le dépose).
 #
-# Installation de la tâche planifiée (une fois) — cf. le bas de ce fichier.
+# Tâche planifiée : FACULTATIVE (BACKUP_DIR sauvegarde déjà) — cf. le bas de ce
+# fichier. Restauration : docs/INSTALL-NAS.md §5 (scripts/restore-from-backup.sh).
 
 set -euo pipefail
 
@@ -233,9 +235,7 @@ log "terminé."
 # (`SELECT COUNT(*) FROM fonts WHERE purged_at IS NULL`) : une police vidée de
 # la corbeille a perdu son fichier, seule son empreinte subsiste en base.
 #
-# Restauration : `docker compose down`, puis poser le `.db` choisi à la place de
-# `fontsync.db` dans le volume — en SUPPRIMANT d'abord `fontsync.db-wal` et
-# `fontsync.db-shm`, sinon des frames étrangères se rejouent par-dessus.
-# Garder les agents éteints le temps d'auditer la corbeille : restaurer une base
-# antérieure réactive des polices supprimées depuis, et `auto_pull` les
-# réinstalle sans qu'on l'ait demandé.
+# Restauration : docs/INSTALL-NAS.md §5, « Restore from /backups », avec
+# scripts/restore-from-backup.sh — il DÉPLACE (ne supprime pas) la base et ses
+# `-wal`/`-shm` avant de poser l'instantané, et redémarre d'abord avec un jeton
+# de maintenance pour auditer avant que les Macs ne se reconnectent.
