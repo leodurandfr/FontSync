@@ -757,6 +757,9 @@ Le seul autre candidat était la désactivation par appareil, et il se tranche d
 
 ## 11. Notes d'exécution
 
+**Accès temporaires du chantier.** Les accès ouverts pour les déploiements de ce chantier ont été
+retirés en novembre 2026 (détail au journal d'exploitation, hors dépôt).
+
 **Installer la sauvegarde sans stocker de mot de passe.** Le NAS est un Synology ; docker y
 exige `sudo` avec mot de passe et le chemin complet `/usr/local/bin/docker` (PATH absent sous
 sudo). Ne **pas** poser d'entrée crontab sous le compte administrateur du NAS : elle échouerait sur `docker exec` faute
