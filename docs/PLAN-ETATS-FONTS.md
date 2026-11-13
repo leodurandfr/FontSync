@@ -26,6 +26,8 @@ Le journal détaillé de chaque lot (déploiements, accès, opérations sur les 
 
 **Récolte suspendue** (`TOMBSTONE_HARVEST_ENABLED=false`) depuis novembre 2026, le temps d'ajouter la garde serveur qui refuse de récolter une pierre tombale qu'un appareil vivant déclare encore ; elle ne sera réactivée qu'après cette garde (cf. journal d'exploitation).
 
+**Agent du Mac mini réinstallé** depuis l'app signée en novembre 2026 (ses LaunchAgents pointaient vers un environnement de build) ; premier sync sans écart (cf. journal d'exploitation).
+
 ---
 
 ## 1. Ce qui change, en un tableau
