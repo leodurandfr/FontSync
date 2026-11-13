@@ -86,6 +86,9 @@ jobs:
       - name: pip-audit (requirements.txt, dépendances transitives comprises)
         run: |
           python -m venv /tmp/audit
+          # pip du venv à jour : sinon l'audit signale les avis sur pip lui-même,
+          # qui n'est pas une dépendance de FontSync.
+          /tmp/audit/bin/python -m pip install --quiet --upgrade pip==26.2.2
           /tmp/audit/bin/pip install --quiet pip-audit==2.10.1 -r requirements.txt
           /tmp/audit/bin/pip-audit --strict --progress-spinner off
 
