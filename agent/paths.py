@@ -30,6 +30,16 @@ def state_dir() -> Path:
     return Path.home() / ".fontsync"
 
 
+def sync_lock_file() -> Path:
+    """Verrou d'exclusion mutuelle des syncs (`flock`), dans le dossier d'état."""
+    return state_dir() / "sync.lock"
+
+
+def sync_rerun_file() -> Path:
+    """Drapeau « refaire un tour » posé par une sync qui a trouvé le verrou pris."""
+    return state_dir() / "sync.rerun"
+
+
 def fonts_dir() -> Path:
     """Dossier d'installation des fonts (équivalent de ``~/Library/Fonts``)."""
     override = os.environ.get("FONTSYNC_FONTS_DIR")

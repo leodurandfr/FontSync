@@ -22,13 +22,26 @@ enum LaunchdStatus {
         return result == 0
     }
 
-    /// Relance immédiatement le job `sync` via `launchctl kickstart -k` — la
-    /// même voie qu'un déclenchement `WatchPaths` (P3.5 « Sync now »). Le job
-    /// doit être chargé ; `false` sinon (l'appelant retombe sur `agent sync`).
+    /// Demande un sync au job `sync` via `launchctl kickstart` — la même voie
+    /// qu'un déclenchement `WatchPaths` (P3.5 « Sync now »). Sans `-k` : un
+    /// sync en cours n'est jamais tué ; la demande de tour posée avant
+    /// (`~/.fontsync/sync.rerun`, lue par l'agent sous son verrou) lui fait
+    /// refaire un passage. Le job doit être chargé ; `false` sinon
+    /// (l'appelant retombe sur `agent sync`, protégé par le même verrou).
     static func kickstartSync() -> Bool {
         guard isLoaded(syncLabel) else { return false }
+        requestRerun()
         let uid = getuid()
-        return run("/bin/launchctl", ["kickstart", "-k", "gui/\(uid)/\(syncLabel)"]) == 0
+        return run("/bin/launchctl", ["kickstart", "gui/\(uid)/\(syncLabel)"]) == 0
+    }
+
+    /// Pose la demande de tour supplémentaire lue par `run_sync` (agent).
+    private static func requestRerun() {
+        let stateDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".fontsync", isDirectory: true)
+        try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: stateDir.appendingPathComponent("sync.rerun").path, contents: nil)
     }
 
     /// Lance un process et renvoie son code de sortie (-1 si non lançable).

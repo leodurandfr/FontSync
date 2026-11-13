@@ -13,6 +13,8 @@ import queue
 import threading
 from typing import Any
 
+import pytest
+
 from agent import listen_command
 from agent.config import AgentConfig
 from agent.listen_command import (
@@ -254,3 +256,161 @@ def test_stream_signals_omits_header_without_token(monkeypatch: Any) -> None:
         monkeypatch, AgentConfig(server_url="http://nas:8080")
     )
     assert "Authorization" not in headers
+
+
+# --- Déclenchement par le job launchd, jamais depuis un profil simulé (M-07) --
+
+
+class _Launchctl:
+    def __init__(self, loaded: bool = True, kickstart_rc: int = 0) -> None:
+        self.calls: list[list[str]] = []
+        self._loaded, self._kickstart_rc = loaded, kickstart_rc
+
+    def __call__(self, args: list[str]) -> int:
+        self.calls.append(args)
+        if args[0] == "print":
+            return 0 if self._loaded else 113
+        return self._kickstart_rc
+
+
+def test_listen_kickstarts_loaded_job(tmp_path) -> None:
+    from agent import listen_command
+    from agent.paths import sync_rerun_file
+
+    launchctl = _Launchctl()
+    ran: list[bool] = []
+
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=launchctl,
+        env={},
+        # Le job lancé a consommé la demande : pas de second kickstart.
+        sleep=lambda seconds: sync_rerun_file().unlink(missing_ok=True),
+        platform="darwin",
+        run=lambda cfg: ran.append(True),
+    )
+
+    kicks = [c for c in launchctl.calls if c[0] == "kickstart"]
+    assert len(kicks) == 1 and "-k" not in kicks[0]
+    assert kicks[0][-1].endswith("/com.fontsync.sync")
+    assert ran == []
+
+
+def test_listen_falls_back_to_locked_run_when_no_job(tmp_path) -> None:
+    from agent import listen_command
+
+    launchctl = _Launchctl(loaded=False)
+    ran: list[bool] = []
+
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=launchctl,
+        env={},
+        sleep=lambda seconds: None,
+        platform="darwin",
+        run=lambda cfg: ran.append(True),
+    )
+
+    assert [c for c in launchctl.calls if c[0] == "kickstart"] == []
+    assert ran == [True]
+
+
+@pytest.mark.parametrize(
+    "env_extra",
+    [
+        {"FONTSYNC_HOME": "/tmp/profil-simule"},
+        {"FONTSYNC_FONTS_DIR": "/tmp/profil-simule/fonts"},
+        {"HOME": "/tmp/bac-a-sable", "FONTSYNC_HOME": "/tmp/bac-a-sable/.fontsync"},
+        {"FONTSYNC_NO_KICKSTART": "1"},
+    ],
+)
+def test_simulated_profile_never_calls_launchctl(tmp_path, env_extra) -> None:
+    from agent import listen_command
+
+    launchctl = _Launchctl()
+    ran: list[bool] = []
+
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=launchctl,
+        env=env_extra,
+        sleep=lambda seconds: None,
+        platform="darwin",
+        run=lambda cfg: ran.append(True),
+    )
+
+    assert launchctl.calls == []
+    assert ran == [True]
+
+
+def test_failed_kickstart_falls_back_to_locked_run(tmp_path) -> None:
+    from agent import listen_command
+
+    launchctl = _Launchctl(kickstart_rc=5)
+    ran: list[bool] = []
+
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=launchctl,
+        env={},
+        sleep=lambda seconds: None,
+        platform="darwin",
+        run=lambda cfg: ran.append(True),
+    )
+
+    assert ran == [True]
+
+
+def test_listen_default_trigger_is_not_in_process_sync() -> None:
+    import inspect
+
+    from agent import listen_command
+
+    default = inspect.signature(listen_command.run_listen).parameters["run"].default
+    assert default is listen_command.trigger_sync
+
+
+def test_rerun_flag_is_set_before_kickstart() -> None:
+    """Sans `-k`, un job en cours ignore le kickstart : seule la demande posée
+    AVANT lui fait refaire un tour."""
+    from agent import listen_command
+    from agent.paths import sync_rerun_file
+
+    seen: list[bool] = []
+
+    class _Recording(_Launchctl):
+        def __call__(self, args: list[str]) -> int:
+            if args[0] == "kickstart":
+                seen.append(sync_rerun_file().exists())
+            return super().__call__(args)
+
+    sync_rerun_file().unlink(missing_ok=True)
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=_Recording(),
+        env={},
+        platform="darwin",
+        run=lambda cfg: None,
+        sleep=lambda seconds: sync_rerun_file().unlink(missing_ok=True),
+    )
+
+    assert seen == [True]
+
+
+def test_unserved_request_gets_a_second_kickstart() -> None:
+    """Le job finissait au moment du kickstart : demande toujours là, verrou
+    libre → un second kickstart."""
+    from agent import listen_command
+
+    runner = _Launchctl()
+
+    listen_command.trigger_sync(
+        AgentConfig(),
+        launchctl=runner,
+        env={},
+        platform="darwin",
+        run=lambda cfg: None,
+        sleep=lambda seconds: None,  # rien n'a consommé la demande
+    )
+
+    assert [c[0] for c in runner.calls].count("kickstart") == 2

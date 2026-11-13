@@ -1014,3 +1014,175 @@ def test_font_to_uninstall_is_never_reactivated(
     assert (disabled / "Foo.ttf").exists() and not any(install.iterdir())
     assert result.newly_activated == 0
     assert (result.uninstalled, result.uninstall_errors) == (0, 1)
+
+
+# --- Exclusion mutuelle des syncs (M-05, M-07) ------------------------------
+
+
+class _BlockingClient(FakeClient):
+    """Client dont le delta attend un signal : simule un sync long en cours."""
+
+    def __init__(self, entered, release, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._entered, self._release = entered, release
+
+    def delta_sync(self, device_id: str, fonts: list[ScannedFont]) -> dict[str, Any]:
+        self._entered.set()
+        assert self._release.wait(10)
+        return super().delta_sync(device_id, fonts)
+
+
+def _delta_empty() -> dict[str, Any]:
+    return {"unknownToServer": [], "missingOnDevice": [], "toDeactivate": []}
+
+
+def test_second_concurrent_sync_is_deferred(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    scans: list[str] = []
+    real_scan = sync_command.scan_fonts
+    monkeypatch.setattr(
+        sync_command,
+        "scan_fonts",
+        lambda *a, **k: (
+            scans.append(threading.current_thread().name) or real_scan(*a, **k)
+        ),
+    )
+    entered, release = threading.Event(), threading.Event()
+    results: dict[str, Any] = {}
+    first = threading.Thread(
+        name="A",
+        target=lambda: results.__setitem__(
+            "A",
+            run_sync(
+                _config(),
+                client=_BlockingClient(entered, release, delta=_delta_empty()),
+            ),
+        ),
+    )
+    first.start()
+    assert entered.wait(10)
+
+    second = run_sync(_config(), client=FakeClient(delta=_delta_empty()))
+    release.set()
+    first.join(10)
+
+    assert second.deferred is True
+    assert scans.count("MainThread") == 0
+    assert scans.count("A") == 2  # le détenteur refait un tour pour la demande différée
+    assert results["A"].deferred is False
+
+
+def test_rerun_loop_is_bounded(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent.paths import state_dir
+
+    runs: list[int] = []
+
+    class _Rerequesting(FakeClient):
+        def delta_sync(
+            self, device_id: str, fonts: list[ScannedFont]
+        ) -> dict[str, Any]:
+            runs.append(1)
+            state_dir().mkdir(parents=True, exist_ok=True)
+            (state_dir() / "sync.rerun").touch()  # un signal arrive à chaque tour
+            return super().delta_sync(device_id, fonts)
+
+    run_sync(_config(), client=_Rerequesting(delta=_delta_empty()))
+
+    assert len(runs) == 1 + sync_command.MAX_RERUNS
+
+
+def test_activation_during_scan_of_other_sync_impossible(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-05 : une sync B ne peut pas lister le disque pendant que A déplace des
+    fichiers — elle se retire et A refait un tour qui voit l'état final."""
+    import hashlib
+    import threading
+
+    _, disabled = homonym_dirs
+    v1, _ = _foo_versions()
+    (disabled / "Foo.ttf").write_bytes(v1)  # A va l'activer (déplacement)
+    h = hashlib.sha256(v1).hexdigest()
+    entered, release = threading.Event(), threading.Event()
+
+    class _SlowRecordingClient(_RecordingClient):
+        def delta_sync(
+            self, device_id: str, fonts: list[ScannedFont]
+        ) -> dict[str, Any]:
+            result = super().delta_sync(device_id, fonts)
+            entered.set()
+            assert release.wait(10)
+            return result
+
+    a_client = _SlowRecordingClient(delta=_delta_empty())
+    b_client = _RecordingClient(delta=_delta_empty())
+    first = threading.Thread(target=lambda: run_sync(_config(), client=a_client))
+    first.start()
+    assert entered.wait(10)
+    b_result = run_sync(_config(), client=b_client)
+    release.set()
+    first.join(10)
+
+    assert b_result.deferred is True and b_client.declarations == []
+    assert all(h in declared for declared in a_client.declarations)
+
+
+def test_stale_request_before_a_sync_costs_no_extra_pass(
+    homonym_dirs: tuple[Path, Path],
+) -> None:
+    runs: list[int] = []
+
+    class _Counting(FakeClient):
+        def delta_sync(
+            self, device_id: str, fonts: list[ScannedFont]
+        ) -> dict[str, Any]:
+            runs.append(1)
+            return super().delta_sync(device_id, fonts)
+
+    sync_command.request_rerun()  # demande laissée par un déclenchement passé
+    run_sync(_config(), client=_Counting(delta=_delta_empty()))
+
+    assert len(runs) == 1
+
+
+def test_waiting_sync_runs_after_the_holder_instead_of_deferring(
+    homonym_dirs: tuple[Path, Path],
+) -> None:
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+    first = threading.Thread(
+        target=lambda: run_sync(
+            _config(), client=_BlockingClient(entered, release, delta=_delta_empty())
+        )
+    )
+    first.start()
+    assert entered.wait(10)
+    threading.Timer(0.5, release.set).start()
+
+    waited = run_sync(_config(), client=FakeClient(delta=_delta_empty()), wait=10)
+    first.join(10)
+
+    assert waited.deferred is False
+
+
+def test_cli_wait_reports_a_sync_that_could_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sync_command, "_configure_logging", lambda: None)
+    monkeypatch.setattr(
+        sync_command.AgentConfig, "load", classmethod(lambda cls: _config())
+    )
+    monkeypatch.setattr(
+        sync_command,
+        "run_sync",
+        lambda config, wait=0.0: sync_command.SyncResult(deferred=True),
+    )
+
+    assert sync_command.main(wait=True) == sync_command.EXIT_DEFERRED
+    assert sync_command.main(wait=False) == 0

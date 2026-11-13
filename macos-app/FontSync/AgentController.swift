@@ -105,8 +105,10 @@ enum AgentController {
     /// Décharge et supprime les LaunchAgents (`fontsync-agent teardown`).
     static func teardown() -> AgentResult { run(["teardown"]) }
 
-    /// Lance une synchronisation ponctuelle directe (`fontsync-agent sync`).
-    /// Utilisé comme repli quand le job launchd `sync` n'est pas chargé (le
-    /// `kickstart` n'aurait alors rien à relancer).
-    static func sync() -> AgentResult { run(["sync"]) }
+    /// Lance une synchronisation ponctuelle directe (`fontsync-agent sync --wait`).
+    /// Utilisé comme repli quand le job launchd `sync` n'est pas chargé, et par
+    /// l'assistant pour la première sync. `--wait` : si le job tourne déjà (il
+    /// démarre au chargement), on attend la fin plutôt que de rendre un « succès »
+    /// sans avoir rien fait ; le code de sortie reste exploitable.
+    static func sync() -> AgentResult { run(["sync", "--wait"]) }
 }

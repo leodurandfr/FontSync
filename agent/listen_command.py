@@ -11,7 +11,9 @@ la sémantique de synchronisation vit dans `run_sync` (et côté serveur, source
 vérité). Le signal SSE n'a pas de payload exploité.
 
 Architecture interne : un thread *producteur* lit le flux SSE et empile un jeton
-par signal ; le thread principal *consommateur* débounce puis lance `run_sync`.
+par signal ; le thread principal *consommateur* débounce puis déclenche un
+sync (`trigger_sync` : le job launchd sur le vrai profil, sinon `run_sync`
+sous verrou — jamais deux syncs à la fois).
 Ces deux moitiés sont des fonctions pures de leurs entrées (`queue`, `stop`,
 factory de signaux) → testables sans réseau ni threads réels.
 """
@@ -19,13 +21,27 @@ factory de signaux) → testables sans réseau ni threads réels.
 from __future__ import annotations
 
 import logging
+import os
+import pwd
 import queue
+import subprocess
+import sys
 import threading
-from typing import TYPE_CHECKING, Any, Callable
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from agent.config import AGENT_VERSION, AgentConfig
+from agent.paths import sync_rerun_file
 from agent.sync_client import SyncClientError
-from agent.sync_command import SyncError, _configure_logging, run_sync
+from agent.sync_command import (
+    SyncError,
+    _configure_logging,
+    _release_lock,
+    _try_lock,
+    request_rerun,
+    run_sync,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -179,10 +195,130 @@ def _consume_signals(
             logger.exception("Échec du sync déclenché par signal")
 
 
+_DEFAULT_SYNC_LABEL = "com.fontsync.sync"
+
+
+def _run_launchctl(args: list[str]) -> int:
+    """`launchctl <args>` ; code de retour, -1 si non lançable (jamais d'exception)."""
+    try:
+        return subprocess.run(
+            ["launchctl", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        ).returncode
+    except (OSError, subprocess.SubprocessError):
+        return -1
+
+
+def _account_home() -> Path:
+    """Dossier personnel du COMPTE (base des utilisateurs), pas `$HOME`."""
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def _same_path(value: str, expected: Path) -> bool:
+    try:
+        return Path(value).expanduser().resolve() == expected.resolve()
+    except OSError:
+        return False
+
+
+def _uses_default_home(env: Mapping[str, str]) -> bool:
+    """L'agent tourne-t-il sur le vrai profil du compte, et non un profil simulé ?
+
+    Faux dès qu'un des chemins de l'agent est redirigé ailleurs que les défauts
+    du compte, ou que `$HOME` lui-même l'est (bac à sable, harnais) : le job
+    launchd réel lit le vrai profil, le déclencher depuis un profil simulé
+    relancerait la synchronisation de la vraie machine.
+    """
+    account = _account_home()
+    home = env.get("HOME")
+    if home and not _same_path(home, account):
+        return False
+    defaults = {
+        "FONTSYNC_HOME": account / ".fontsync",
+        "FONTSYNC_FONTS_DIR": account / "Library" / "Fonts",
+    }
+    for variable, default in defaults.items():
+        value = env.get(variable)
+        if value and not _same_path(value, default):
+            return False
+    return True
+
+
+# Délai avant de vérifier que la demande posée a bien été servie : un job
+# qui finissait son tour au moment du `kickstart` (déjà « en cours » pour
+# launchd, mais au-delà de sa dernière lecture de la demande) l'aurait ignorée.
+_FOLLOW_UP_SECONDS = 3.0
+
+
+def _lock_is_free() -> bool:
+    """Aucun sync ne tient le verrou en ce moment."""
+    fd = _try_lock()
+    if fd is None:
+        return False
+    _release_lock(fd)
+    return True
+
+
+def trigger_sync(
+    config: AgentConfig,
+    *,
+    launchctl: "Callable[[list[str]], int]" = _run_launchctl,
+    env: Mapping[str, str] | None = None,
+    platform: str | None = None,
+    run: "Callable[[AgentConfig], Any]" = run_sync,
+    sleep: "Callable[[float], None]" = time.sleep,
+) -> Any:
+    """Déclenche un sync sans jamais en lancer deux à la fois.
+
+    Pose d'abord la demande de tour (un sync en cours en refera un), puis, sur
+    le vrai profil macOS dont le job est chargé, demande à launchd de lancer
+    le job `sync` (`kickstart` SANS `-k` : un sync en cours n'est jamais
+    tué) — c'est alors le code du job, à jour après une mise à jour de l'app,
+    qui tourne, et non celui, peut-être périmé, de ce process `listen`.
+    Ailleurs (profil simulé, harnais, `FONTSYNC_NO_KICKSTART`, job absent ou
+    kickstart en échec) : `run_sync` dans ce process, protégé par le verrou.
+    """
+    env = os.environ if env is None else env
+    platform = sys.platform if platform is None else platform
+    request_rerun()
+    if (
+        platform == "darwin"
+        and not env.get("FONTSYNC_NO_KICKSTART")
+        and _uses_default_home(env)
+    ):
+        label = env.get("FONTSYNC_LAUNCHD_LABEL") or _DEFAULT_SYNC_LABEL
+        target = f"gui/{os.getuid()}/{label}"
+        if launchctl(["print", target]) == 0:
+            code = launchctl(["kickstart", target])
+            if code == 0:
+                logger.info("Sync confié au job launchd %s.", label)
+                # Si le job finissait au moment du kickstart, la demande est
+                # restée en plan : verrou libre + demande présente = personne ne
+                # la sert. On relance une fois.
+                sleep(_FOLLOW_UP_SECONDS)
+                if sync_rerun_file().exists() and _lock_is_free():
+                    code = launchctl(["kickstart", target])
+                    logger.info(
+                        "Demande restée en plan : nouveau kickstart (%d).", code
+                    )
+                    if code != 0:
+                        return run(config)
+                return None
+            logger.warning(
+                "kickstart de %s en échec (code %d) : sync dans ce process.",
+                label,
+                code,
+            )
+    return run(config)
+
+
 def run_listen(
     config: AgentConfig,
     *,
-    run: "Callable[[AgentConfig], Any]" = run_sync,
+    run: "Callable[[AgentConfig], Any]" = trigger_sync,
     signals_factory: "Callable[[], Iterator[None]] | None" = None,
     debounce: float = DEBOUNCE_SECONDS,
     reconnect_delay: float = RECONNECT_DELAY_SECONDS,

@@ -34,7 +34,12 @@ def main(argv: list[str] | None = None) -> int:
         description="Agent FontSync — synchronisation de polices.",
     )
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("sync", help="Synchronisation ponctuelle (stateless)")
+    sync_parser = sub.add_parser("sync", help="Synchronisation ponctuelle (stateless)")
+    sync_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="attendre la fin d'un sync en cours au lieu de se retirer (appels interactifs)",
+    )
     sub.add_parser("listen", help="Flux SSE qui relance `sync` à chaque signal")
     sub.add_parser("setup", help="Installe et charge les LaunchAgents (macOS)")
     sub.add_parser("teardown", help="Décharge et supprime les LaunchAgents")
@@ -45,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in (None, "sync"):
         from agent.sync_command import main as sync_main
 
-        return sync_main()
+        return sync_main(wait=bool(getattr(args, "wait", False)))
 
     if args.command == "listen":
         from agent.listen_command import main as listen_main

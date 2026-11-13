@@ -153,10 +153,11 @@ final class AppModel: ObservableObject {
 
     /// Déclenche une synchronisation immédiate (P3.5 « Sync now »).
     ///
-    /// Voie privilégiée : `launchctl kickstart -k` du job `sync` — identique à
-    /// un déclenchement `WatchPaths`. Si le job n'est pas chargé, on retombe sur
-    /// un `fontsync-agent sync` direct via le venv embarqué. Rafraîchit le menu
-    /// une fois terminé.
+    /// Voie privilégiée : `launchctl kickstart` (sans `-k`) du job `sync` —
+    /// identique à un déclenchement `WatchPaths` ; un sync déjà en cours n'est
+    /// pas interrompu, il refait un tour. Si le job n'est pas chargé, on
+    /// retombe sur un `fontsync-agent sync` direct via le venv embarqué
+    /// (sérialisé par le même verrou). Rafraîchit le menu une fois terminé.
     func syncNow() {
         Task.detached {
             // `kickstart` ne fait que relancer le job launchd (ses erreurs

@@ -39,7 +39,10 @@ d'event loop → pas de risque de blocage.
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -60,6 +63,7 @@ from agent.font_installer import (
 from agent.font_registry import REINDEX_DELAY_HINT_SECONDS
 from agent.hash_cache import HashCache
 from agent.hashing import ScannedFont, scan_fonts
+from agent.paths import sync_lock_file, sync_rerun_file
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -120,8 +124,11 @@ class SyncResult:
     newly_activated: int = 0  # ramenées dans ~/Library/Fonts CE run
     activate_errors: int = 0
     reindex_triggered: bool = False  # réindexation macOS amorcée (effet différé)
+    deferred: bool = False  # un autre sync tournait : tour demandé, rien fait ici
 
     def summary(self) -> str:
+        if self.deferred:
+            return "différé (un autre sync tourne déjà ; il refera un tour)"
         reindex = (
             f" | réindexation macOS amorcée (jusqu'à ~{REINDEX_DELAY_HINT_SECONDS} s)"
             if self.reindex_triggered
@@ -164,18 +171,133 @@ class SyncResult:
         )
 
 
-def run_sync(config: AgentConfig, *, client: _Client | None = None) -> SyncResult:
-    """Exécute une synchronisation complète et retourne son bilan.
+# Tours supplémentaires au plus, demandés pendant qu'une sync tournait.
+MAX_RERUNS = 3
+
+
+# Pas de verrou possible (système de fichiers sans `flock`) : on synchronise
+# quand même, sans exclusion, plutôt que de ne plus jamais synchroniser.
+_NO_LOCK = -1
+
+
+def _try_lock() -> int | None:
+    """Prend le verrou des syncs sans attendre ; None s'il est déjà tenu.
+
+    `flock` est rendu par le noyau à la mort du process : un sync tué ne peut
+    pas bloquer les suivants. Un `flock` non supporté rend `_NO_LOCK`.
+    """
+    path = sync_lock_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    except OSError as error:
+        os.close(fd)
+        logger.warning(
+            "Verrou des syncs indisponible (%s) : sync sans exclusion.", error
+        )
+        return _NO_LOCK
+    return fd
+
+
+def _release_lock(fd: int) -> None:
+    if fd == _NO_LOCK:
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def request_rerun() -> None:
+    """Demande un tour de plus à la sync en cours (ou à la prochaine)."""
+    path = sync_rerun_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def _take_rerun_request() -> bool:
+    """Consomme la demande de tour supplémentaire ; True s'il y en avait une."""
+    try:
+        sync_rerun_file().unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def run_sync(
+    config: AgentConfig,
+    *,
+    client: _Client | None = None,
+    wait: float = 0.0,
+) -> SyncResult:
+    """Exécute une synchronisation complète, une seule à la fois sur la machine.
+
+    Le job launchd (WatchPaths, intervalle), `listen` et l'app peuvent tous
+    déclencher un sync : deux runs entrelacés se voyaient l'un l'autre à mi-
+    déplacement et déclaraient une bibliothèque incomplète (M-05). Un verrou
+    `flock` les sérialise. Chaque appel pose D'ABORD une demande de tour, puis
+    tente le verrou : s'il est pris, le détenteur verra forcément la demande
+    (il la consomme au début de chaque tour et la recherche après avoir rendu
+    le verrou) et l'appel se retire (`deferred`). Le détenteur refait des tours
+    tant qu'on lui en demande, au plus `MAX_RERUNS` (la demande restante est
+    alors laissée au déclenchement suivant).
 
     Args:
         config: configuration de l'agent.
         client: client HTTP injectable (pour les tests) ; par défaut un
             `SyncClient` est construit à partir de `config`.
+        wait: secondes à attendre le verrou avant de se retirer (appels
+            interactifs de l'app, qui ont besoin d'un vrai résultat) ;
+            0 = se retirer tout de suite (job launchd, `listen`).
 
     Raises:
         SyncError: si l'enregistrement du device ou le delta échoue (le serveur
             est injoignable) — rien n'a alors été modifié localement.
     """
+    result: SyncResult | None = None
+    reruns = 0
+    deadline = time.monotonic() + wait
+    while True:
+        request_rerun()
+        fd = _try_lock()
+        while fd is None and result is None and time.monotonic() < deadline:
+            time.sleep(0.5)
+            fd = _try_lock()
+        if fd is None:
+            if result is None:
+                logger.info("Un sync est déjà en cours : tour supplémentaire demandé.")
+                return SyncResult(deferred=True)
+            return result
+        try:
+            while True:
+                _take_rerun_request()
+                result = _run_sync_once(config, client=client)
+                if not sync_rerun_file().exists():
+                    break
+                if reruns >= MAX_RERUNS:
+                    logger.warning(
+                        "Plus de %d tours d'affilée demandés : la suite au prochain "
+                        "déclenchement.",
+                        MAX_RERUNS,
+                    )
+                    break
+                reruns += 1
+                logger.info("Tour supplémentaire demandé pendant le sync (%d).", reruns)
+        finally:
+            _release_lock(fd)
+        # Une demande posée juste avant que le verrou ne soit rendu ne doit pas
+        # se perdre : on retente de le prendre.
+        if reruns >= MAX_RERUNS or not sync_rerun_file().exists():
+            return result
+        reruns += 1
+
+
+def _run_sync_once(config: AgentConfig, *, client: _Client | None = None) -> SyncResult:
+    """Un tour de synchronisation, verrou déjà tenu (cf. `run_sync`)."""
     result = SyncResult()
     owns_client = client is None
     if client is None:
@@ -520,13 +642,28 @@ def _configure_logging() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def main() -> int:
-    """Point d'entrée CLI de la commande `sync`. Retourne un code de sortie."""
+# `sync --wait` : durée maximale d'attente du verrou (appels interactifs).
+INTERACTIVE_WAIT_SECONDS = 600.0
+# Code de sortie d'un `sync --wait` qui n'a pas pu tourner (EX_TEMPFAIL).
+EXIT_DEFERRED = 75
+
+
+def main(*, wait: bool = False) -> int:
+    """Point d'entrée CLI de la commande `sync`. Retourne un code de sortie.
+
+    Sans `--wait` (job launchd) : un sync déjà en cours → retrait immédiat,
+    code 0 (le tour est demandé au détenteur). Avec `--wait` (l'app, qui
+    affiche le résultat) : attend le verrou ; s'il ne se libère pas à temps,
+    code 75 plutôt qu'un faux succès.
+    """
     _configure_logging()
     config = AgentConfig.load()
     try:
-        run_sync(config)
+        result = run_sync(config, wait=INTERACTIVE_WAIT_SECONDS if wait else 0.0)
     except SyncError as e:
         logger.error("Sync échoué : %s", e)
         return 1
+    if wait and result.deferred:
+        logger.error("Un autre sync tourne toujours : réessayer plus tard.")
+        return EXIT_DEFERRED
     return 0

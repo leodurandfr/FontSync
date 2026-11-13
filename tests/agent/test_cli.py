@@ -16,7 +16,7 @@ from agent import launchd_setup, listen_command, sync_command
 
 def test_no_command_defaults_to_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr(sync_command, "main", lambda: calls.append("sync") or 0)
+    monkeypatch.setattr(sync_command, "main", lambda **kw: calls.append("sync") or 0)
 
     assert cli.main([]) == 0
     assert calls == ["sync"]
@@ -25,7 +25,7 @@ def test_no_command_defaults_to_sync(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_sync_command_routes_and_propagates_exit_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(sync_command, "main", lambda: 1)
+    monkeypatch.setattr(sync_command, "main", lambda **kw: 1)
 
     assert cli.main(["sync"]) == 1
 
@@ -52,3 +52,15 @@ def test_unknown_command_exits_nonzero() -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["bogus"])
     assert exc.value.code != 0
+
+
+def test_sync_wait_flag_is_passed(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "main", lambda *, wait=False: seen.append(wait) or 0
+    )
+
+    cli.main(["sync", "--wait"])
+    cli.main(["sync"])
+
+    assert seen == [True, False]

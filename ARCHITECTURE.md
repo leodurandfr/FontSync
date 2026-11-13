@@ -652,8 +652,29 @@ The `sync` command is **identical regardless of its source**. Three triggers (la
 | Trigger | launchd mechanism | Role |
 |-------------|-------------------|------|
 | Local change | `WatchPaths` on `~/Library/Fonts` (option `/Library/Fonts`) | Reactive push of fonts added locally |
-| Remote signal | `listen` process (SSE) → launches `sync` | Reactive pull when a font becomes available |
+| Remote signal | `listen` process (SSE) → `launchctl kickstart` of the `sync` job | Reactive pull when a font becomes available |
 | Safety net | `StartInterval` (~600 s) + `RunAtLoad` | Catch-up for missed events |
+
+**One sync at a time.** Every trigger, plus the app's "Sync now", can start a
+sync; two interleaved runs would see each other's file moves half-done and
+declare an incomplete library. `run_sync` therefore:
+
+1. leaves a request (`~/.fontsync/sync.rerun`), **then** tries an `flock` on
+   `~/.fontsync/sync.lock` (released by the kernel if the process dies);
+2. if the lock is taken, it returns at once ("deferred") — the holder will see
+   the request;
+3. the holder consumes the request at the start of each pass and runs another
+   pass while one is present (at most three extra passes), checking once more
+   after releasing the lock so that a request made at that moment is served.
+
+`listen` does not sync in its own (possibly outdated) process: it leaves the
+request and asks launchd to start the job (`kickstart` **without** `-k`, so a
+running sync is never killed — the request gives it another pass), re-checking
+a few seconds later that the request was served. It only does so on the real
+profile with the job loaded; simulated profiles and the test harness run the
+locked sync in process and never call `launchctl`. The app's interactive calls
+use `sync --wait`, which waits for the lock instead of reporting a sync that did
+not run as a success.
 
 #### Font discovery via system APIs
 
