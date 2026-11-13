@@ -17,9 +17,13 @@ Désactivée par défaut (`BACKUP_DIR` vide, cf. `backend.config`).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
+import re
 import shutil
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,11 +57,17 @@ async def backup_database(
     Bloquant (`sqlite3` est synchrone) : exécuté dans un thread pour ne pas
     geler la boucle asyncio le temps de la copie.
 
+    L'instantané est écrit dans un `.tmp` (hors du motif `fontsync-*.db`),
+    vérifié, synchronisé sur disque puis renommé atomiquement : un échec ne
+    laisse jamais un fichier final vide ou partiel qui passerait pour une
+    sauvegarde valide.
+
     Returns:
         Le chemin de l'instantané écrit.
 
     Raises:
-        RuntimeError: si `integrity_check` ne renvoie pas `ok`.
+        RuntimeError: si `integrity_check` ne renvoie pas `ok` ou si la copie
+            ne contient aucune table.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -66,68 +76,181 @@ async def backup_database(
     while dest_path.exists():
         dest_path = dest_dir / f"fontsync-{stamp}-{suffix}.db"
         suffix += 1
+    tmp_path = dest_path.with_name(dest_path.name + ".tmp")
 
-    def _copy_and_check() -> None:
-        src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
-        dst = sqlite3.connect(str(dest_path))
+    def _copy_check_and_publish() -> None:
         try:
-            src.backup(dst)
-        finally:
-            src.close()
-        try:
-            verdict = dst.execute("PRAGMA integrity_check").fetchone()[0]
-        finally:
-            dst.close()
-        if verdict != "ok":
-            dest_path.unlink(missing_ok=True)
-            raise RuntimeError(f"integrity_check sur la copie : {verdict}")
+            src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
+            try:
+                dst = sqlite3.connect(str(tmp_path))
+                try:
+                    src.backup(dst)
+                    verdict = dst.execute("PRAGMA integrity_check").fetchone()[0]
+                    tables = dst.execute(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table'"
+                    ).fetchone()[0]
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+            if verdict != "ok":
+                raise RuntimeError(f"integrity_check sur la copie : {verdict}")
+            if tables == 0:
+                raise RuntimeError("copie sans aucune table : source vide ou invalide")
+            _fsync_file(tmp_path)
+            os.replace(tmp_path, dest_path)
+            _fsync_dir(dest_dir)
+        except BaseException:
+            for leftover in (tmp_path, *_sqlite_sidecars(tmp_path)):
+                leftover.unlink(missing_ok=True)
+            raise
 
-    await asyncio.to_thread(_copy_and_check)
+    await asyncio.to_thread(_copy_check_and_publish)
     _rotate_snapshots(dest_dir, keep)
     return dest_path
+
+
+def _sqlite_sidecars(path: Path) -> list[Path]:
+    """Fichiers annexes que SQLite peut créer à côté de `path`.
+
+    Une source en WAL donne une copie marquée WAL : `integrity_check` y crée
+    alors `-wal` et `-shm`, que seul un `close()` normal retire.
+    """
+    return [Path(f"{path}{suffix}") for suffix in ("-journal", "-wal", "-shm")]
+
+
+def _fsync_file(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    """Rend durable un renommage dans `path` (sans effet si non supporté)."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+_SNAPSHOT_NAME = re.compile(r"^fontsync-(\d{8}-\d{6})(?:-(\d+))?\.db$")
 
 
 def _rotate_snapshots(dest_dir: Path, keep: int) -> None:
     """Ne garde que les `keep` instantanés les plus récents.
 
-    L'horodatage est dans le nom (`fontsync-YYYYMMDD-HHMMSS[-n].db`) : l'ordre
-    lexicographique coïncide avec l'ordre chronologique, pas besoin de
-    `stat()`.
+    L'horodatage est dans le nom (`fontsync-YYYYMMDD-HHMMSS[-n].db`). Le tri
+    se fait sur `(horodatage, n)` et non sur le nom brut : en ordre
+    lexicographique, `X-1.db` passerait avant `X.db`. Les temporaires
+    orphelins d'une passe interrompue (`*.db.tmp` et ses `-journal`, `-wal`,
+    `-shm`) sont retirés.
     """
+    for orphan in dest_dir.glob("fontsync-*.db.tmp*"):
+        orphan.unlink(missing_ok=True)
     if keep <= 0:
         return
-    snapshots = sorted(dest_dir.glob("fontsync-*.db"))
-    for stale in snapshots[:-keep]:
+    snapshots = []
+    for path in dest_dir.glob("fontsync-*.db"):
+        match = _SNAPSHOT_NAME.match(path.name)
+        if match:
+            snapshots.append(((match.group(1), int(match.group(2) or 0)), path))
+    snapshots.sort()
+    for _, stale in snapshots[:-keep]:
         stale.unlink(missing_ok=True)
 
 
-def mirror_blobs(source_dir: Path, dest_dir: Path) -> int:
-    """Miroir incrémental des polices : copie ce qui manque, un point c'est tout.
+@dataclass(frozen=True)
+class MirrorResult:
+    """Bilan d'une passe de miroir des polices."""
 
-    Les fichiers sont nommés par empreinte et jamais réécrits une fois posés
-    (`backend/services/storage.py`) : un fichier déjà présent côté miroir n'a
-    donc aucune raison d'être relu. Pas de suppression non plus, jamais — un
-    vidage de corbeille en prod ne doit pas se propager à la sauvegarde,
-    c'est tout l'intérêt d'en avoir une.
+    copied: int = 0
+    repaired: int = 0
+    failed: int = 0
+
+
+def mirror_blobs(source_dir: Path, dest_dir: Path) -> MirrorResult:
+    """Miroir incrémental des polices : copie ce qui manque, répare ce qui est tronqué.
+
+    Les fichiers sont nommés par empreinte (`<sha256>.<ext>`) et jamais
+    réécrits une fois posés (`backend/services/storage.py`) : une copie de
+    même taille est tenue pour bonne et n'est pas relue. Une copie de taille
+    différente (passe précédente interrompue) est recopiée — seulement si la
+    source correspond bien à son empreinte : une source elle-même abîmée
+    (écriture en cours, disque corrompu) n'écrase jamais une bonne copie.
+    Chaque copie passe par un `.tmp` synchronisé puis renommé. Pas de
+    suppression, jamais — un vidage de corbeille en prod ne doit pas se
+    propager à la sauvegarde, c'est tout l'intérêt d'en avoir une. Un fichier
+    ou un dossier illisible est journalisé et compté, sans arrêter la passe.
 
     Bloquant (I/O fichier en masse) : à appeler via `asyncio.to_thread`.
-
-    Returns:
-        Nombre de fichiers copiés.
     """
     if not source_dir.is_dir():
-        return 0
-    copied = 0
-    for path in source_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        dest_path = dest_dir / path.relative_to(source_dir)
-        if dest_path.exists():
-            continue
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, dest_path)
-        copied += 1
-    return copied
+        return MirrorResult()
+    copied = repaired = failed = 0
+
+    def _unreadable_dir(error: OSError) -> None:
+        nonlocal failed
+        logger.warning("Miroir : dossier illisible, ignoré : %s", error)
+        failed += 1
+
+    files = (
+        root / name
+        for root, _dirs, names in source_dir.walk(on_error=_unreadable_dir)
+        for name in names
+    )
+    for path in files:
+        try:
+            if not path.is_file():
+                continue
+            dest_path = dest_dir / path.relative_to(source_dir)
+            repairing = False
+            if dest_path.exists():
+                if dest_path.stat().st_size == path.stat().st_size:
+                    continue
+                if _sha256(path) != path.stem:
+                    logger.warning(
+                        "Miroir : source non conforme à son empreinte, "
+                        "copie existante conservée : %s",
+                        path,
+                    )
+                    failed += 1
+                    continue
+                repairing = True
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = dest_path.with_name(dest_path.name + ".tmp")
+            try:
+                shutil.copy2(path, tmp_path)
+                _fsync_file(tmp_path)
+                os.replace(tmp_path, dest_path)
+            except BaseException:
+                tmp_path.unlink(missing_ok=True)
+                raise
+            if repairing:
+                repaired += 1
+            else:
+                copied += 1
+        except OSError:
+            logger.warning(
+                "Miroir : fichier non copié, passe poursuivie : %s", path, exc_info=True
+            )
+            failed += 1
+    return MirrorResult(copied=copied, repaired=repaired, failed=failed)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 async def run_database_backup_loop() -> None:
@@ -190,10 +313,19 @@ async def run_blob_backup_loop() -> None:
     )
     while True:
         try:
-            copied = await asyncio.to_thread(mirror_blobs, source_dir, dest_dir)
+            result = await asyncio.to_thread(mirror_blobs, source_dir, dest_dir)
             logger.info(
-                "Miroir des polices : %d nouveau(x) fichier(s) copié(s).", copied
+                "Miroir des polices : %d copié(s), %d réparé(s), %d en échec.",
+                result.copied,
+                result.repaired,
+                result.failed,
             )
+            if result.failed:
+                logger.warning(
+                    "Miroir des polices incomplet : %d fichier(s) non copié(s) "
+                    "(voir les avertissements ci-dessus).",
+                    result.failed,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
