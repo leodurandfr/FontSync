@@ -241,7 +241,7 @@ ingestible_hashes = {e.hash for e in device_fonts if e.ingestible}
 unknown_to_server = list(ingestible_hashes - known_hashes)      # sync_manager.py:83
 ```
 
-**L'asymétrie est la clé** : `ingestible` n'agit **que** sur `unknown_to_server`. Ni sur `already_synced` (`:89`), ni sur `missing_on_device` (`:86`), ni sur `detect_local_deletions`. `known_hashes = actives ∪ tombées` (`:78-83`) reste intact — le restreindre aux polices vivantes remettrait chaque tombe en « inconnue » et ferait repousser toute la corbeille à chaque sync.
+**L'asymétrie est la clé** : `ingestible` n'agit **que** sur `unknown_to_server` — et, depuis P1-3c (2026-11), sur `to_uninstall` et `detect_local_deletions` (une couche non gérée comme /Library/Fonts ne commande plus aucune suppression). Ni sur `already_synced` (`:89`), ni sur `missing_on_device` (`:86`). `known_hashes = actives ∪ tombées` (`:78-83`) reste intact — le restreindre aux polices vivantes remettrait chaque tombe en « inconnue » et ferait repousser toute la corbeille à chaque sync.
 
 `compute_delta` conserve sa propre lecture de `fonts` (elle doit s'exécuter **après** le commit pour voir quarantaines et récolte). La détection et la réconciliation partagent un index chargé une fois. Coût net : un scan de `fonts` en plus par delta (6 205 lignes).
 
@@ -393,7 +393,7 @@ Journalisation **WARNING** avec décompte et identifiants : c'est le **premier `
 ### 4.3 Protection contre la fausse détection au premier sync — sept couches
 
 1. **La déclaration ne rétrécit jamais** (§4.2). Protection de fond.
-2. **Asymétrie d'`ingestible`** : il n'agit que sur `unknown_to_server` (`sync_manager.py:83`), jamais sur `already_synced`, `missing_on_device` ni `detect_local_deletions`.
+2. **Asymétrie d'`ingestible`** : il n'agit que sur `unknown_to_server` (`sync_manager.py:83`), jamais sur `already_synced` ni `missing_on_device`. *(Mis à jour par P1-3c : il agit aussi sur `to_uninstall` et `detect_local_deletions`.)*
 3. **Défaut `True` partout, dans les deux sens** : Pydantic **et** `server_default '1'`.
 4. **Serveur avant agent** (§5.2).
 5. **G1 et G2** : déclaration vide ou suspecte → aucune écriture.

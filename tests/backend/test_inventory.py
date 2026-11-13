@@ -294,3 +294,33 @@ async def test_non_ingestible_hash_never_offered_for_push(
 
     assert delta.unknown_to_server == ["b" * 64]
     assert delta.missing_on_device == []
+
+
+@pytest.mark.asyncio
+async def test_undeclared_non_ingestible_association_of_active_font_departs(
+    db, storage, font_factory
+) -> None:
+    """Une couche non gérée qui ne déclare plus une police active : l'association
+    part, sans quarantaine (la police reste dans la bibliothèque)."""
+    device = await _make_device(db)
+    shared = await _make_font(db, storage, font_factory, "Shared Layer")
+    mine = await _make_font(db, storage, font_factory, "Mine")
+    db.add(
+        DeviceFont(
+            device_id=device.id,
+            font_id=shared.id,
+            local_path="/Library/Fonts/Shared.ttf",
+            ingestible=False,
+        )
+    )
+    await db.flush()
+
+    await reconcile_inventory(
+        device.id,
+        [DeviceFontEntry(hash=mine.file_hash, filename="Mine.ttf")],
+        db,
+    )
+
+    assert await _association(db, device.id, shared.id) is None
+    await db.refresh(shared)
+    assert shared.deleted_at is None

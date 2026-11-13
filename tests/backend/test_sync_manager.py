@@ -243,3 +243,183 @@ async def test_missing_on_device_never_offers_web_fonts(
     assert imported["woff"] not in offered
     assert imported["woff2"] not in offered
     assert {imported["ttf"], imported["otf"], imported["ttc"]} <= offered
+
+
+# ---------- Couche non gérée : jamais dans toUninstall ni au push (P1-3c) ----------
+
+
+@pytest.mark.asyncio
+async def test_to_uninstall_skips_non_ingestible_only_holder(
+    db, storage, font_factory
+) -> None:
+    from datetime import datetime, timezone
+
+    data = font_factory(family="Gone Shared")
+    font, _ = await import_font("gone.ttf", data, storage, db)
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+
+    delta = await compute_delta(
+        [
+            DeviceFontEntry(
+                hash=font.file_hash,
+                filename="gone.ttf",
+                local_path="/Library/Fonts/gone.ttf",
+                ingestible=False,
+            )
+        ],
+        db,
+        device_id=uuid.uuid4(),
+        propagate_deletions=True,
+    )
+
+    assert delta.to_uninstall == []
+
+
+async def _post_delta(api_client, device_id: str, fonts: list[dict]) -> dict:
+    from tests.backend.conftest import AUTH_HEADERS
+
+    resp = await api_client.post(
+        "/api/sync/delta",
+        headers=AUTH_HEADERS,
+        json={"deviceId": device_id, "fonts": fonts},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _new_device(api_client) -> str:
+    from tests.backend.conftest import AUTH_HEADERS
+
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "Mac", "hostname": f"mac-{uuid.uuid4().hex[:6]}", "os": "macos"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_agent_library_fonts_not_offered_for_push(api_client) -> None:
+    """Agent pré-L3 : pas de champ `ingestible`. Ce qu'il déclare sous
+    /Library/Fonts ou /System/Library n'est jamais proposé au push."""
+    device = await _new_device(api_client)
+
+    delta = await _post_delta(
+        api_client,
+        device,
+        [
+            {
+                "hash": "a" * 64,
+                "filename": "u.ttf",
+                "localPath": "/Library/Fonts/u.ttf",
+            },
+            {
+                "hash": "b" * 64,
+                "filename": "s.ttf",
+                "localPath": "/System/Library/Fonts/s.ttf",
+            },
+            {
+                "hash": "d" * 64,
+                "filename": "m.ttf",
+                "localPath": "/Users/x/Library/Fonts/m.ttf",
+            },
+        ],
+    )
+
+    assert delta["unknownToServer"] == ["d" * 64]
+
+
+@pytest.mark.asyncio
+async def test_legacy_agent_library_fonts_association_stays_ingestible(
+    db, storage, font_factory
+) -> None:
+    """La réconciliation garde `entry.ingestible` (défaut True) pour un agent
+    pré-L3 : la protection des tombes qu'il détient reste intacte."""
+    from sqlalchemy import select
+
+    from backend.models.device_font import DeviceFont
+    from backend.services.inventory import reconcile_inventory
+
+    font, _ = await import_font(
+        "known.ttf", font_factory(family="Legacy Known"), storage, db
+    )
+    device_id = uuid.uuid4()
+    db.add(Device(id=device_id, name="Mac", hostname="legacy", os="macos"))
+    await db.flush()
+    entry = DeviceFontEntry.model_validate(
+        {
+            "hash": font.file_hash,
+            "filename": "known.ttf",
+            "localPath": "/Library/Fonts/known.ttf",
+        }
+    )
+
+    await reconcile_inventory(device_id, [entry], db)
+
+    row = (
+        await db.execute(
+            select(DeviceFont.ingestible).where(
+                DeviceFont.device_id == device_id, DeviceFont.font_id == font.id
+            )
+        )
+    ).scalar_one()
+    assert row is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_ingestible_library_fonts_still_offered(api_client) -> None:
+    device = await _new_device(api_client)
+
+    delta = await _post_delta(
+        api_client,
+        device,
+        [
+            {
+                "hash": "c" * 64,
+                "filename": "u.ttf",
+                "localPath": "/Library/Fonts/u.ttf",
+                "ingestible": True,
+            }
+        ],
+    )
+
+    assert delta["unknownToServer"] == ["c" * 64]
+
+
+@pytest.mark.asyncio
+async def test_to_uninstall_keeps_hash_also_held_in_managed_layer(
+    db, storage, font_factory
+) -> None:
+    """Même police dans ~/Library/Fonts ET /Library/Fonts : la copie gérée reste
+    à désinstaller (l'agent ne touche que ~/Library/Fonts et disabled/)."""
+    from datetime import datetime, timezone
+
+    font, _ = await import_font("both.ttf", font_factory(family="Both"), storage, db)
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+
+    delta = await compute_delta(
+        [
+            DeviceFontEntry(
+                hash=font.file_hash,
+                filename="both.ttf",
+                local_path="/Library/Fonts/both.ttf",
+                ingestible=False,
+            ),
+            DeviceFontEntry(
+                hash=font.file_hash,
+                filename="both.ttf",
+                local_path="/Users/x/Library/Fonts/both.ttf",
+                ingestible=True,
+            ),
+        ],
+        db,
+        device_id=uuid.uuid4(),
+        propagate_deletions=True,
+    )
+
+    assert [ref.file_hash for ref in delta.to_uninstall] == [font.file_hash]

@@ -12,10 +12,12 @@ raison : ne pas mélanger le calcul du delta avec les décisions qui modifient
 le registre.
 
 Commutatif avec `detect_local_deletions` par construction : la détection ne
-touche que les polices **actives** non déclarées, la réconciliation n'insère
-que du déclaré et ne supprime que des polices déjà **tombées**. Ensembles
-disjoints — l'ordre d'appel n'a pas à faire de différence, il reste fixé et
-testé en défense en profondeur (`routers/sync.py`).
+touche que les associations **gérées** (`ingestible`) de polices **actives**
+non déclarées ; la réconciliation n'insère que du déclaré et ne retire que des
+associations de polices déjà **tombées** ou **non gérées** (couche partagée
+comme /Library/Fonts). Ensembles disjoints — l'ordre d'appel n'a pas à faire
+de différence, il reste fixé et testé en défense en profondeur
+(`routers/sync.py`).
 """
 
 from __future__ import annotations
@@ -46,7 +48,8 @@ class ReconcileStats:
     """Associations créées : hash déclaré, police connue, pas encore associée."""
 
     departs: int
-    """Associations retirées : police déjà tombée, plus déclarée."""
+    """Associations retirées, plus déclarées : police déjà tombée, ou
+    association non gérée (couche partagée) d'une police active."""
 
     updates: int
     """Associations existantes dont `local_path`/`ingestible` a changé."""
@@ -163,12 +166,16 @@ async def reconcile_inventory(
     for file_hash, (device_font, deleted_at) in existing_by_hash.items():
         entry = by_hash.get(file_hash)
         if entry is None:
-            # DÉPARTS — uniquement les polices déjà TOMBÉES, sans quarantaine
-            # ni notification (il n'y a rien à quarantiner : la police est déjà
-            # hors bibliothèque). Une police ACTIVE non déclarée n'est jamais
-            # touchée ici : domaine exclusif de `detect_local_deletions`, avec
-            # son seuil et sa quarantaine.
-            if deleted_at is not None:
+            # DÉPARTS — sans quarantaine ni notification :
+            # - les polices déjà TOMBÉES (rien à quarantiner : déjà hors
+            #   bibliothèque) ;
+            # - les associations NON GÉRÉES (/Library/Fonts) d'une police
+            #   active : la couche a changé, personne n'a rien supprimé, la
+            #   police reste dans la bibliothèque.
+            # Une association GÉRÉE d'une police active non déclarée n'est
+            # jamais touchée ici : domaine exclusif de `detect_local_deletions`,
+            # avec son seuil et sa quarantaine.
+            if deleted_at is not None or not device_font.ingestible:
                 depart_font_ids.append(device_font.font_id)
             continue
         new_local_path = entry.local_path or entry.filename

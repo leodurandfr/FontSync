@@ -72,8 +72,10 @@ async def delta_sync(
 
     Quatre temps, dans cet ordre (cf. `docs/PLAN-ETATS-FONTS.md` §3.2) :
 
-    1. **Détection** — INCHANGÉE. Lit le registre avant toute écriture de ce
-       sync-ci, pour ne juger que sur l'état d'avant.
+    1. **Détection** — sur les seules associations gérées (une couche que
+       FontSync ne gère pas, comme /Library/Fonts, ne commande aucune
+       suppression). Lit le registre avant toute écriture de ce sync-ci, pour
+       ne juger que sur l'état d'avant.
     2. **Réconciliation + récolte (aperçu)** — uniquement sur une déclaration
        crédible (ni vide, ni suspecte) : `device_fonts` devient le miroir de ce
        que la machine déclare, et `last_declaration_at` avance. La récolte

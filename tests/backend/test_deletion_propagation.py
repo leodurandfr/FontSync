@@ -1253,3 +1253,118 @@ async def test_pulled_web_font_never_goes_to_the_trash(
     assert trash["total"] == 0
     still = await api_client.get(f"/api/fonts/{woff['id']}", headers=AUTH_HEADERS)
     assert still.json()["deletedAt"] is None
+
+
+# =====================================================================
+# Couche non gérée (/Library/Fonts) : ne commande aucune suppression (P1-3c)
+# =====================================================================
+
+
+async def _declare(client: AsyncClient, device_id: str, entries: list[dict]) -> dict:
+    resp = await client.post(
+        "/api/sync/delta",
+        headers=AUTH_HEADERS,
+        json={"deviceId": device_id, "fonts": entries},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_shared_dir_update_does_not_quarantine_old_version(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """A tient X v1 dans /Library/Fonts (non géré), B dans ~/Library/Fonts.
+    Une mise à jour de /Library/Fonts sur A (v1 → v2) n'est pas une suppression :
+    v1 reste active et B ne reçoit rien à désinstaller."""
+    v1 = font_factory(family="Shared X")
+    v2 = font_factory(family="Shared X", extra_codepoints=[0x263A])
+    imported = await _upload(api_client, v1, "SharedX.ttf")
+    h1 = imported["fileHash"]
+    import hashlib
+
+    h2 = hashlib.sha256(v2).hexdigest()
+    device_a = await _register_device(api_client, hostname="mac-a")
+    device_b = await _register_device(api_client, hostname="mac-b")
+    for device in (device_a, device_b):
+        resp = await api_client.patch(
+            f"/api/devices/{device}",
+            headers=AUTH_HEADERS,
+            json={"propagateDeletions": True},
+        )
+        assert resp.status_code == 200, resp.text
+    shared = {"filename": "SharedX.ttf", "localPath": "/Library/Fonts/SharedX.ttf"}
+    other = {
+        "hash": "e" * 64,
+        "filename": "Mine.ttf",
+        "localPath": "/Users/a/Library/Fonts/Mine.ttf",
+    }
+
+    await _declare(
+        api_client, device_a, [{**shared, "hash": h1, "ingestible": False}, other]
+    )
+    await _declare(
+        api_client,
+        device_b,
+        [
+            {
+                "hash": h1,
+                "filename": "SharedX.ttf",
+                "localPath": "/Users/b/Library/Fonts/SharedX.ttf",
+            }
+        ],
+    )
+    # Mise à jour de /Library/Fonts sur A : v2 remplace v1.
+    await _declare(
+        api_client, device_a, [{**shared, "hash": h2, "ingestible": False}, other]
+    )
+    delta_b = await _declare(
+        api_client,
+        device_b,
+        [
+            {
+                "hash": h1,
+                "filename": "SharedX.ttf",
+                "localPath": "/Users/b/Library/Fonts/SharedX.ttf",
+            }
+        ],
+    )
+
+    # Une police en corbeille répond 404 ici : 200 + deletedAt nul = active.
+    resp = await api_client.get(f"/api/fonts/{imported['id']}", headers=AUTH_HEADERS)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deletedAt"] is None
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash.get("pendingConfirmation", 0) == 0
+    assert delta_b["toUninstall"] == []
+
+
+@pytest.mark.asyncio
+async def test_agent_upgrade_to_explicit_flag_causes_no_false_deletion(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Agent pré-L3 (sans champ) puis L3 (`ingestible: false`) sur la même police
+    de /Library/Fonts : l'association bascule sans rien supprimer ; quand la
+    couche partagée ne la contient plus, rien ne part en corbeille."""
+    data = font_factory(family="Upgrade X")
+    imported = await _upload(api_client, data, "UpgradeX.ttf")
+    h = imported["fileHash"]
+    device = await _register_device(api_client, hostname="mac-upgrade")
+    mine = {
+        "hash": "f" * 64,
+        "filename": "Mine.ttf",
+        "localPath": "/Users/u/Library/Fonts/Mine.ttf",
+    }
+    shared = {
+        "hash": h,
+        "filename": "UpgradeX.ttf",
+        "localPath": "/Library/Fonts/UpgradeX.ttf",
+    }
+
+    await _declare(api_client, device, [shared, mine])  # pré-L3
+    await _declare(api_client, device, [{**shared, "ingestible": False}, mine])  # L3
+    await _declare(api_client, device, [mine])  # la couche partagée ne l'a plus
+
+    resp = await api_client.get(f"/api/fonts/{imported['id']}", headers=AUTH_HEADERS)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deletedAt"] is None

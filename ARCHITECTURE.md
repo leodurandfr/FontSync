@@ -380,8 +380,13 @@ guardrails, in order:
 
 1. **A device declaring nothing has not emptied its library.** An unmounted
    folder or a failed scan is far likelier. Nothing is concluded.
-2. **Only fonts associated with that device.** A font never transferred there
-   cannot have disappeared from it.
+2. **Only fonts associated with that device, in a folder FontSync manages.**
+   A font never transferred there cannot have disappeared from it; a font that
+   leaves a layer FontSync does not manage (`/Library/Fonts`, updated by
+   installers) was deleted by nobody — its association just leaves the
+   registry. Such fonts are never offered for upload nor listed in
+   `toUninstall` either; an agent too old to send the `ingestible` flag is
+   judged by its path there.
 3. **Thresholds.** `DELETION_PROPAGATION_MAX_FONTS` (25) and
    `_MAX_RATIO` (5 %) apply together — the stricter one decides — lifted by
    `_MIN_FONTS` (3) so that small deletions always go through. Beyond them the

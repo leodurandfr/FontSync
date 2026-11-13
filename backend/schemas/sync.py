@@ -16,10 +16,13 @@ class DeviceFontEntry(CamelModel):
     ingestible: bool = True
     """Ce détenteur peut-il alimenter la bibliothèque synchronisée ?
 
-    Défaut `True` — rétrocompatibilité stricte dans les deux sens : un agent
-    ancien qui ne l'envoie pas est traité comme entièrement ingestible (aucune
-    police ne se voit bloquée à tort), un agent neuf face à un serveur ancien
-    voit le champ simplement ignoré (`CamelModel` n'impose pas `extra='forbid'`).
+    Défaut `True`, conservé tel quel par la réconciliation (les tombes qu'un
+    agent ancien détient restent protégées). Pour le push et la
+    désinstallation, un agent ancien qui ne l'envoie pas est jugé sur son
+    chemin : /Library/Fonts et /System/Library ne sont jamais gérés
+    (`sync_manager.effective_ingestible`). Un agent neuf face à un serveur
+    ancien voit le champ simplement ignoré (`CamelModel` n'impose pas
+    `extra='forbid'`).
     """
 
 

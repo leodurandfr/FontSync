@@ -25,6 +25,28 @@ def _to_ref(row: Any) -> FontRef:
     )
 
 
+# Couches de polices que l'agent ne gère pas : partagées entre utilisateurs
+# (/Library/Fonts) ou système. Ce qui s'y trouve est déclaré, jamais poussé ni
+# désinstallé.
+_UNMANAGED_PREFIXES = ("/Library/Fonts/", "/System/Library/")
+
+
+def effective_ingestible(entry: DeviceFontEntry) -> bool:
+    """Ce détenteur peut-il alimenter la bibliothèque (push, désinstallation) ?
+
+    Un agent récent envoie `ingestible` : il fait foi (y compris `True` pour un
+    /Library/Fonts mis volontairement dans `ingest_directories`). Un agent
+    antérieur ne l'envoie pas — le défaut `True` du schéma lui ferait pousser
+    tout /Library/Fonts : on se rabat alors sur le chemin déclaré.
+
+    N'est PAS utilisé par la réconciliation, qui garde `entry.ingestible`
+    (protection des tombes détenues, cf. `services/inventory.py`).
+    """
+    if "ingestible" in entry.model_fields_set:
+        return entry.ingestible
+    return not (entry.local_path or "").startswith(_UNMANAGED_PREFIXES)
+
+
 async def compute_delta(
     device_fonts: list[DeviceFontEntry],
     db: AsyncSession,
@@ -60,12 +82,14 @@ async def compute_delta(
         already_synced, deleted_on_server, to_uninstall et to_deactivate.
     """
     device_hashes = {entry.hash for entry in device_fonts}
-    # `ingestible` n'agit QUE sur ce qui serait proposé au push. Ni sur
-    # `already_synced`, ni sur `missing_on_device`, ni sur la détection de
-    # suppressions : restreindre `device_hashes` lui-même referait passer
-    # chaque police non ingestible pour « absente », donc la ferait ressortir
-    # de la corbeille au premier delta suivant.
-    ingestible_hashes = {entry.hash for entry in device_fonts if entry.ingestible}
+    # `ingestible` n'agit QUE sur ce qui serait proposé au push et sur ce que
+    # l'appareil doit désinstaller. Ni sur `already_synced`, ni sur
+    # `missing_on_device` : restreindre `device_hashes` lui-même referait
+    # passer chaque police non ingestible pour « absente », donc la ferait
+    # ressortir de la corbeille au premier delta suivant.
+    ingestible_hashes = {
+        entry.hash for entry in device_fonts if effective_ingestible(entry)
+    }
 
     # Toutes les fonts du serveur, supprimées comprises (cf. docstring).
     result = await db.execute(
@@ -114,8 +138,14 @@ async def compute_delta(
     # quarantaine en attente de confirmation n'en fait jamais partie : tant que
     # l'utilisateur n'a pas tranché, personne ne perd son fichier.
     deleted_here = [deleted_map[h] for h in device_hashes & set(deleted_map)]
+    # Jamais une police que l'appareil ne détient que dans une couche que
+    # FontSync ne gère pas (/Library/Fonts) : il n'a pas à y toucher.
     to_uninstall = (
-        [_to_ref(row) for row in deleted_here if row.deletion_confirmed]
+        [
+            _to_ref(row)
+            for row in deleted_here
+            if row.deletion_confirmed and row.file_hash in ingestible_hashes
+        ]
         if propagate_deletions
         else []
     )

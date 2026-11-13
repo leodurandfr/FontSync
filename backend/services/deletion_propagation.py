@@ -109,10 +109,22 @@ async def detect_local_deletions(
     # une bibliothèque réelle compte quelques milliers de hashes, et les passer
     # en paramètres liés flirte avec la limite de variables de SQLite. Les
     # associations d'un appareil tiennent en mémoire sans effort.
+    #
+    # Seules les associations gérées comptent : une police qui disparaît d'une
+    # couche que FontSync ne gère pas (/Library/Fonts, mise à jour par un
+    # installeur) n'a été supprimée par personne — l'association part sans
+    # bruit à la réconciliation (`services/inventory.py`). Limite : un agent
+    # antérieur au champ `ingestible` a ses associations enregistrées gérées
+    # (défaut du schéma), y compris pour /Library/Fonts ; c'est la mise à jour
+    # de l'agent qui les corrige au sync suivant.
     result = await db.execute(
         select(Font)
         .join(DeviceFont, DeviceFont.font_id == Font.id)
-        .where(DeviceFont.device_id == device_id, Font.deleted_at.is_(None))
+        .where(
+            DeviceFont.device_id == device_id,
+            DeviceFont.ingestible.is_(True),
+            Font.deleted_at.is_(None),
+        )
     )
     disappeared = [
         font for font in result.scalars().all() if font.file_hash not in declared_hashes
