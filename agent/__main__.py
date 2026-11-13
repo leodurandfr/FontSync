@@ -41,9 +41,21 @@ def main(argv: list[str] | None = None) -> int:
         help="attendre la fin d'un sync en cours au lieu de se retirer (appels interactifs)",
     )
     sub.add_parser("listen", help="Flux SSE qui relance `sync` à chaque signal")
-    sub.add_parser("setup", help="Installe et charge les LaunchAgents (macOS)")
+    setup_parser = sub.add_parser(
+        "setup", help="Installe et charge les LaunchAgents (macOS)"
+    )
+    setup_parser.add_argument(
+        "--allow-dev-python",
+        action="store_true",
+        help="accepter l'interpréteur du dossier de build de l'app (développement)",
+    )
     sub.add_parser("teardown", help="Décharge et supprime les LaunchAgents")
-    sub.add_parser("status", help="État des LaunchAgents")
+    sub.add_parser(
+        "status", help="État réel des LaunchAgents (actif, en échec, absent)"
+    )
+    sub.add_parser(
+        "doctor", help="Vérifie que les LaunchAgents lancent bien cet interpréteur"
+    )
 
     args = parser.parse_args(argv)
 
@@ -57,7 +69,12 @@ def main(argv: list[str] | None = None) -> int:
 
         return listen_main()
 
-    if args.command in ("setup", "teardown", "status"):
+    if args.command == "setup":
+        from agent import launchd_setup
+
+        return launchd_setup.setup(allow_dev_python=args.allow_dev_python)
+
+    if args.command in ("teardown", "status", "doctor"):
         from agent import launchd_setup
 
         return getattr(launchd_setup, args.command)()

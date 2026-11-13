@@ -132,10 +132,12 @@ struct PreferencesView: View {
     }
 
     private var agentStatusLabel: String {
-        switch (model.syncJobLoaded, model.listenJobLoaded) {
-        case (true, true): return "Actif (sync + listen chargés)"
-        case (false, false): return "Arrêté"
-        default: return "Partiel"
+        if let problem = model.locationProblem { return problem }
+        switch (model.syncJobState, model.listenJobState) {
+        case (.active, .active): return "Actif (sync + listen)"
+        case (.absent, .absent): return "Arrêté"
+        case (let sync, let listen):
+            return "sync : \(sync.label) · listen : \(listen.label)"
         }
     }
 

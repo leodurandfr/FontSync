@@ -54,7 +54,7 @@ Ces points conditionnent les résultats attendus — les ignorer fait conclure �
    absente du disque** sera (re)pullée au prochain `sync`. C'est central pour
    comprendre S3 (désinstallation) et S8 (soft-delete).
 5. **Logs agent (launchd) :** `~/Library/Logs/FontSync/{sync,listen}.{out,err}.log`.
-   État des jobs : `fontsync-agent status`.
+   État des jobs : `fontsync-agent status` (état réel, code non nul si un job est en échec) ; interpréteur des plists : `fontsync-agent doctor`.
 6. **Découverte = Core Text en premier sur un vrai Mac** (`FONTSYNC_DISCOVERY` non
    défini → `discover_via_core_text`). Conséquences à connaître :
    - `scan.directories` du `config.yaml` n'est qu'un **fallback** (utilisé seulement
@@ -184,12 +184,12 @@ Installer les LaunchAgents (active **WatchPaths** + **listen** + 1er `sync`) :
 
 ```bash
 [M1] .venv/bin/fontsync-agent setup
-[M1] .venv/bin/fontsync-agent status     # attendu : com.fontsync.sync : chargé / com.fontsync.listen : chargé
+[M1] .venv/bin/fontsync-agent status     # attendu : com.fontsync.sync : actif / com.fontsync.listen : actif (code 0)
 [M2] .venv/bin/fontsync-agent setup
 [M2] .venv/bin/fontsync-agent status
 ```
 
-- **Résultat attendu :** les deux jobs `chargé` sur chaque Mac ; un 1er `sync`
+- **Résultat attendu :** les deux jobs `actif` sur chaque Mac ; un 1er `sync`
   s'exécute (voir `~/Library/Logs/FontSync/sync.out.log`).
 - **Résultat observé :** _______________________  Statut : ☐
 

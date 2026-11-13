@@ -814,6 +814,12 @@ Much less critical than with a `.app` daemon (we now only have a `sync` CLI + a 
 
 loaded/unloaded by `launchctl bootstrap` / `bootout`.
 
+A loaded job is not a working one: when the interpreter named in the plist disappears (app moved, updated or rebuilt), launchd keeps the job loaded but every spawn fails (`last exit code = 78`). Hence:
+- `fontsync-agent status` (and the app's menu/preferences) report the **actual** state read from `launchctl print`: active, active with a failed last run (server unreachable at login — not a breakdown), failing (spawn failure, exit 78/126/127), interpreter missing, unknown (unreadable output, never "active" by default) or absent. Non-zero exit unless both jobs are healthy.
+- `fontsync-agent doctor` compares the interpreter written in the installed plists with the current one; `setup` rewrites them.
+- `setup` refuses an interpreter from the app's build folder (`macos-app/build/`, wiped by the next build) unless `--allow-dev-python`.
+- At launch, the app reinstalls the LaunchAgents when they point to a missing interpreter, to another copy of the app or to a build venv, or when the app was updated (which also restarts `listen` on the new code). It only does so from an `Applications` folder, never from a DMG or a translocated app (refused with a message), never takes over an agent installed on purpose (Homebrew, development venv), and repairs the same mismatch at most once per version.
+
 ---
 
 ## 7. Frontend (Vue 3 + shadcn-vue)
@@ -954,7 +960,7 @@ fontsync/
 │   └── utils/
 │
 ├── agent/
-│   ├── __main__.py                    # CLI entry point (sync/listen/setup/teardown/status)
+│   ├── __main__.py                    # CLI entry point (sync/listen/setup/teardown/status/doctor)
 │   ├── config.py                      # Read/write config.yaml (url, token, device_id)
 │   ├── discovery.py                   # Font discovery (Core Text macOS + directories)
 │   ├── scanner.py                     # Scan + hashing of font directories

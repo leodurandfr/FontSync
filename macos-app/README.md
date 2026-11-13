@@ -36,7 +36,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 | `FontSync/MenuContent.swift` | Contenu du menu : statut + actions |
 | `FontSync/AppModel.swift` | État observable (connexion, fonts, launchd), sonde périodique |
 | `FontSync/ServerClient.swift` | Client `GET /api/stats` avec `Authorization: Bearer` |
-| `FontSync/LaunchdStatus.swift` | État des LaunchAgents via `launchctl print` |
+| `FontSync/LaunchdStatus.swift` | État réel des LaunchAgents (`launchctl print`) + décision de réparation au lancement |
 | `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + token) |
 | `FontSync/WebView.swift` | `WKWebView` (NSViewRepresentable) + contenu de la fenêtre |
 | `FontSync/PreferencesView.swift` | Préférences (URL/token + test de connexion, actions agent) |
@@ -62,6 +62,14 @@ xcodebuild -project macos-app/FontSync.xcodeproj -scheme FontSync -configuration
 # Ou ouvrir dans Xcode
 open macos-app/FontSync.xcodeproj
 ```
+
+Pas de cible XCTest : les fonctions pures (lecture de `launchctl print`, décision
+de réparation des LaunchAgents) sont vérifiées par `macos-app/checks/run.sh`, qui
+les compile avec leurs vérifications et les lance.
+
+> Une build Debug lancée depuis Xcode (DerivedData) ne répare jamais les
+> LaunchAgents réels : la réparation automatique au lancement n'agit que depuis un
+> dossier `Applications`.
 
 La cible se signe en ad-hoc (`CODE_SIGN_IDENTITY = -`) pour le dev. La **release**
 signée Developer ID + notarisée + `.dmg` + appcast Sparkle est entièrement

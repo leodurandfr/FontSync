@@ -147,13 +147,32 @@ def _bootout_and_wait(domain: str, label: str, timeout: float = 8.0) -> None:
         time.sleep(0.2)
 
 
-def setup(env: dict[str, str] | None = None) -> int:
-    """Génère les plists et (re)charge les deux jobs launchd."""
+def is_build_interpreter(python: str) -> bool:
+    """Interpréteur d'un environnement de BUILD de l'app (supprimé au prochain build)."""
+    return "/macos-app/build/" in os.path.abspath(python)
+
+
+def setup(env: dict[str, str] | None = None, *, allow_dev_python: bool = False) -> int:
+    """Génère les plists et (re)charge les deux jobs launchd.
+
+    Refuse un interpréteur pris dans le dossier de build de l'app (sauf
+    `allow_dev_python`) : des LaunchAgents qui y pointent cessent de
+    fonctionner en silence au prochain nettoyage du build (H-04).
+    """
     if not is_macos():
         print("[fontsync] Les LaunchAgents sont spécifiques à macOS.", file=sys.stderr)
         return 1
 
     python = resolve_python(env)
+    if is_build_interpreter(python) and not allow_dev_python:
+        print(
+            f"[fontsync] Refus : {python} est l'environnement de build de l'app, "
+            "supprimé au prochain build. Installer depuis FontSync placée dans "
+            "le dossier Applications (ou, en ligne de commande, passer "
+            "--allow-dev-python pour un essai de développement).",
+            file=sys.stderr,
+        )
+        return 1
     home = str(Path.home())
     wd = workdir()
     domain = _domain()
@@ -217,15 +236,111 @@ def teardown(env: dict[str, str] | None = None) -> int:
     return 0
 
 
+def parse_print(output: str) -> dict[str, str]:
+    """Champs utiles de `launchctl print` : `state`, `program`, `last exit code`.
+
+    Seuls les champs de premier niveau (une tabulation) sont lus : les blocs
+    imbriqués (`arguments = { … }`, environnement) ont les leurs.
+    """
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        if not line.startswith("\t") or line.startswith("\t\t"):
+            continue
+        key, sep, value = line.strip().partition(" = ")
+        if sep and key in ("state", "job state", "program", "last exit code"):
+            fields.setdefault(key, value.strip())
+    return fields
+
+
+# Codes de sortie d'un job qui NE DÉMARRE PAS (configuration, interpréteur non
+# exécutable ou introuvable), par opposition à un passage qui a échoué (serveur
+# injoignable à l'ouverture de session…) et qui se rattrapera au suivant.
+_SPAWN_FAILURE_CODES = {"78", "126", "127"}
+
+
+def job_health(print_returncode: int, output: str) -> tuple[bool, str]:
+    """(sain ?, libellé) d'un job d'après `launchctl print`.
+
+    « chargé » ne dit rien d'un job qui ne démarre plus : un interpréteur
+    disparu (venv de build supprimé, app déplacée) laisse le job enregistré en
+    `job state = spawn failed`, `last exit code = 78`, sans que rien ne
+    synchronise. À l'inverse, un dernier passage en erreur (serveur
+    injoignable) ou un job en cours d'exécution ne sont pas des pannes. Sortie
+    illisible → « état inconnu », jamais « actif » par défaut.
+    """
+    if print_returncode != 0:
+        return False, "absent"
+    fields = parse_print(output)
+    if "program" not in fields and "state" not in fields:
+        return False, "état inconnu"
+    program = fields.get("program")
+    if program and not Path(program).exists():
+        return False, "interpréteur introuvable"
+    code = fields.get("last exit code", "").split(":", 1)[0].strip()
+    states = f"{fields.get('state', '')} {fields.get('job state', '')}"
+    if "spawn failed" in states or code in _SPAWN_FAILURE_CODES:
+        return False, f"en échec (exit {code})" if code.isdigit() else "en échec"
+    if "running" in fields.get("state", "") and "not running" not in fields.get(
+        "state", ""
+    ):
+        return True, "actif"
+    if code.isdigit() and code != "0":
+        return True, f"actif (dernier passage en erreur, exit {code})"
+    return True, "actif"
+
+
 def status(env: dict[str, str] | None = None) -> int:
-    """Affiche l'état (chargé/absent) des deux jobs."""
+    """Affiche l'état réel des deux jobs : actif, en échec, interpréteur introuvable
+    ou absent. Code de sortie non nul dès qu'un job n'est pas actif."""
     if not is_macos():
         print("[fontsync] Les LaunchAgents sont spécifiques à macOS.", file=sys.stderr)
         return 1
 
     domain = _domain()
+    healthy = True
     for label in LABELS:
         result = _launchctl("print", f"{domain}/{label}")
-        state = "chargé" if result.returncode == 0 else "absent"
+        ok, state = job_health(result.returncode, result.stdout or "")
+        healthy = healthy and ok
         print(f"[fontsync] {label} : {state}")
-    return 0
+    return 0 if healthy else 1
+
+
+def _installed_interpreter(label: str) -> str | None:
+    """Interpréteur inscrit dans le plist installé (`ProgramArguments[0]`)."""
+    target = LAUNCH_AGENTS_DIR / f"{label}.plist"
+    try:
+        with target.open("rb") as handle:
+            arguments = plistlib.load(handle).get("ProgramArguments") or []
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return None
+    return str(arguments[0]) if arguments else None
+
+
+def doctor(env: dict[str, str] | None = None) -> int:
+    """Compare l'interpréteur des plists installés à celui de cette installation.
+
+    Un écart (app déplacée ou mise à jour, venv de build) laisse launchd lancer
+    un autre agent que celui-ci, voire un interpréteur disparu : `setup`
+    (re)écrit les plists. Code de sortie non nul si un écart est trouvé.
+    """
+    if not is_macos():
+        print("[fontsync] Les LaunchAgents sont spécifiques à macOS.", file=sys.stderr)
+        return 1
+    expected = os.path.abspath(resolve_python(env))
+    ok = True
+    for label in LABELS:
+        installed = _installed_interpreter(label)
+        if installed is None:
+            print(f"[fontsync] {label} : non installé")
+            ok = False
+        elif os.path.abspath(installed) != expected:
+            gone = "" if Path(installed).exists() else " (introuvable)"
+            print(
+                f"[fontsync] {label} : l'interpréteur {installed}{gone} ne correspond "
+                f"pas à {expected} — lancer `fontsync-agent setup`."
+            )
+            ok = False
+        else:
+            print(f"[fontsync] {label} : interpréteur à jour")
+    return 0 if ok else 1

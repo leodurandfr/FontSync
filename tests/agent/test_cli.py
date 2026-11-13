@@ -38,10 +38,10 @@ def test_listen_command_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls == ["listen"]
 
 
-@pytest.mark.parametrize("command", ["setup", "teardown", "status"])
+@pytest.mark.parametrize("command", ["setup", "teardown", "status", "doctor"])
 def test_launchd_commands_route(command: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr(launchd_setup, command, lambda: calls.append(command) or 0)
+    monkeypatch.setattr(launchd_setup, command, lambda **kw: calls.append(command) or 0)
 
     assert cli.main([command]) == 0
     assert calls == [command]
@@ -62,5 +62,19 @@ def test_sync_wait_flag_is_passed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     cli.main(["sync", "--wait"])
     cli.main(["sync"])
+
+    assert seen == [True, False]
+
+
+def test_setup_passes_allow_dev_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        launchd_setup,
+        "setup",
+        lambda *, allow_dev_python=False: seen.append(allow_dev_python) or 0,
+    )
+
+    cli.main(["setup", "--allow-dev-python"])
+    cli.main(["setup"])
 
     assert seen == [True, False]

@@ -88,10 +88,13 @@ struct MenuContent: View {
     }
 
     private var agentLine: String {
-        switch (model.syncJobLoaded, model.listenJobLoaded) {
-        case (true, true): return "actif"
-        case (false, false): return "arrêté"
-        default: return "partiel"
+        if let problem = model.locationProblem { return problem }
+        switch (model.syncJobState, model.listenJobState) {
+        case (.active, .active): return "actif"
+        case (.absent, .absent): return "arrêté"
+        case (let sync, .active): return "sync \(sync.label)"
+        case (.active, let listen): return "listen \(listen.label)"
+        case (let sync, let listen): return "sync \(sync.label), listen \(listen.label)"
         }
     }
 

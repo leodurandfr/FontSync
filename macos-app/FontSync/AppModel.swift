@@ -46,6 +46,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastSync: Date?
     @Published private(set) var syncJobLoaded = false
     @Published private(set) var listenJobLoaded = false
+    /// État réel des jobs (actif / en échec / interpréteur introuvable / absent).
+    @Published private(set) var syncJobState: AgentJobState = .absent
+    @Published private(set) var listenJobState: AgentJobState = .absent
+    /// Emplacement d'où l'app ne doit rien installer (DMG, quarantaine) ; `nil` sinon.
+    @Published private(set) var locationProblem: String? = LaunchdStatus.locationProblem
+
+    private let lastSeenVersionKey = "fontsync.lastSeenBundleVersion"
+    private let lastRepairedVersionKey = "fontsync.lastRepairedBundleVersion"
     @Published private(set) var serverURL: URL?
 
     /// `true` si un agent (venv embarqué ou override dev) est pilotable :
@@ -72,6 +80,7 @@ final class AppModel: ObservableObject {
     func start() {
         guard timer == nil else { return }
         NotificationManager.requestAuthorization()
+        repairLaunchAgentsIfNeeded()
         refresh()
         let timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) {
             [weak self] _ in
@@ -96,9 +105,11 @@ final class AppModel: ObservableObject {
         serverURL = config.serverURL
         agentAvailable = AgentController.isAvailable
 
-        // État launchd (rapide, hors réseau).
-        syncJobLoaded = LaunchdStatus.isLoaded(LaunchdStatus.syncLabel)
-        listenJobLoaded = LaunchdStatus.isLoaded(LaunchdStatus.listenLabel)
+        // État launchd (rapide, hors réseau) : l'état réel, pas seulement « chargé ».
+        syncJobState = LaunchdStatus.state(LaunchdStatus.syncLabel)
+        listenJobState = LaunchdStatus.state(LaunchdStatus.listenLabel)
+        syncJobLoaded = syncJobState != .absent
+        listenJobLoaded = listenJobState != .absent
 
         guard let baseURL = config.serverURL else {
             connection = .notConfigured
@@ -179,10 +190,67 @@ final class AppModel: ObservableObject {
 
     /// Installe et charge les LaunchAgents de l'agent (`fontsync-agent setup`).
     /// Renvoie le résultat pour affichage dans les préférences, puis rafraîchit.
+    /// Refuse depuis un DMG ou une app en quarantaine : des LaunchAgents pointant
+    /// vers ce bundle cesseraient de fonctionner dès son éjection.
     func installAgent() async -> AgentResult {
+        if let problem = LaunchdStatus.locationProblem {
+            return AgentResult(exitCode: 1, output: problem)
+        }
         let result = await Task.detached { AgentController.setup() }.value
         refresh()
         return result
+    }
+
+    /// Au lancement : réinstalle les LaunchAgents s'ils pointent vers un
+    /// interpréteur disparu, une autre copie de l'app ou un venv de build, ou si
+    /// l'app vient d'être mise à jour (ce qui relance aussi `listen` sur le
+    /// nouveau code). Règles : `LaunchdStatus.repairDecision`. Une même
+    /// incohérence n'est réparée qu'une fois par version ; un échec de `setup`
+    /// sera retenté au prochain lancement.
+    private func repairLaunchAgentsIfNeeded() {
+        let defaults = UserDefaults.standard
+        let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        let bundlePath = Bundle.main.bundleURL.path
+        let installed = LaunchdStatus.installedInterpreter(LaunchdStatus.syncLabel)
+        let decision = LaunchdStatus.repairDecision(
+            bundlePath: bundlePath,
+            onReadOnlyVolume: LaunchdStatus.bundleOnReadOnlyVolume,
+            bundleInterpreter: AgentController.pythonInterpreter()?.path,
+            installedInterpreter: installed,
+            installedInterpreterExists: installed.map { FileManager.default.fileExists(atPath: $0) }
+                ?? false,
+            currentVersion: current,
+            lastSeenVersion: defaults.string(forKey: lastSeenVersionKey),
+            lastRepairKey: defaults.string(forKey: lastRepairedVersionKey)
+        )
+        // La version n'est retenue que pour une app installée (une version
+        // lancée depuis le DMG puis copiée dans Applications doit encore
+        // relancer les agents à son premier vrai lancement), et qu'une fois
+        // les agents à jour : un `setup` en échec est retenté au lancement suivant.
+        switch decision {
+        case .none:
+            if bundlePath.contains("/Applications/") {
+                defaults.set(current, forKey: lastSeenVersionKey)
+            }
+        case .refuseLocation:
+            locationProblem = LaunchdStatus.locationProblem
+        case .reinstall(let reason):
+            NSLog("FontSync : réinstallation des LaunchAgents (%@)", reason)
+            let key = LaunchdStatus.repairKey(
+                version: current,
+                installedInterpreter: URL(fileURLWithPath: installed ?? "")
+                    .standardizedFileURL.path)
+            Task {
+                let result = await Task.detached { AgentController.setup() }.value
+                if result.succeeded {
+                    defaults.set(key, forKey: lastRepairedVersionKey)
+                    defaults.set(current, forKey: lastSeenVersionKey)
+                } else {
+                    NSLog("FontSync : réinstallation en échec : %@", result.output)
+                }
+                refresh()
+            }
+        }
     }
 
     /// Décharge et supprime les LaunchAgents (`fontsync-agent teardown`).
