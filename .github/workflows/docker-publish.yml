@@ -31,6 +31,8 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -91,6 +93,7 @@ jobs:
         run: echo "value=${{ steps.meta.outputs.version }}+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Build & push (linux/amd64 + linux/arm64)
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -103,3 +106,32 @@ jobs:
             FONTSYNC_VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+
+  # Scan de l'image publiée (informatif, non bloquant) : le rapport est joint au
+  # run en artefact. Trivy est épinglé par digest. Le blocage se fait en amont,
+  # sur les dépendances déclarées (job `audit` de ci.yml).
+  image-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Trivy (vulnérabilités de l'image)
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}
+        run: |
+          mkdir -p scan
+          docker run --rm -v "$PWD/scan:/out" \
+            aquasec/trivy@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7 \
+            image --scanners vuln --format table --output /out/trivy.txt "$IMAGE"
+
+      - name: Rapport en artefact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-scan
+          path: scan/
+          if-no-files-found: warn

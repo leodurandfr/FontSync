@@ -90,6 +90,21 @@ en place.
 
 ---
 
+## Audit des dépendances
+
+- Le job `audit` de `ci.yml` (`pip-audit` sur `requirements.txt` et ses
+  dépendances transitives, `npm audit --omit=dev --audit-level=high` sur le
+  frontend) tourne à chaque push, chaque lundi, et **avant toute image** : un
+  avis connu bloque la publication.
+- Corriger d'abord (montée de version, `npm audit fix`). Si un avis ne concerne
+  pas FontSync (code non atteignable), l'ignorer **explicitement** dans
+  `ci.yml` (`pip-audit --ignore-vuln <ID>`), avec en commentaire la raison, la
+  date et une date de revue. Jamais de contournement silencieux.
+- Chaque image publiée est aussi scannée par Trivy (job `image-scan`, non
+  bloquant) : le rapport est l'artefact `image-scan` du run.
+
+---
+
 ## Vérifications post-release
 
 ```bash

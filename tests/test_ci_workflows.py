@@ -117,3 +117,27 @@ def test_dependabot_covers_ecosystems() -> None:
     assert ecosystems["npm"]["directory"] == "/frontend"
     for update in config["updates"]:
         assert update["schedule"]["interval"] == "weekly"
+
+
+def test_publish_needs_audit() -> None:
+    """build-and-push needs `test`, which runs ci.yml, whose `audit` job gates it."""
+    publish = _load("docker-publish.yml")
+    needs = publish["jobs"]["build-and-push"]["needs"]
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    assert "test" in needs
+    ci = _load("ci.yml")
+    audit = ci["jobs"]["audit"]
+    runs = "\n".join(str(s.get("run", "")) for s in audit["steps"])
+    assert "pip-audit" in runs
+    assert "npm audit --omit=dev" in runs
+    # Never skipped when called before a publication.
+    assert "workflow_call" not in str(audit.get("if", ""))
+
+
+def test_ci_has_weekly_schedule() -> None:
+    ci = _load("ci.yml")
+    schedule = _triggers(ci).get("schedule")
+    assert schedule and schedule[0].get("cron")
+    # The schedule only audits: tests are not re-run, nothing is published.
+    for name in ("backend", "frontend"):
+        assert "schedule" in str(ci["jobs"][name].get("if", ""))

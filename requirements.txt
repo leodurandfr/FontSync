@@ -5,7 +5,7 @@ pydantic==2.13.4
 sqlalchemy[asyncio]==2.0.36
 aiosqlite==0.20.0
 alembic==1.14.1
-fonttools==4.55.3
+fonttools==4.60.2
 python-multipart==0.0.32
 websockets==14.1
 pydantic-settings==2.7.1
