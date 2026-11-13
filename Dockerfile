@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # ─── Stage 1 : build du frontend (SPA Vue) ───────────────────────────────────
-FROM node:22-alpine AS frontend-build
+# Construit sur la plateforme de build : `dist/` est du JS/CSS statique, le même
+# pour amd64 et arm64. Sous émulation QEMU (image arm64 bâtie sur un runner
+# amd64), `npm ci` meurt sur « Illegal instruction » puis bloque le build.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-build
 
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
