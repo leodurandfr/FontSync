@@ -10,7 +10,7 @@ COPY frontend/ .
 RUN npm run build
 
 # ─── Stage 2 : backend Python + SPA buildé ───────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="FontSync" \
       org.opencontainers.image.description="Font manager self-hosted avec sync multi-machines temps réel" \
