@@ -21,7 +21,8 @@ class DeviceFont(Base):
     # une police scannée hors de `scan.ingest_directories` (ex. `/Library/Fonts`,
     # dossier tous-utilisateurs jamais nettoyé par l'agent) : elle reste visible
     # comme présente sur la machine, mais un push ne l'y offre plus et sa
-    # présence ne protège plus une pierre tombale ailleurs. Défaut `True` — un
+    # présence ne protège une pierre tombale que tant que l'appareil est vivant
+    # (G6bis, `services/harvest.py`), pas au titre de G6. Défaut `True` — un
     # agent qui ne connaît pas encore ce champ **bloque** la récolte, jamais
     # l'inverse.
     ingestible: Mapped[bool] = mapped_column(

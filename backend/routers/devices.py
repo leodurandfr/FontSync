@@ -5,12 +5,14 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
+from backend.models.font import Font
 from backend.schemas.device import (
     DeviceMerge,
     DeviceMergeResponse,
@@ -94,6 +96,23 @@ async def register_device(
             # à reconstruire — seule la visibilité change.
             logger.info("Device %s ranimé au ré-enregistrement.", device.id)
             device.deleted_at = None
+            # Ses associations redeviennent celles d'un appareil vivant (G6bis,
+            # `services/harvest.py`) : une candidature à la récolte ouverte
+            # pendant son absence repart de zéro, comme pour une arrivée (G8).
+            # Sinon une seule déclaration omise suffirait à récolter la tombe
+            # qu'il détient, sans délai de grâce.
+            await db.execute(
+                update(Font)
+                .where(
+                    Font.harvest_candidate_since.is_not(None),
+                    Font.id.in_(
+                        select(DeviceFont.font_id).where(
+                            DeviceFont.device_id == device.id
+                        )
+                    ),
+                )
+                .values(harvest_candidate_since=None)
+            )
         # Le hostname est une donnée mouvante, pas une clé : on le rafraîchit.
         device.hostname = body.hostname
         # Mise à jour du device existant (sans écraser auto_pull/auto_push ni

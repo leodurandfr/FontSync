@@ -1,12 +1,12 @@
 """Récolte des pierres tombales.
 
-Cf. `docs/PLAN-ETATS-FONTS.md` §3.4 pour la condition complète et ses neuf
+Cf. `docs/PLAN-ETATS-FONTS.md` §3.4 pour la condition complète et ses
 garde-fous. Le premier bloc couvre la version INERTE de L1/L2 (aperçu, aucune
-suppression, flag éteint — cinq garde-fous mesurables : G3, G4, G5, G6, G7).
+suppression, flag éteint — garde-fous mesurables : G3, G4, G5, G6, G6bis, G7).
 Le second bloc (« L5 ») couvre la récolte réellement activée : G1-G9 au
-complet, §7.4 items 22-31. Le troisième verrouille chaque garde de la
-récolte contre une régression (constats M-48, M-50, B-165, B-168 de l'audit),
-preuve par mutation.
+complet, §7.4 items 22-31, et G6bis (B-120). Le troisième verrouille chaque
+garde de la récolte contre une régression (constats M-48, M-50, B-165, B-168
+de l'audit), preuve par mutation.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
 from backend.models.font_family import FontFamily, FontFamilyMember
+from backend.routers.devices import register_device
+from backend.schemas.device import DeviceRegister
 from backend.schemas.sync import DeviceFontEntry
 from backend.services.font_importer import import_font
 from backend.services.harvest import harvest_tombstones
@@ -174,28 +176,164 @@ async def test_l5_ingestible_holder_blocks_harvest(
     assert await _font_exists(db, tomb.id)
 
 
+def _holding(device, tomb, *, ingestible: bool) -> DeviceFont:
+    return DeviceFont(
+        device_id=device.id,
+        font_id=tomb.id,
+        local_path=f"/Library/Fonts/{tomb.id}.ttf",
+        ingestible=ingestible,
+    )
+
+
 @pytest.mark.asyncio
-async def test_l5_non_ingestible_only_holder_is_harvestable(
+async def test_tomb_declared_non_ingestible_by_live_device_never_harvested(
     db, storage, font_factory, monkeypatch
 ) -> None:
-    """Le pendant de G6 : un détenteur NON ingestible (ex. `/Library/Fonts`) ne
-    protège pas — la tombe reste récoltable."""
+    """G6bis (B-120) : un appareil vivant qui déclare encore la tombe, même
+    depuis une couche non ingérable (`/Library/Fonts`), la protège. Récolter
+    l'empreinte effacerait l'intention de suppression : le fichier reviendrait
+    comme police neuve dès qu'il deviendrait ingérable."""
     _enable_harvest(monkeypatch)
     device = await _make_device(db)
     tomb = await _make_tombstone(db, storage, font_factory, "L5NonIngestible")
     device.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
-    db.add(
-        DeviceFont(
-            device_id=device.id,
-            font_id=tomb.id,
-            local_path="L5NonIngestible.ttf",
-            ingestible=False,
-        )
-    )
+    db.add(_holding(device, tomb, ingestible=False))
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since is None
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_device_holder_does_not_block(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G6bis ne compte que les appareils vivants : la trace non ingérable d'une
+    machine retirée ne bloque pas (G6 reste seul juge pour elle). Si elle
+    revient, voir `test_revived_device_declaring_from_shared_layer_blocks_harvest`."""
+    _enable_harvest(monkeypatch)
+    live = await _make_device(db, hostname="live")
+    gone = await _make_device(db, hostname="gone")
+    tomb = await _make_tombstone(db, storage, font_factory, "L5GoneHolder")
+    # Le vivant détient AUTRE CHOSE, non ingérable : G6bis doit regarder
+    # cette tombe-ci (sous-requête corrélée), pas « une association quelconque ».
+    other = await _make_font(db, storage, font_factory, "L5LiveOther")
+    db.add(_holding(live, other, ingestible=False))
+    live.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    gone.deleted_at = datetime.now(timezone.utc)
+    db.add(_holding(gone, tomb, ingestible=False))
     await db.commit()
 
     assert await harvest_tombstones(db) == 1
     assert not await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_live_holder_blocks_phase2_after_candidacy(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G6bis en phase 2, isolée : candidature déjà mûre et association non
+    ingérable d'un appareil vivant → rien ne part. (Une arrivée par la
+    réconciliation remet la candidature à zéro ; le chemin réel où la phase 2
+    décide est l'appareil supprimé qui revient, testé plus bas.)"""
+    _enable_harvest(monkeypatch, grace_hours=24)
+    device = await _make_device(db)
+    tomb = await _make_tombstone(db, storage, font_factory, "L5LateHolder")
+    opened = datetime.now(timezone.utc) - timedelta(hours=30)
+    tomb.deleted_at = opened - timedelta(hours=18)
+    tomb.purged_at = opened - timedelta(hours=1)
+    tomb.harvest_candidate_since = opened
+    device.last_declaration_at = datetime.now(timezone.utc)
+    db.add(_holding(device, tomb, ingestible=False))
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_preview_ignores_tombs_a_live_device_declares(
+    db, storage, font_factory
+) -> None:
+    """G6bis dans l'aperçu INERTE (flag éteint) : le compte journalisé ne
+    promet pas une récolte que la phase active refuserait."""
+    device = await _make_device(db)
+    tomb = await _make_tombstone(db, storage, font_factory, "PreviewHeld")
+    device.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    db.add(_holding(device, tomb, ingestible=False))
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_tomb_in_shared_layer_is_harvested_once_the_file_leaves(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G6bis n'est pas un verrou éternel : par la réconciliation réelle, la
+    tombe tient tant que A la déclare depuis `/Library/Fonts`, puis part une
+    fois le fichier sorti de cette couche et A redéclaré."""
+    _enable_harvest(monkeypatch)
+    a = await _make_device(db)
+    tomb = await _make_tombstone(db, storage, font_factory, "SharedLayer")
+    keep = await _make_font(db, storage, font_factory, "SharedLayerKeep")
+    await db.commit()
+    held = DeviceFontEntry(
+        hash=tomb.file_hash,
+        filename="SharedLayer.ttf",
+        local_path="/Library/Fonts/SharedLayer.ttf",
+        ingestible=False,
+    )
+    kept = DeviceFontEntry(hash=keep.file_hash, filename="SharedLayerKeep.ttf")
+
+    async def declare(entries: list[DeviceFontEntry]) -> int:
+        await reconcile_inventory(a.id, entries, db)
+        a.last_declaration_at = datetime.now(timezone.utc)
+        await db.commit()
+        return await harvest_tombstones(db)
+
+    assert await declare([held, kept]) == 0
+    assert await declare([held, kept]) == 0
+    assert await _font_exists(db, tomb.id)
+
+    harvested = [await declare([kept]) for _ in range(2)]
+    assert sum(harvested) == 1
+    assert not await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_revived_device_declaring_from_shared_layer_blocks_harvest(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G6bis, chemin réel de la phase 2 : B, supprimé, détient la tombe dans
+    `/Library/Fonts` ; la candidature s'ouvre sans lui. B revient (`register`
+    le ranime) et redéclare : son association existante n'est pas une
+    arrivée, la candidature n'est pas remise à zéro — seule G6bis en phase 2
+    retient la tombe."""
+    _enable_harvest(monkeypatch, grace_hours=24)
+    a = await _make_device(db, hostname="a")
+    b = await _make_device(db, hostname="b")
+    tomb = await _make_tombstone(db, storage, font_factory, "Revived")
+    a.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    b.deleted_at = datetime.now(timezone.utc)
+    db.add(_holding(b, tomb, ingestible=False))
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since is not None
+
+    b.deleted_at = None
+    tomb.harvest_candidate_since = datetime.now(timezone.utc) - timedelta(hours=30)
+    now = datetime.now(timezone.utc)
+    a.last_declaration_at = now
+    b.last_declaration_at = now
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
 
 
 @pytest.mark.asyncio
@@ -395,7 +533,7 @@ async def test_l5_harvest_cleans_up_empty_auto_grouped_family(
 
 # ---------- Verrous de non-régression (M-48, M-50, B-165, B-168) ----------
 #
-# G3, G4 et G6 sont vérifiées deux fois (ouverture de candidature, puis
+# G3, G4, G6 et G6bis sont vérifiées deux fois (ouverture de candidature, puis
 # récolte) : ces tests partent d'une candidature DÉJÀ mûre pour que la garde
 # de phase 2 soit seule décisive, au lieu de passer grâce à une autre (G6
 # notamment). G7 n'existe qu'en phase 1, G8 qu'en phase 2 ; G5 est vérifiée
@@ -700,3 +838,46 @@ async def test_l5_harvest_keeps_a_family_with_live_members(
         select(FontFamily.style_count).where(FontFamily.id == family_id)
     )
     assert style_count.scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_device_revival_restarts_the_grace_of_tombs_it_holds(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G6bis + G8 : B, supprimé, détient la tombe dans `/Library/Fonts` ; la
+    candidature s'ouvre sans lui. Au retour de B (`register` le ranime), la
+    candidature repart de zéro : une seule déclaration omise ensuite ne doit
+    pas suffire à récolter sans délai de grâce."""
+    _enable_harvest(monkeypatch, grace_hours=24)
+    a = await _make_device(db, hostname="a")
+    b = await _make_device(db, hostname="b")
+    tomb = await _make_tombstone(db, storage, font_factory, "RevivalGrace")
+    a.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    b.deleted_at = datetime.now(timezone.utc)
+    db.add(_holding(b, tomb, ingestible=False))
+    await db.commit()
+    assert await harvest_tombstones(db) == 0
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since is not None
+    # Candidature mûre pendant l'absence de B.
+    tomb.harvest_candidate_since = datetime.now(timezone.utc) - timedelta(hours=30)
+    await db.commit()
+
+    await register_device(
+        DeviceRegister(device_id=b.id, name="B", hostname="b", os="macos"), db
+    )
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since is None
+
+    # B omet la tombe dans une déclaration : son association part, la
+    # candidature se rouvre maintenant — et le délai de 24 h court à nouveau.
+    other = await _make_font(db, storage, font_factory, "RevivalOther")
+    await reconcile_inventory(
+        b.id, [DeviceFontEntry(hash=other.file_hash, filename="RevivalOther.ttf")], db
+    )
+    now = datetime.now(timezone.utc)
+    a.last_declaration_at = now
+    b.last_declaration_at = now
+    await db.commit()
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)

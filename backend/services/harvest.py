@@ -1,16 +1,17 @@
 """Récolte des pierres tombales.
 
 Condition exacte et neuf garde-fous détaillés en `docs/PLAN-ETATS-FONTS.md`
-§3.4. Tant que `settings.tombstone_harvest_enabled` est `False` (défaut,
+§3.4, plus G6bis (aucun appareil vivant ne la déclare, quelle que soit la
+couche). Tant que `settings.tombstone_harvest_enabled` est `False` (défaut,
 fail-safe), cette fonction reste l'aperçu INERTE livré en L1 : elle compte et
-journalise ce qui deviendrait récoltable (G3, G4, G5, G6, G7), sans jamais
-rien supprimer.
+journalise ce qui deviendrait récoltable (G3, G4, G5, G6, G6bis, G7), sans
+jamais rien supprimer.
 
 **Activée**, deux phases, dans la même transaction que l'appelant (pas de
 commit ici — `routers/sync.py:delta_sync` maîtrise la transaction) :
 
 1. **Ouverture de candidature** — pose `harvest_candidate_since` sur toute
-   pierre tombale qui satisfait G3, G4, G5, G6, G7 et n'a pas encore de
+   pierre tombale qui satisfait G3, G4, G5, G6, G6bis, G7 et n'a pas encore de
    candidature ouverte. N'efface rien.
 2. **Récolte** — supprime, dans la limite de G9 (`tombstone_harvest_max_per_pass`),
    les pierres tombales dont la candidature est ouverte depuis au moins
@@ -39,11 +40,27 @@ logger = logging.getLogger(__name__)
 # la corbeille compte des centaines de candidats.
 _LOG_SAMPLE = 20
 
-# Garde-fous partagés par les deux phases : au moins un appareil vivant (G5),
-# aucun détenteur ingestible (G6).
+# Garde-fous partagés par l'aperçu et les deux phases : au moins un appareil
+# vivant (G5), aucun détenteur ingestible (G6), aucun appareil vivant qui la
+# déclare encore, quelle que soit la couche (G6bis).
 _any_live_device = select(Device.id).where(Device.deleted_at.is_(None))
 _ingestible_holder_exists = select(DeviceFont.font_id).where(
     DeviceFont.font_id == Font.id, DeviceFont.ingestible.is_(True)
+)
+# G6bis (B-120) : une association non ingérable (`/Library/Fonts`, couche que
+# FontSync ne gère pas) ne compte pas pour G6, mais elle dit que le fichier est
+# encore sur une machine vivante. Il n'est pas offert au push tel quel ; mais
+# récolter l'empreinte efface l'intention de suppression, et le fichier
+# reviendrait comme police neuve dès qu'il devient ingérable (copié dans
+# `~/Library/Fonts`, `ingest_directories` élargi, agent trop ancien pour
+# envoyer son chemin). « Vider la corbeille conserve l'empreinte » : tant
+# qu'une machine vivante la déclare, la tombe reste. G6 reste seul juge pour
+# les appareils supprimés ; un appareil supprimé qui revient (le `register`
+# le ranime) est rattrapé par G6bis en phase 2.
+_live_holder_exists = (
+    select(DeviceFont.font_id)
+    .join(Device, Device.id == DeviceFont.device_id)
+    .where(DeviceFont.font_id == Font.id, Device.deleted_at.is_(None))
 )
 
 
@@ -65,8 +82,8 @@ async def harvest_tombstones(db: AsyncSession) -> int:
 async def _preview_candidates(db: AsyncSession) -> int:
     """Version INERTE de L1/L2 : compte et journalise, ne supprime rien.
 
-    Ne couvre que les cinq garde-fous mesurables avant l'activation (G3, G4,
-    G5, G6, G7) — G8 (délai de grâce) et G9 (plafond) n'ont de sens qu'une
+    Ne couvre que les garde-fous mesurables avant l'activation (G3, G4, G5,
+    G6, G6bis, G7) — G8 (délai de grâce) et G9 (plafond) n'ont de sens qu'une
     fois la suppression réellement en jeu.
     """
     undeclared_since_deletion = select(Device.id).where(
@@ -83,6 +100,7 @@ async def _preview_candidates(db: AsyncSession) -> int:
             deletion_confirmed_clause(),  # G4
             exists(_any_live_device),  # G5
             ~exists(_ingestible_holder_exists),  # G6
+            ~exists(_live_holder_exists),  # G6bis
             ~exists(undeclared_since_deletion),  # G7
         )
     )
@@ -118,6 +136,7 @@ async def _open_candidacies(db: AsyncSession, now: datetime) -> None:
             Font.harvest_candidate_since.is_(None),
             exists(_any_live_device),  # G5
             ~exists(_ingestible_holder_exists),  # G6
+            ~exists(_live_holder_exists),  # G6bis
             ~exists(undeclared_since_deletion),  # G7
         )
         .values(harvest_candidate_since=now)
@@ -144,6 +163,7 @@ async def _harvest_ready_candidates(db: AsyncSession, now: datetime) -> int:
             Font.harvest_candidate_since <= now - grace,  # G8 — délai de grâce
             exists(_any_live_device),  # G5
             ~exists(_ingestible_holder_exists),  # G6
+            ~exists(_live_holder_exists),  # G6bis
             ~exists(undeclared_since_candidacy),  # G8 — redéclaré depuis
         )
         .limit(settings.tombstone_harvest_max_per_pass)  # G9

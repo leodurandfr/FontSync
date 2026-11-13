@@ -155,7 +155,8 @@ async def reconcile_inventory(
             # Une arrivée sur une tombe annule sa candidature à la récolte
             # (`docs/PLAN-ETATS-FONTS.md` §3.1, §3.4/G8) : ce détenteur retrouvé
             # prouve que la pierre tombale n'était pas orpheline, quelle que soit
-            # la couche (ingestible ou non — G6 la protège déjà indépendamment).
+            # la couche (ingestible ou non — G6, ou G6bis pour une association
+            # non ingérable d'un appareil vivant, la protège déjà indépendamment).
             if font.deleted_at is not None:
                 font.harvest_candidate_since = None
             arrivals += 1

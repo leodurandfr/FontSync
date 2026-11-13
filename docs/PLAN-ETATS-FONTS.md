@@ -1,6 +1,6 @@
 # Remise à plat des états d'une police — modèle cible et plan de migration
 
-> **Ce que la cible du brief demandait et ce qu'elle devient.** Le brief §3 vise « d'environ huit champs d'état à trois » : `Font.deleted_at`, `DeviceFont` (qui détient quoi), un booléen de confirmation. **Ce document en livre cinq**, et le dit d'entrée plutôt que de le reformuler en fin de tableau. Les deux écarts : `Font.purged_at` survit (il est le seul bit qui sépare « corbeille restaurable » de « pierre tombale invisible », `backend/services/trash.py:44`, `backend/routers/fonts.py:380`, `:744`, et c'est la pré-condition obligatoire de la récolte — le fondre imposerait de le réinventer sous un autre nom), et `DeviceFont.ingestible` naît (c'est §2.2 du brief traduit en donnée : un détenteur qui ne peut pas repousser ne protège rien). En échange, **cinq colonnes disparaissent**, dont `deleted_reason` que le brief demandait de fondre. Sur la ligne `Font` elle-même, l'objectif est tenu : 4 champs d'état → 3.
+> **Ce que la cible du brief demandait et ce qu'elle devient.** Le brief §3 vise « d'environ huit champs d'état à trois » : `Font.deleted_at`, `DeviceFont` (qui détient quoi), un booléen de confirmation. **Ce document en livre cinq**, et le dit d'entrée plutôt que de le reformuler en fin de tableau. Les deux écarts : `Font.purged_at` survit (il est le seul bit qui sépare « corbeille restaurable » de « pierre tombale invisible », `backend/services/trash.py:44`, `backend/routers/fonts.py:380`, `:744`, et c'est la pré-condition obligatoire de la récolte — le fondre imposerait de le réinventer sous un autre nom), et `DeviceFont.ingestible` naît (c'est §2.2 du brief traduit en donnée : un détenteur qui ne peut pas repousser ne protège rien ; *G6bis, audit 2026-10, en fait une exception pour un appareil vivant*). En échange, **cinq colonnes disparaissent**, dont `deleted_reason` que le brief demandait de fondre. Sur la ligne `Font` elle-même, l'objectif est tenu : 4 champs d'état → 3.
 >
 > Tous les chiffres ci-dessous ont été **remesurés en lecture seule** sur `.dev/backup/fontsync-20260810-1810.db` (`sqlite3 -readonly`, aucune écriture). `pytest tests/ -q` revérifié : **314 passed, 3 skipped**. Aucun fichier écrit, aucune migration lancée.
 
@@ -270,7 +270,8 @@ unknown_to_server = list(ingestible_hashes - known_hashes)      # sync_manager.p
    │ PIERRE TOMBALE   purged_at posé          │  INVISIBLE, non restaurable (409)
    │ protège tant qu'un détenteur ingestible  │  refuse le push (sync.py:150-165)
    └──────────────────────────────────────────┘
-        │ plus aucun détenteur ingestible, toutes les machines ont re-déclaré,
+        │ plus aucun détenteur ingestible ni appareil vivant qui la déclare
+        │ (G6bis, audit 2026-10), toutes les machines ont re-déclaré,
         │ délai de grâce écoulé
         ▼
    ┌──────────────────────────────────────────┐
@@ -294,6 +295,8 @@ WHERE deleted_at              IS NOT NULL
   AND EXISTS (SELECT 1 FROM devices d WHERE d.deleted_at IS NULL)          -- G5
   AND NOT EXISTS (SELECT 1 FROM device_fonts df
                   WHERE df.font_id = fonts.id AND df.ingestible = 1)       -- G6
+  AND NOT EXISTS (SELECT 1 FROM device_fonts df JOIN devices d ON d.id = df.device_id
+                  WHERE df.font_id = fonts.id AND d.deleted_at IS NULL)    -- G6bis
   AND NOT EXISTS (SELECT 1 FROM devices d
                   WHERE d.deleted_at IS NULL
                     AND (d.last_declaration_at IS NULL
@@ -309,6 +312,8 @@ WHERE f.deleted_at              IS NOT NULL
   AND EXISTS (SELECT 1 FROM devices d WHERE d.deleted_at IS NULL)          -- G5
   AND NOT EXISTS (SELECT 1 FROM device_fonts df
                   WHERE df.font_id = f.id AND df.ingestible = 1)           -- G6
+  AND NOT EXISTS (SELECT 1 FROM device_fonts df JOIN devices d ON d.id = df.device_id
+                  WHERE df.font_id = f.id AND d.deleted_at IS NULL)        -- G6bis
   AND NOT EXISTS (SELECT 1 FROM devices d
                   WHERE d.deleted_at IS NULL
                     AND (d.last_declaration_at IS NULL
@@ -334,7 +339,7 @@ Le dernier `DELETE` ferme un défaut mesuré : `list_families` (`routers/font_fa
 
 Journalisation **WARNING** avec décompte et identifiants : c'est le **premier `DELETE` de l'histoire du schéma sur la table `fonts`** (vérifié : les seules suppressions dures du dépôt portent sur `FontFamilyMember`/`FontFamily`, `family_grouper.py:199-205`). Aucun événement WebSocket : les lignes étaient déjà invisibles.
 
-**Les neuf garde-fous**
+**Les neuf garde-fous** (dix depuis G6bis, ajouté par l'audit d'octobre 2026)
 
 | # | Garde-fou | Ce qu'il ferme |
 |---|---|---|
@@ -343,7 +348,8 @@ Journalisation **WARNING** avec décompte et identifiants : c'est le **premier `
 | G3 | `purged_at IS NOT NULL` | Récolter une ligne non purgée abandonnerait le blob (`storage.py:40-44`). |
 | G4 | `deletion_confirmed = 1` | Une quarantaine en attente ne disparaît jamais toute seule. |
 | G5 | `EXISTS (… devices WHERE deleted_at IS NULL)` | Sur un serveur sans machine, G6 et G7 seraient vrais par vacuité et toute la corbeille partirait au premier delta. |
-| G6 | **Aucun détenteur ingestible**, appareils soft-supprimés **compris** | La formulation du brief §3.1 raffinée par §2.2 : c'est ce raffinement qui libère les ~84 empreintes. Un appareil retiré de l'UI continue de protéger ce qu'il détient. |
+| G6 | **Aucun détenteur ingestible**, appareils soft-supprimés **compris** | La formulation du brief §3.1 raffinée par §2.2 : c'est ce raffinement qui libère les ~84 empreintes (*G6bis les retient désormais tant qu'une machine vivante les déclare*). Un appareil retiré de l'UI continue de protéger ce qu'il détient. |
+| G6bis | **Aucun appareil vivant ne la déclare**, quelle que soit la couche (ingestible ou non) | Ajouté par l'audit d'octobre 2026 (B-120). Une association `ingestible = 0` (`/Library/Fonts`) ne protégeait pas. Le fichier n'est pas offert au push tel quel, mais récolter l'empreinte efface l'intention de suppression : il reviendrait comme police neuve dès qu'il devient ingérable (copié dans `~/Library/Fonts`, `ingest_directories` élargi, agent trop ancien pour envoyer son chemin). G6 reste seul juge pour les appareils supprimés ; un appareil supprimé qui revient (`register` le ranime) est rattrapé en phase 2. Effet voulu : ces pierres tombales (invisibles, hors corbeille) restent tant qu'une machine vivante les déclare ; elles sont récoltées dès que le fichier quitte `/Library/Fonts`. |
 | G7 | **Toutes les machines vivantes ont déclaré depuis la suppression** | Couvre l'intervalle entre `delete_font` (qui efface les associations, `fonts.py:692`) et le delta suivant de chaque machine — l'intervalle où « aucun détenteur » est trivialement vrai. Rend aussi le déploiement **auto-séquencé** : après L1, `last_declaration_at` est NULL partout. |
 | G8 | **Délai de grâce** : candidature ouverte depuis `tombstone_harvest_grace` (défaut 24 h) **et** toutes les machines vivantes ont re-déclaré **depuis l'ouverture** | **Le garde-fou qui rend une omission de déclaration non fatale.** L'agent perd silencieusement toute police dont `stat()`/`open()` lève `OSError` (`agent/hashing.py:85-88`), ignore en `debug` un dossier momentanément absent (`agent/discovery.py:111-113`), et son en-tête de module énonce que l'index Core Text se fige (`agent/discovery.py:5-14`). La déclaration suivante recrée l'association et remet `harvest_candidate_since` à NULL : **rien n'a été détruit entre-temps**. Sans G8, une seule déclaration incomplète suffit à récolter une tombe dont le fichier est encore poussable — et la police revient au sync d'après, en boucle. |
 | G9 | `tombstone_harvest_max_per_pass` + log par identifiant + `tombstone_harvest_enabled` | Le flag protège d'une **erreur de raisonnement** (livrer inerte, lire les chiffres, puis autoriser) ; G7/G8 protègent d'une **erreur d'ordonnancement** et d'une **erreur de mesure**. Trois risques, trois protections. Le plafond démarre à **5** au premier cycle réel, pas à 200. |
@@ -361,7 +367,7 @@ Journalisation **WARNING** avec décompte et identifiants : c'est le **premier `
 ### 3.6 Effet attendu sur la production
 
 - **L0, sans migration** : l'écran corbeille passe de **1 025 lignes inertes à 0**, par le seul filtre de visibilité.
-- **Après L5** : sont récoltables les 1 015 tombes sans détenteur, **plus** celles dont le seul détenteur est non ingestible (les ~84 de `/Library/Fonts`), **plus** les 10 `quarantine` dont un détenteur cesse de déclarer. Ordre de grandeur : **la corbeille tombe à zéro ligne en base**, étalée sur plusieurs cycles par G8 et G9.
+- **Après L5** : sont récoltables les 1 015 tombes sans détenteur, **plus** celles dont le seul détenteur est non ingestible (les ~84 de `/Library/Fonts`), **plus** les 10 `quarantine` dont un détenteur cesse de déclarer. Ordre de grandeur : **la corbeille tombe à zéro ligne en base**, étalée sur plusieurs cycles par G8 et G9. *Amendé par G6bis (audit 2026-10) : les tombes encore déclarées depuis `/Library/Fonts` par une machine vivante restent en base (87 au 2026-11-13, détenues par les deux Macs) jusqu'à ce que le fichier quitte cette couche.*
 
 ---
 
@@ -667,7 +673,7 @@ Note sur le HEALTHCHECK (`Dockerfile:54`, `--start-period=20s --interval=30s --r
 
 ### 7.4 À écrire en L4/L5 (récolte)
 
-22–31. Un test par garde-fou, chacun isolément bloquant : détenteur ingestible (G6), détenteur non ingestible seulement → récoltable, appareil à `last_declaration_at` NULL ou antérieur (G7), `purged_at` NULL (G3), `deletion_confirmed = 0` (G4), aucun appareil vivant (G5), plafond (G9), **délai de grâce non écoulé (G8)**, **une tombe dont un détenteur ingestible omet UNE déclaration puis la reprend n'est jamais récoltée (G8, le test le plus important du lot)**, et **nettoyage `font_family_members` + suppression des familles auto-groupées vides + recalage `style_count` + `PRAGMA foreign_key_check` vide**.
+22–31. Un test par garde-fou, chacun isolément bloquant : détenteur ingestible (G6), détenteur non ingestible seulement → récoltable (*amendé par G6bis : seulement si l'appareil est supprimé*), appareil à `last_declaration_at` NULL ou antérieur (G7), `purged_at` NULL (G3), `deletion_confirmed = 0` (G4), aucun appareil vivant (G5), plafond (G9), **délai de grâce non écoulé (G8)**, **une tombe dont un détenteur ingestible omet UNE déclaration puis la reprend n'est jamais récoltée (G8, le test le plus important du lot)**, et **nettoyage `font_family_members` + suppression des familles auto-groupées vides + recalage `style_count` + `PRAGMA foreign_key_check` vide**.
 
 ### 7.5 Test structurel à ajouter en L1 — il ferme une classe entière de risque
 
@@ -738,7 +744,10 @@ explicite » (`CLAUDE.md`) tranche le défaut, et 551 polices quittant la biblio
 seul geste, c'est exactement la forme que le garde-fou de quarantaine existe pour empêcher.
 Le modèle cible les gère proprement au passage : leur ligne `device_fonts` porte
 `ingestible = 0`, donc une suppression ultérieure les rend **récoltables** (G6) au lieu de
-laisser une tombe éternelle.
+laisser une tombe éternelle — *amendé par G6bis (audit 2026-10, B-120) : c'est l'inverse
+désormais. Tant qu'une machine vivante les déclare depuis `/Library/Fonts` (que FontSync
+ne nettoie jamais), leurs pierres tombales restent, invisibles : elles gardent l'intention
+de suppression. Elles ne sont récoltées qu'une fois le fichier sorti de cette couche.*
 
 **Alternative non retenue, rouvrable :** les évincer de la bibliothèque en un geste groupé et
 explicite. Lot séparé, **après L5**, qui suppose un écran de confirmation groupée — `/restore`
