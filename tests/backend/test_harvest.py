@@ -4,7 +4,9 @@ Cf. `docs/PLAN-ETATS-FONTS.md` §3.4 pour la condition complète et ses neuf
 garde-fous. Le premier bloc couvre la version INERTE de L1/L2 (aperçu, aucune
 suppression, flag éteint — cinq garde-fous mesurables : G3, G4, G5, G6, G7).
 Le second bloc (« L5 ») couvre la récolte réellement activée : G1-G9 au
-complet, §7.4 items 22-31.
+complet, §7.4 items 22-31. Le troisième verrouille chaque garde de la
+récolte contre une régression (constats M-48, M-50, B-165, B-168 de l'audit),
+preuve par mutation.
 """
 
 from __future__ import annotations
@@ -236,7 +238,8 @@ async def test_l5_not_purged_blocks_harvest(
 async def test_l5_unconfirmed_deletion_blocks_harvest(
     db, storage, font_factory, monkeypatch
 ) -> None:
-    """G4 : une quarantaine en attente n'est jamais candidate."""
+    """G4 : une quarantaine en attente n'est jamais candidate — le délai de
+    grâce ne court pas pendant la quarantaine."""
     _enable_harvest(monkeypatch)
     device = await _make_device(db)
     tomb = await _make_tombstone(
@@ -247,6 +250,8 @@ async def test_l5_unconfirmed_deletion_blocks_harvest(
 
     assert await harvest_tombstones(db) == 0
     assert await _font_exists(db, tomb.id)
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since is None
 
 
 @pytest.mark.asyncio
@@ -315,10 +320,11 @@ async def test_l5_grace_period_blocks_harvest(
 async def test_l5_redeclaration_after_omission_is_never_harvested(
     db, storage, font_factory, monkeypatch
 ) -> None:
-    """G8, le test le plus important du lot : une tombe dont l'unique
-    détenteur ingestible omet UNE déclaration puis la reprend n'est jamais
-    récoltée — quand bien même le délai de grâce de la candidature ouverte
-    entre-temps finirait par s'écouler."""
+    """Une tombe dont l'unique détenteur ingestible omet UNE déclaration puis
+    la reprend n'est pas récoltée : la redéclaration recrée l'association
+    (G6) et remet la candidature à zéro. Le délai de grâce ne s'écoule pas
+    ici, donc la garde G8 « redéclaré depuis l'ouverture » n'y est jamais
+    décisive : elle est verrouillée plus bas (M-48)."""
     _enable_harvest(monkeypatch, grace_hours=24)
     device = await _make_device(db)
     tomb = await _make_tombstone(db, storage, font_factory, "L5Redeclare")
@@ -385,3 +391,312 @@ async def test_l5_harvest_cleans_up_empty_auto_grouped_family(
     )
     assert remaining_member.scalar_one_or_none() is None
     assert not await _family_exists(db, family_id)
+
+
+# ---------- Verrous de non-régression (M-48, M-50, B-165, B-168) ----------
+#
+# G3, G4 et G6 sont vérifiées deux fois (ouverture de candidature, puis
+# récolte) : ces tests partent d'une candidature DÉJÀ mûre pour que la garde
+# de phase 2 soit seule décisive, au lieu de passer grâce à une autre (G6
+# notamment). G7 n'existe qu'en phase 1, G8 qu'en phase 2 ; G5 est vérifiée
+# deux fois mais ne peut pas devenir fausse ici : la récolte ne tourne que dans
+# le delta d'un appareil vivant. Le temps ne s'attend pas : on recule
+# `harvest_candidate_since`.
+
+_GRACE_HOURS = 24
+
+
+async def _ripe_tombstone(
+    db, storage, font_factory, family: str, *, opened_hours_ago: float = 30
+) -> Font:
+    """Tombe confirmée, sans détenteur, supprimée puis purgée, candidature
+    ouverte il y a `opened_hours_ago` heures (dans cet ordre, comme la phase 1
+    l'exige)."""
+    tomb = await _make_tombstone(db, storage, font_factory, family)
+    opened = datetime.now(timezone.utc) - timedelta(hours=opened_hours_ago)
+    tomb.deleted_at = opened - timedelta(hours=18)
+    tomb.purged_at = opened - timedelta(hours=1)
+    tomb.harvest_candidate_since = opened
+    return tomb
+
+
+@pytest.mark.asyncio
+async def test_l5_device_declared_before_candidacy_blocks_harvest(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-48 (G8) : B a déclaré après la suppression mais AVANT l'ouverture de
+    la candidature (Mac éteint le week-end). Le délai s'écoule : rien ne part
+    tant que B n'a pas redéclaré, puis la tombe est récoltée."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    a = await _make_device(db, hostname="a")
+    b = await _make_device(db, hostname="b")
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockBeforeCandidacy")
+    now = datetime.now(timezone.utc)
+    a.last_declaration_at = now
+    b.last_declaration_at = tomb.harvest_candidate_since - timedelta(hours=10)
+    assert b.last_declaration_at > tomb.deleted_at
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+    b.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+    assert await harvest_tombstones(db) == 1
+    assert not await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_device_never_declared_since_candidacy_blocks_harvest(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-48 (G8) : un appareil enregistré après l'ouverture et qui n'a encore
+    jamais déclaré (`last_declaration_at` NULL) bloque la récolte."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    a = await _make_device(db, hostname="a")
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockNeverDeclared")
+    a.last_declaration_at = datetime.now(timezone.utc)
+    late = await _make_device(db, hostname="late")
+    assert late.last_declaration_at is None
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+    late.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+    assert await harvest_tombstones(db) == 1
+    assert not await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_ripe_candidacy_on_unpurged_tombstone_is_not_harvested(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-50 (G3, phase 2) : candidature mûre, mais le fichier est de nouveau
+    au stockage — récolter la ligne abandonnerait le blob. Chemin réel : un
+    ré-upload la réveille (le fichier revient, la candidature survit, B-101),
+    puis elle est re-supprimée avant tout vidage de corbeille."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockUnpurged")
+    device.last_declaration_at = datetime.now(timezone.utc)
+    tomb.purged_at = None
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_ripe_candidacy_on_unconfirmed_deletion_is_not_harvested(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-50 (G4, phase 2, par précaution) : une quarantaine en attente n'est
+    jamais récoltée, même avec une candidature mûre."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockUnconfirmed")
+    device.last_declaration_at = datetime.now(timezone.utc)
+    tomb.deletion_confirmed = False
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_ripe_candidacy_with_ingestible_holder_is_not_harvested(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-50 (G6, phase 2) : un détenteur redevenu ingestible après l'ouverture
+    protège la tombe, candidature mûre ou pas."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockIngestible")
+    device.last_declaration_at = datetime.now(timezone.utc)
+    db.add(
+        DeviceFont(
+            device_id=device.id,
+            font_id=tomb.id,
+            local_path="LockIngestible.ttf",
+            ingestible=True,
+        )
+    )
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_unpurged_tombstone_never_opens_candidacy(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-50 (G3, phase 1) : tant que le fichier est au stockage, la candidature
+    ne s'ouvre pas — le délai de grâce ne court pas avant le vidage."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    font = await _make_font(db, storage, font_factory, "LockPhase1Unpurged")
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    device.last_declaration_at = font.deleted_at + timedelta(seconds=1)
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    await db.refresh(font)
+    assert font.harvest_candidate_since is None
+
+
+@pytest.mark.asyncio
+async def test_l5_grace_period_bounds(db, storage, font_factory, monkeypatch) -> None:
+    """B-165 (G8) : avec 24 h de grâce, une candidature de 23 h 30 attend, une
+    de 24 h 30 est récoltée (bornes serrées : un délai faussé d'une heure se
+    voit)."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    young = await _ripe_tombstone(
+        db, storage, font_factory, "LockYoung", opened_hours_ago=_GRACE_HOURS - 0.5
+    )
+    ripe = await _ripe_tombstone(
+        db, storage, font_factory, "LockRipe", opened_hours_ago=_GRACE_HOURS + 0.5
+    )
+    device.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 1
+    assert await _font_exists(db, young.id)
+    assert not await _font_exists(db, ripe.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_candidacy_date_is_kept_across_passes(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-165 (G8) : une passe ne repousse pas une candidature déjà ouverte —
+    sinon, avec 24 h de grâce et un delta toutes les 10 min, plus rien ne
+    serait jamais récolté."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    tomb = await _make_tombstone(db, storage, font_factory, "LockOpening")
+    device.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 0
+    await db.refresh(tomb)
+    opened = tomb.harvest_candidate_since
+    assert opened is not None
+
+    assert await harvest_tombstones(db) == 0
+    await db.refresh(tomb)
+    assert tomb.harvest_candidate_since == opened
+
+    # Recul de 25 h : la passe suivante récolte, sans rouvrir la candidature.
+    tomb.harvest_candidate_since = opened - timedelta(hours=25)
+    device.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+    assert await harvest_tombstones(db) == 1
+    assert not await _font_exists(db, tomb.id)
+
+
+@pytest.mark.asyncio
+async def test_l5_harvest_keeps_manual_family_even_empty(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-168 : une famille créée à la main (`is_auto_grouped=False`) survit à
+    la récolte de son dernier membre ; seule l'auto-groupée vide disparaît."""
+    _enable_harvest(monkeypatch)
+    device = await _make_device(db)
+    tomb = await _ripe_tombstone(db, storage, font_factory, "LockManualFamily")
+    device.last_declaration_at = datetime.now(timezone.utc)
+    member = (
+        await db.execute(
+            select(FontFamilyMember).where(FontFamilyMember.font_id == tomb.id)
+        )
+    ).scalar_one()
+    family_id = member.family_id
+    family = await db.get(FontFamily, family_id)
+    family.is_auto_grouped = False
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 1
+
+    assert not await _font_exists(db, tomb.id)
+    assert await _family_exists(db, family_id)
+    style_count = await db.execute(
+        select(FontFamily.style_count).where(FontFamily.id == family_id)
+    )
+    assert style_count.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_l5_grace_starts_when_the_candidacy_opens(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """G8 : le délai court à partir de l'ouverture de la candidature, pas de la
+    suppression ni du vidage. Une tombe supprimée il y a 48 h et purgée depuis
+    longtemps ouvre sa candidature maintenant, et n'est pas récoltée dans la
+    même passe."""
+    _enable_harvest(monkeypatch, grace_hours=_GRACE_HOURS)
+    device = await _make_device(db)
+    tomb = await _make_tombstone(db, storage, font_factory, "LockAnchor")
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=2 * _GRACE_HOURS)
+    tomb.deleted_at = long_ago
+    tomb.purged_at = long_ago + timedelta(minutes=5)
+    device.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+    before_pass = datetime.now(timezone.utc)
+
+    assert await harvest_tombstones(db) == 0
+    assert await _font_exists(db, tomb.id)
+    await db.refresh(tomb)
+    opened = tomb.harvest_candidate_since
+    assert opened is not None
+    if opened.tzinfo is None:  # SQLite rend des datetimes naïfs (UTC)
+        opened = opened.replace(tzinfo=timezone.utc)
+    assert opened >= before_pass
+
+
+@pytest.mark.asyncio
+async def test_l5_harvest_keeps_a_family_with_live_members(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """Nettoyage : récolter une graisse d'une famille auto-groupée qui garde
+    des membres vivants recale `style_count` sans supprimer la famille (sinon
+    violation de clé étrangère : le delta planterait)."""
+    _enable_harvest(monkeypatch)
+    device = await _make_device(db)
+    tomb, _ = await import_font(
+        "Kin-Bold.ttf",
+        font_factory(family="LockKin", subfamily="Bold", weight_class=700),
+        storage,
+        db,
+    )
+    live, _ = await import_font(
+        "Kin-Regular.ttf", font_factory(family="LockKin"), storage, db
+    )
+    members = await db.execute(
+        select(FontFamilyMember.font_id, FontFamilyMember.family_id).where(
+            FontFamilyMember.font_id.in_([tomb.id, live.id])
+        )
+    )
+    family_ids = {family_id for _font_id, family_id in members.all()}
+    assert len(family_ids) == 1, "les deux graisses doivent partager une famille"
+    family_id = family_ids.pop()
+    opened = datetime.now(timezone.utc) - timedelta(hours=30)
+    tomb.deleted_at = opened - timedelta(hours=18)
+    tomb.deletion_confirmed = True
+    tomb.purged_at = opened - timedelta(hours=1)
+    tomb.harvest_candidate_since = opened
+    device.last_declaration_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 1
+
+    assert not await _font_exists(db, tomb.id)
+    assert await _font_exists(db, live.id)
+    assert await _family_exists(db, family_id)
+    style_count = await db.execute(
+        select(FontFamily.style_count).where(FontFamily.id == family_id)
+    )
+    assert style_count.scalar_one() == 1
