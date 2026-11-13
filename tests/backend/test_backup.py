@@ -277,7 +277,9 @@ def test_mirror_counts_unreadable_directory(tmp_path, font_factory) -> None:
         locked.chmod(0o755)
 
     assert result.failed >= 1
-    assert result.copied == len({b.parent for b in blobs} - {locked})
+    # Compter les fichiers hors du dossier illisible, pas les dossiers préfixes :
+    # deux empreintes peuvent partager le même préfixe.
+    assert result.copied == sum(1 for b in blobs if b.parent != locked)
 
 
 def test_rotation_removes_orphan_wal_and_shm(tmp_path) -> None:
