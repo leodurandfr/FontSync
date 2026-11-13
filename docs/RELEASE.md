@@ -41,8 +41,10 @@ git push origin v1.0.0
 
 Le push du tag déclenche **deux workflows** en parallèle :
 
-- `docker-publish.yml` → build & push de l'image `ghcr.io/<owner>/<repo>:1.0.0`
-  (+ `1.0`, `latest`), amd64 + arm64.
+- `docker-publish.yml` → **d'abord le job `test`** (le workflow `ci.yml` : ruff,
+  pytest, build typé et tests du frontend), **puis seulement** le build & push
+  de l'image `ghcr.io/<owner>/<repo>:1.0.0` (+ `1.0`, `latest`), amd64 + arm64.
+  Un test rouge = aucune image publiée.
 - `release.yml` → création de la **GitHub Release en draft** `v1.0.0`, avec des
   notes auto-générées et la commande `docker pull` pré-remplie.
 
@@ -120,7 +122,8 @@ Un Mac déjà installé en version antérieure doit proposer la mise à jour
 
 | Fichier | Rôle |
 |---|---|
-| `.github/workflows/docker-publish.yml` | Build & push image serveur (P2.2) |
+| `.github/workflows/ci.yml` | Lint + tests (backend, agent, frontend) à chaque push/PR, et avant toute image |
+| `.github/workflows/docker-publish.yml` | Tests puis build & push image serveur (P2.2) |
 | `.github/workflows/release.yml` | Crée la GitHub Release sur tag (P4.3) |
 | `scripts/release-macos-app.sh` | Build app signée + `.dmg` + appcast (P3.7) |
 | `scripts/publish-release.sh` | Téléverse `.dmg`/appcast sur la Release (P4.3) |

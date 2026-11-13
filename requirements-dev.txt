@@ -1,5 +1,10 @@
 # Outils de développement (lint, tests). Les dépendances d'exécution sont dans
-# requirements.txt. ruff est épinglé : son jeu de règles par défaut bouge d'une
-# version à l'autre, la base L0 doit rester reproductible.
+# requirements.txt. Versions épinglées : la CI (`.github/workflows/ci.yml`) et
+# le poste de dev doivent juger le même code avec les mêmes outils. ruff en
+# particulier : son jeu de règles par défaut bouge d'une version à l'autre.
 -r requirements.txt
 ruff==0.16.2
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
+pyyaml==6.0.3
+packaging==26.3

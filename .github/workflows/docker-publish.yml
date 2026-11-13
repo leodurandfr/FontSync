@@ -13,12 +13,23 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Un seul build par ref à la fois. Un nouveau dispatch remplace celui en cours ;
+# un build de tag n'est jamais annulé (canal de release officiel).
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Aucune image n'est publiée sans une suite de tests verte sur le même commit.
+  test:
+    uses: ./.github/workflows/ci.yml
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

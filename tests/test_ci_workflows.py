@@ -1,0 +1,60 @@
+"""CI guards: no image is published unless the test suite passed (M-22)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+
+
+def _load(name: str) -> dict[str, Any]:
+    data = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+    assert isinstance(data, dict), f"{name} is not a mapping"
+    return data
+
+
+def _all_run_steps(workflow: dict[str, Any]) -> str:
+    runs = []
+    for job in workflow.get("jobs", {}).values():
+        for step in job.get("steps", []) or []:
+            runs.append(str(step.get("run", "")))
+    return "\n".join(runs)
+
+
+def _triggers(workflow: dict[str, Any]) -> dict[str, Any]:
+    # PyYAML (YAML 1.1) reads the bare key `on` as the boolean True.
+    triggers = workflow.get("on", workflow.get(True))
+    assert isinstance(triggers, dict), triggers
+    return triggers
+
+
+def test_build_and_push_needs_test() -> None:
+    publish = _load("docker-publish.yml")
+    jobs = publish["jobs"]
+    needs = jobs["build-and-push"].get("needs")
+    needs = [needs] if isinstance(needs, str) else list(needs or [])
+    assert "test" in needs
+    assert jobs["test"].get("uses") == "./.github/workflows/ci.yml"
+
+
+def test_ci_runs_pytest_and_frontend_build() -> None:
+    ci = _load("ci.yml")
+    runs = _all_run_steps(ci)
+    assert "pytest" in runs
+    assert "ruff check" in runs
+    assert "npm run build" in runs
+    assert "npm test" in runs
+    triggers = _triggers(ci)
+    assert {"push", "pull_request", "workflow_call"} <= set(triggers)
+
+
+def test_publish_has_concurrency() -> None:
+    publish = _load("docker-publish.yml")
+    concurrency = publish.get("concurrency")
+    assert isinstance(concurrency, dict)
+    assert concurrency.get("group")
+    # A tag build is never cancelled; only a newer manual dispatch replaces one.
+    assert "workflow_dispatch" in str(concurrency.get("cancel-in-progress"))

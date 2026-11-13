@@ -166,6 +166,26 @@ one Mac propagate to the other.
 > NAS, test with this Mac as the LAN server — otherwise you'd be exercising the old
 > server code.
 
+## Continuous integration and image builds
+
+`.github/workflows/ci.yml` runs on every push and pull request: `ruff check`,
+`ruff format --check` and `pytest tests/` (Linux, so the Core Text tests are
+skipped), then `npm ci`, `npm run build` (vue-tsc strict) and `npm test` in
+`frontend/`. Run the same locally before pushing:
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt -e .
+.venv/bin/ruff check backend agent tests && .venv/bin/pytest tests/ -q
+cd frontend && npm run build && npm test
+```
+
+`docker-publish.yml` calls `ci.yml` first: no image is pushed unless the tests
+pass on the same commit. A `v*` tag publishes a release image; a manual
+dispatch publishes an image tagged with the branch name. **Dispatch only from
+`main`** (`gh workflow run docker-publish.yml --ref main`): that `:main` image
+is what the server's **Update** button (Settings → Server) installs. A dispatch
+from another branch builds a test image the button never picks up.
+
 ## Resetting
 
 All local dev state lives in `.dev/` (gitignored). To start fresh:
