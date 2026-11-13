@@ -19,7 +19,9 @@ redirigés par fixture), aucun réseau.
 
 from __future__ import annotations
 
+import functools
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -291,21 +293,25 @@ def test_activate_triggers_reindex(
     disabled.mkdir(parents=True)
     (disabled / "Inter.ttf").write_bytes(b"INTER")
 
-    assert font_installer.activate_font("Inter.ttf") is True
+    assert font_installer.activate_font("Inter.ttf") == font_installer.MoveResult.MOVED
     assert (install / "Inter.ttf").exists()
     assert registry.reindexed == [install]
 
 
-def test_activate_already_in_place_still_reindexes(
+def test_activate_already_in_place_is_a_noop(
     dirs: tuple[Path, Path], registry: _RegistrySpy
 ) -> None:
-    """Présent dans ~/Library/Fonts ≠ pris en compte : on redemande l'indexation."""
+    """Rien à déplacer : pas de réindexation (relancer `fontd` pour rien à
+    chaque sync était M-02). L'auto-guérison d'un index figé reste portée par
+    `install_font`, qui réindexe quand la font est déjà en place."""
     install, _ = dirs
     install.mkdir(parents=True)
     (install / "Inter.ttf").write_bytes(b"INTER")
 
-    assert font_installer.activate_font("Inter.ttf") is True
-    assert registry.reindexed == [install]
+    assert (
+        font_installer.activate_font("Inter.ttf") == font_installer.MoveResult.ALREADY
+    )
+    assert registry.reindexed == []
 
 
 def test_deactivate_triggers_reindex(
@@ -316,7 +322,9 @@ def test_deactivate_triggers_reindex(
     install.mkdir(parents=True)
     (install / "Inter.ttf").write_bytes(b"INTER")
 
-    assert font_installer.deactivate_font("Inter.ttf") is True
+    assert (
+        font_installer.deactivate_font("Inter.ttf") == font_installer.MoveResult.MOVED
+    )
     assert (disabled / "Inter.ttf").exists()
     assert registry.reindexed == [install]
 
@@ -329,7 +337,9 @@ def test_deactivate_already_disabled_does_not_reindex(
     disabled.mkdir(parents=True)
     (disabled / "Inter.ttf").write_bytes(b"INTER")
 
-    assert font_installer.deactivate_font("Inter.ttf") is True
+    assert (
+        font_installer.deactivate_font("Inter.ttf") == font_installer.MoveResult.ALREADY
+    )
     assert registry.reindexed == []
 
 
@@ -343,7 +353,10 @@ def test_activate_batch_defers_reindex(
         (disabled / f"Font{i}.ttf").write_bytes(f"DATA{i}".encode())
 
     for i in range(3):
-        assert font_installer.activate_font(f"Font{i}.ttf", refresh_index=False) is True
+        assert (
+            font_installer.activate_font(f"Font{i}.ttf", refresh_index=False)
+            == font_installer.MoveResult.MOVED
+        )
 
     assert registry.reindexed == []
     assert all((install / f"Font{i}.ttf").exists() for i in range(3))
@@ -363,7 +376,8 @@ def test_deactivate_batch_defers_reindex(
 
     for i in range(3):
         assert (
-            font_installer.deactivate_font(f"Font{i}.ttf", refresh_index=False) is True
+            font_installer.deactivate_font(f"Font{i}.ttf", refresh_index=False)
+            == font_installer.MoveResult.MOVED
         )
 
     assert registry.reindexed == []
@@ -371,3 +385,237 @@ def test_deactivate_batch_defers_reindex(
 
     assert font_installer.reindex_installed() is True
     assert registry.reindexed == [install]
+
+
+# --- Homonymes entre ~/Library/Fonts et disabled/ (M-01, M-02) -------------
+# Vraies TTF : v1 et v2 portent le même nom de fichier mais pas le même contenu.
+
+
+# `build_ttf` horodate la police à la seconde : chaque version est construite
+# UNE fois, sinon deux « mêmes » octets peuvent différer d'un appel à l'autre.
+@functools.cache
+def _v1() -> bytes:
+    from tests.backend.conftest import build_ttf
+
+    return build_ttf(family="Foo")
+
+
+@functools.cache
+def _v2() -> bytes:
+    from tests.backend.conftest import build_ttf
+
+    return build_ttf(family="Foo", extra_codepoints=[0x263A, 0x2603])
+
+
+def _hashes(directory: Path) -> set[str]:
+    return {_sha(p.read_bytes()) for p in directory.iterdir() if p.is_file()}
+
+
+def test_deactivate_keeps_namesake_in_disabled(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v2())
+
+    result = font_installer.deactivate_font("Foo.ttf")
+
+    assert result == font_installer.MoveResult.MOVED
+    assert _hashes(disabled) == {_sha(_v1()), _sha(_v2())}
+    assert not (install / "Foo.ttf").exists()
+    assert registry.reindexed == [install]
+
+
+def test_deactivate_exact_duplicate_removes_source_only(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v1())
+
+    result = font_installer.deactivate_font("Foo.ttf")
+
+    assert result == font_installer.MoveResult.DEDUPLICATED
+    assert not (install / "Foo.ttf").exists()
+    assert (disabled / "Foo.ttf").read_bytes() == _v1()
+    assert [p.name for p in disabled.iterdir()] == ["Foo.ttf"]
+    # La font a quitté ~/Library/Fonts : le système doit le savoir.
+    assert registry.reindexed == [install]
+
+
+def test_activate_blocked_by_namesake_moves_under_disambiguated_name(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v2())
+
+    result = font_installer.activate_font("Foo.ttf")
+
+    assert result == font_installer.MoveResult.MOVED
+    assert _hashes(install) == {_sha(_v1()), _sha(_v2())}
+    assert (install / "Foo.ttf").read_bytes() == _v2()
+    assert not (disabled / "Foo.ttf").exists()
+    assert registry.reindexed == [install]
+
+
+def test_activate_exact_duplicate_drops_disabled_copy_without_reindex(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v1())
+
+    result = font_installer.activate_font("Foo.ttf")
+
+    assert result == font_installer.MoveResult.DEDUPLICATED
+    assert not (disabled / "Foo.ttf").exists()
+    assert (install / "Foo.ttf").read_bytes() == _v1()
+    assert registry.reindexed == []
+
+
+def test_activate_unresolvable_collision_is_reported_untouched(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v2())
+    blocker = install / font_installer._disambiguated_name("Foo.ttf", _sha(_v1()))
+    blocker.write_bytes(b"autre chose")
+
+    result = font_installer.activate_font("Foo.ttf")
+
+    assert result == font_installer.MoveResult.CONFLICT
+    assert (disabled / "Foo.ttf").read_bytes() == _v1()
+    assert blocker.read_bytes() == b"autre chose"
+    assert registry.reindexed == []
+
+
+def test_install_avoids_disabled_namesake(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+
+    path = font_installer.install_font("Foo.ttf", _v2(), expected_hash=_sha(_v2()))
+
+    assert path is not None
+    assert path.name == font_installer._disambiguated_name("Foo.ttf", _sha(_v2()))
+    assert not (install / "Foo.ttf").exists()
+    # Réactiver v1 plus tard ne heurte plus rien.
+    assert font_installer.activate_font("Foo.ttf") == font_installer.MoveResult.MOVED
+    assert _hashes(install) == {_sha(_v1()), _sha(_v2())}
+
+
+def test_deactivate_acts_on_scanned_path_not_top_level_namesake(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    (install / "Family").mkdir(parents=True)
+    nested = install / "Family" / "Foo.ttf"
+    nested.write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v2())
+
+    result = font_installer.deactivate_font(str(nested), expected_hash=_sha(_v1()))
+
+    assert result == font_installer.MoveResult.MOVED
+    assert (install / "Foo.ttf").read_bytes() == _v2()
+    assert _hashes(disabled) == {_sha(_v1())}
+
+
+def test_file_changed_since_scan_does_not_move(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    (install / "Foo.ttf").write_bytes(_v2())
+
+    result = font_installer.deactivate_font(
+        str(install / "Foo.ttf"), expected_hash=_sha(_v1())
+    )
+
+    assert result == font_installer.MoveResult.CHANGED
+    assert (install / "Foo.ttf").read_bytes() == _v2()
+    assert not disabled.exists() or not any(disabled.iterdir())
+    assert registry.reindexed == []
+
+
+def test_symlink_at_disambiguated_name_never_leads_to_deletion(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    source = disabled / "Foo.ttf"
+    source.write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v2())
+    trap = install / font_installer._disambiguated_name("Foo.ttf", _sha(_v1()))
+    trap.symlink_to(source)
+
+    result = font_installer.activate_font(str(source), expected_hash=_sha(_v1()))
+
+    assert result == font_installer.MoveResult.CONFLICT
+    assert source.read_bytes() == _v1()
+
+
+def test_unreadable_source_is_never_deduplicated(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root ignore les permissions")
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    source = disabled / "Foo.ttf"
+    source.write_bytes(_v1())
+    (install / "Foo.ttf").write_bytes(_v1())
+    (install / "Foo.ttf").chmod(0)
+    source.chmod(0)
+    try:
+        result = font_installer.activate_font("Foo.ttf")
+    finally:
+        source.chmod(0o644)
+        (install / "Foo.ttf").chmod(0o644)
+
+    assert result == font_installer.MoveResult.CONFLICT
+    assert source.read_bytes() == _v1()
+
+
+def test_install_never_overwrites_foreign_file_at_disambiguated_name(
+    dirs: tuple[Path, Path], registry: _RegistrySpy
+) -> None:
+    install, disabled = dirs
+    install.mkdir(parents=True)
+    disabled.mkdir(parents=True)
+    (disabled / "Foo.ttf").write_bytes(_v1())
+    foreign = install / font_installer._disambiguated_name("Foo.ttf", _sha(_v2()))
+    foreign.write_bytes(b"autre police")
+
+    assert font_installer.install_font("Foo.ttf", _v2()) is None
+    assert foreign.read_bytes() == b"autre police"
+
+
+def test_move_no_clobber_refuses_existing_destination(tmp_path: Path) -> None:
+    source = tmp_path / "a.ttf"
+    dest = tmp_path / "b.ttf"
+    source.write_bytes(b"A")
+    dest.write_bytes(b"B")
+
+    assert font_installer._move_no_clobber(source, dest) is False
+    assert (source.read_bytes(), dest.read_bytes()) == (b"A", b"B")
+
+
+def test_move_result_has_no_truth_value() -> None:
+    with pytest.raises(TypeError):
+        bool(font_installer.MoveResult.MISSING)

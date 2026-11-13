@@ -50,6 +50,7 @@ from agent.font_installer import (
     DISABLED_DIR,
     INSTALL_DIR,
     INSTALLABLE_FORMATS,
+    MoveResult,
     activate_font,
     deactivate_font,
     install_font,
@@ -393,10 +394,15 @@ def _deactivate(font: ScannedFont, result: SyncResult) -> None:
     """Désactive une font sur instruction du serveur. Une erreur isolée n'arrête pas le sync."""
     try:
         # `refresh_index=False` : réindexation groupée en fin de sync (étape 9).
-        if deactivate_font(str(font.path), refresh_index=False):
+        # Le chemin scanné et son hash : on déplace CE fichier, pas un homonyme.
+        outcome = deactivate_font(
+            str(font.path), expected_hash=font.file_hash, refresh_index=False
+        )
+        # Un doublon exact retiré de ~/Library/Fonts est une vraie désactivation.
+        if outcome in (MoveResult.MOVED, MoveResult.DEDUPLICATED):
             result.newly_deactivated += 1
             logger.info("Désactivée (demandé par le serveur) : %s", font.filename)
-        else:
+        elif outcome is not MoveResult.ALREADY:
             result.deactivate_errors += 1
     except Exception:
         logger.exception("Échec de la désactivation de %s", font.filename)
@@ -404,12 +410,20 @@ def _deactivate(font: ScannedFont, result: SyncResult) -> None:
 
 
 def _activate(font: ScannedFont, result: SyncResult) -> None:
-    """Réactive une font qui n'est plus dans `toDeactivate`. Une erreur isolée n'arrête pas le sync."""
+    """Réactive une font qui n'est plus dans `toDeactivate`. Une erreur isolée n'arrête pas le sync.
+
+    Seul un vrai déplacement compte (et déclenche la réindexation de fin de
+    sync) : une font déjà active dont seul un doublon traînait dans disabled/
+    ne doit pas relancer `fontd` à chaque sync (M-02).
+    """
     try:
-        if activate_font(str(font.path), refresh_index=False):
+        outcome = activate_font(
+            str(font.path), expected_hash=font.file_hash, refresh_index=False
+        )
+        if outcome is MoveResult.MOVED:
             result.newly_activated += 1
             logger.info("Activée (plus désactivée côté serveur) : %s", font.filename)
-        else:
+        elif outcome not in (MoveResult.DEDUPLICATED, MoveResult.ALREADY):
             result.activate_errors += 1
     except Exception:
         logger.exception("Échec de l'activation de %s", font.filename)

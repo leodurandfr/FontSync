@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
+from enum import StrEnum
 from pathlib import Path
 
 from agent import font_registry
@@ -44,6 +46,29 @@ DISABLED_DIR = state_dir() / "disabled"
 INSTALLABLE_FORMATS = {".ttf", ".otf", ".ttc"}
 
 _CHUNK_SIZE = 65536  # 64 Ko
+
+
+class MoveResult(StrEnum):
+    """Issue d'une activation ou d'une désactivation.
+
+    Seul `MOVED` (et, pour une désactivation, `DEDUPLICATED`) change ce que
+    voit le système : c'est ce qui justifie une réindexation. Les autres
+    issues ne doivent jamais en déclencher — une activation « déjà faite »
+    comptée comme réussie relançait `fontd` à chaque sync (M-02).
+    """
+
+    MOVED = "moved"  # fichier déplacé (éventuellement sous un nom désambiguïsé)
+    DEDUPLICATED = "deduplicated"  # doublon exact (même hash) retiré de la source
+    ALREADY = "already"  # le contenu demandé est déjà à sa place, rien à faire
+    MISSING = "missing"  # introuvable des deux côtés
+    CHANGED = "changed"  # le fichier n'a plus le contenu demandé : rien ne bouge
+    CONFLICT = "conflict"  # nom et nom désambiguïsé pris par d'autres contenus
+    REFUSED = "refused"  # chemin hors des dossiers gérés, ou lien symbolique
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "MoveResult n'a pas de valeur de vérité : comparer à une issue précise"
+        )
 
 
 def _is_within(path: Path, directory: Path) -> bool:
@@ -72,6 +97,124 @@ def _disambiguated_name(safe_name: str, digest: str) -> str:
     """Nom de fichier désambiguïsé dérivé du hash (collision quasi impossible)."""
     p = Path(safe_name)
     return f"{p.stem}__fontsync-{digest[:12]}{p.suffix}"
+
+
+def _move_no_clobber(source: Path, dest: Path) -> bool:
+    """Déplace `source` en `dest` seulement si `dest` n'existe pas.
+
+    `shutil.move`/`os.rename` remplacent sans rien dire un fichier apparu
+    entre la vérification et le déplacement ; un lien dur échoue au contraire
+    (`FileExistsError`). Repli hors volume : copie en création exclusive.
+
+    Returns:
+        False si `dest` existe déjà (rien n'a bougé).
+    """
+    try:
+        os.link(source, dest)
+    except FileExistsError:
+        return False
+    except OSError:
+        try:
+            with open(source, "rb") as src, open(dest, "xb") as dst:
+                shutil.copyfileobj(src, dst)
+        except FileExistsError:
+            return False
+        shutil.copystat(source, dest)
+    os.unlink(source)
+    return True
+
+
+def _write_new(dest: Path, data: bytes) -> bool:
+    """Crée `dest` avec `data`, jamais par-dessus un fichier existant."""
+    try:
+        with open(dest, "xb") as handle:
+            handle.write(data)
+    except FileExistsError:
+        logger.error("Fichier apparu entre-temps, non écrasé : %s", dest)
+        return False
+    return True
+
+
+def _is_exact_copy(candidate: Path, source: Path, digest: str) -> bool:
+    """`candidate` est un fichier ordinaire, distinct de `source`, de même hash."""
+    if candidate.is_symlink() or not candidate.is_file():
+        return False
+    try:
+        if os.path.samefile(candidate, source):
+            return False
+    except OSError:
+        return False
+    return _hash_or_none(candidate) == digest
+
+
+def _find_copy(directory: Path, name: str, digest: str | None) -> bool:
+    """Le contenu `digest` (ou, à défaut, le nom) est-il déjà rangé dans `directory` ?"""
+    if digest is None:
+        return (directory / name).exists()
+    for candidate in (directory / name, directory / _disambiguated_name(name, digest)):
+        if (
+            not candidate.is_symlink()
+            and candidate.is_file()
+            and _hash_or_none(candidate) == digest
+        ):
+            return True
+    return False
+
+
+def _move_without_overwrite(
+    source: Path, target_dir: Path, expected_hash: str | None = None
+) -> MoveResult:
+    """Déplace `source` dans `target_dir` sans jamais écraser un autre contenu.
+
+    La source doit avoir le contenu attendu (`expected_hash`, si fourni) : un
+    fichier remplacé depuis le scan ne bouge pas. Nom libre → déplacement. Nom
+    pris par le même contenu → la source est un doublon exact : elle seule est
+    retirée. Nom pris par un autre contenu → déplacement sous le nom
+    désambiguïsé dérivé du hash (même règle qu'`install_font`) ; s'il est lui
+    aussi pris par un autre contenu, rien ne bouge. Les liens symboliques ne
+    sont jamais suivis ni déplacés.
+    """
+    if source.is_symlink():
+        logger.error("Lien symbolique ignoré : %s", source)
+        return MoveResult.REFUSED
+    digest = _hash_or_none(source)
+    if digest is None:
+        return MoveResult.CONFLICT
+    if expected_hash is not None and digest != expected_hash:
+        logger.warning(
+            "%s n'a plus le contenu attendu (%s ≠ %s) : rien ne bouge",
+            source,
+            digest[:12],
+            expected_hash[:12],
+        )
+        return MoveResult.CHANGED
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for dest in (
+        target_dir / source.name,
+        target_dir / _disambiguated_name(source.name, digest),
+    ):
+        if dest.is_symlink() or not _is_within(dest, target_dir):
+            continue
+        if _move_no_clobber(source, dest):
+            if dest.name != source.name:
+                logger.warning(
+                    "Homonyme préservé dans %s ; %s déplacée sous %s",
+                    target_dir,
+                    source.name,
+                    dest.name,
+                )
+            return MoveResult.MOVED
+        if _is_exact_copy(dest, source, digest):
+            source.unlink()
+            logger.info("Doublon exact retiré : %s (identique à %s)", source, dest)
+            return MoveResult.DEDUPLICATED
+    logger.error(
+        "Impossible de déplacer %s sans écraser un fichier différent dans %s",
+        source,
+        target_dir,
+    )
+    return MoveResult.CONFLICT
 
 
 def _maybe_reindex(refresh_index: bool) -> None:
@@ -136,8 +279,38 @@ def install_font(
         logger.error("Tentative d'installation hors de ~/Library/Fonts : %s", dest)
         return None
 
+    # Un homonyme au contenu différent attend dans disabled/ : l'installer sous
+    # ce nom bloquerait sa réactivation. On prend directement le nom
+    # désambiguïsé.
+    parked = DISABLED_DIR / safe_name
+    if (
+        not dest.exists()
+        and parked.is_file()
+        and _hash_or_none(parked) not in (None, digest)
+    ):
+        dest = INSTALL_DIR / _disambiguated_name(safe_name, digest)
+        if dest.exists() and _hash_or_none(dest) == digest:
+            logger.info("Font déjà en place (nom désambiguïsé) : %s", dest)
+            _maybe_reindex(refresh_index)
+            return dest
+        if dest.exists():
+            logger.error(
+                "Impossible d'installer %s sans écraser un fichier différent (%s)",
+                safe_name,
+                dest.name,
+            )
+            return None
+        if not _write_new(dest, data):
+            return None
+        logger.warning(
+            "Homonyme désactivé préservé ; %s installée sous %s", safe_name, dest.name
+        )
+        _maybe_reindex(refresh_index)
+        return dest
+
     if not dest.exists():
-        dest.write_bytes(data)
+        if not _write_new(dest, data):
+            return None
         logger.info("Font installée : %s", dest)
         _maybe_reindex(refresh_index)
         return dest
@@ -163,7 +336,8 @@ def install_font(
         )
         return None
 
-    disambig.write_bytes(data)
+    if not _write_new(disambig, data):
+        return None
     logger.warning(
         "Font homonyme locale préservée ; %s installée sous %s",
         safe_name,
@@ -258,101 +432,117 @@ def uninstall_font(
     return removed
 
 
-def activate_font(local_path: str, *, refresh_index: bool = True) -> bool:
+def _managed_source(local_path: str, directory: Path) -> Path:
+    """Le fichier visé : le chemin scanné tel quel s'il est absolu, sinon un nom
+    dans `directory`. Agir sur le chemin réel (sous-dossiers compris), et non
+    sur `directory/<nom>`, évite de déplacer un homonyme à la place de la font
+    demandée."""
+    path = Path(local_path)
+    return path if path.is_absolute() else directory / path.name
+
+
+def activate_font(
+    local_path: str,
+    *,
+    expected_hash: str | None = None,
+    refresh_index: bool = True,
+) -> MoveResult:
     """Active une font en la déplaçant de ~/.fontsync/disabled/ vers ~/Library/Fonts/.
+
+    Ne remplace jamais un fichier de contenu différent : si le nom est pris
+    dans ~/Library/Fonts par un homonyme, la font est posée sous le nom
+    désambiguïsé ; si le nom est pris par le même contenu, la copie de
+    disabled/ est un doublon exact et seule elle est retirée (la font était
+    déjà active : rien à réindexer).
 
     Le déplacement seul ne suffit pas à coup sûr sur macOS 14+ : il est suivi
     d'une réindexation (cf. `agent.font_registry`), dont l'effet n'est pas
-    immédiat. L'activation n'est donc jamais instantanée — l'interface doit
-    l'annoncer plutôt que de laisser croire à un échec.
+    immédiat — et seulement s'il y a eu déplacement.
 
     Args:
-        local_path: chemin du fichier (absolu ou nom de fichier)
-        refresh_index: déclencher la réindexation macOS. Même règle qu'à
-            l'installation : un appelant qui traite un lot passe False et
-            groupe un seul `reindex_installed()` à la fin — la relancer par
-            font ferait repartir de zéro une reconstruction coûteuse.
+        local_path: chemin du fichier scanné (absolu) ou nom de fichier
+        expected_hash: contenu attendu (hash du scan) ; un fichier qui ne l'a
+            plus ne bouge pas (`CHANGED`).
+        refresh_index: déclencher la réindexation macOS. Un appelant qui traite
+            un lot passe False et groupe un seul `reindex_installed()` à la fin.
 
     Returns:
-        True si la font a été activée, False sinon.
+        `MOVED` si la font vient d'être rendue active ; `DEDUPLICATED` si elle
+        l'était déjà (copie de disabled/ retirée) ; `ALREADY` si le contenu
+        demandé est déjà dans ~/Library/Fonts ; `MISSING`, `CHANGED`,
+        `CONFLICT` ou `REFUSED` sinon.
     """
-    safe_name = Path(local_path).name
-    source = DISABLED_DIR / safe_name
-    dest = INSTALL_DIR / safe_name
-
-    # Déjà dans ~/Library/Fonts : le fichier est au bon endroit, mais rien ne dit
-    # que le système l'a indexé — on le lui redemande (idempotent).
-    if dest.exists():
-        logger.info("Font déjà en place : %s", dest)
-        _maybe_reindex(refresh_index)
-        return True
-
-    if not source.exists():
+    source = _managed_source(local_path, DISABLED_DIR)
+    if source.is_symlink() or not _is_within(source, DISABLED_DIR):
+        logger.error(
+            "Activation refusée (hors du dossier disabled ou lien) : %s", source
+        )
+        return MoveResult.REFUSED
+    if not source.is_file():
+        if _find_copy(INSTALL_DIR, source.name, expected_hash):
+            return MoveResult.ALREADY
         logger.warning(
             "Font introuvable dans le dossier disabled pour activation : %s",
             source,
         )
-        return False
+        return MoveResult.MISSING
 
-    # Sécurité : vérifier que la destination reste dans ~/Library/Fonts
-    INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-    if not _is_within(dest, INSTALL_DIR):
-        logger.error("Tentative d'activation hors de ~/Library/Fonts : %s", dest)
-        return False
-
-    shutil.move(str(source), str(dest))
-    logger.info("Font activée : %s → %s", source, dest)
-    _maybe_reindex(refresh_index)
-    return True
+    result = _move_without_overwrite(source, INSTALL_DIR, expected_hash)
+    if result is MoveResult.MOVED:
+        logger.info("Font activée : %s", source)
+        _maybe_reindex(refresh_index)
+    return result
 
 
-def deactivate_font(local_path: str, *, refresh_index: bool = True) -> bool:
+def deactivate_font(
+    local_path: str,
+    *,
+    expected_hash: str | None = None,
+    refresh_index: bool = True,
+) -> MoveResult:
     """Désactive une font en la déplaçant de ~/Library/Fonts/ vers ~/.fontsync/disabled/.
 
     Le fichier reste sur le disque mais n'est plus visible par les applications.
-    Là encore le déplacement seul ne désactive rien sur macOS 14+ : tant que le
-    système n'a pas réindexé, il continue de servir la font retirée. D'où la
-    réindexation qui suit le déplacement — différée, elle aussi.
+    Ne remplace jamais un fichier de contenu différent déjà rangé dans
+    disabled/ (une autre version désactivée plus tôt sous le même nom) : la
+    font est rangée sous le nom désambiguïsé. Si disabled/ contient déjà
+    exactement le même contenu, seule la copie active est retirée.
+
+    Le retrait ne désactive rien sur macOS 14+ tant que le système n'a pas
+    réindexé : d'où la réindexation qui suit — différée, elle aussi.
 
     Args:
-        local_path: chemin du fichier (absolu ou nom de fichier)
-        refresh_index: déclencher la réindexation macOS. Même règle qu'à
-            l'installation : un appelant qui traite un lot passe False et
-            groupe un seul `reindex_installed()` à la fin.
+        local_path: chemin du fichier scanné (absolu, sous-dossiers compris) ou
+            nom de fichier
+        expected_hash: contenu attendu (hash du scan) ; un fichier qui ne l'a
+            plus ne bouge pas (`CHANGED`).
+        refresh_index: déclencher la réindexation macOS (groupée par l'appelant
+            d'un lot).
 
     Returns:
-        True si la font a été désactivée, False sinon.
+        `MOVED` ou `DEDUPLICATED` si la font a quitté ~/Library/Fonts ;
+        `ALREADY` si le contenu demandé attend déjà dans disabled/ ;
+        `MISSING`, `CHANGED`, `CONFLICT` ou `REFUSED` sinon.
     """
-    safe_name = Path(local_path).name
-    source = INSTALL_DIR / safe_name
-    dest = DISABLED_DIR / safe_name
+    source = _managed_source(local_path, INSTALL_DIR)
+    if source.is_symlink() or not _is_within(source, INSTALL_DIR):
+        logger.error(
+            "Désactivation refusée (hors de ~/Library/Fonts ou lien) : %s", source
+        )
+        return MoveResult.REFUSED
+    if not source.is_file():
+        if _find_copy(DISABLED_DIR, source.name, expected_hash):
+            logger.info("Font déjà désactivée : %s", source.name)
+            return MoveResult.ALREADY
+        logger.warning(
+            "Font introuvable pour désactivation : ni dans %s ni dans %s",
+            INSTALL_DIR,
+            DISABLED_DIR,
+        )
+        return MoveResult.MISSING
 
-    # Si la source existe dans ~/Library/Fonts → la déplacer
-    if source.exists():
-        # Sécurité : ne déplacer que depuis ~/Library/Fonts
-        if not _is_within(source, INSTALL_DIR):
-            logger.error(
-                "Tentative de désactivation hors de ~/Library/Fonts : %s", source
-            )
-            return False
-
-        DISABLED_DIR.mkdir(parents=True, exist_ok=True)
-        # Écraser le fichier dans disabled s'il existe déjà (résidu)
-        if dest.exists():
-            dest.unlink()
-        shutil.move(str(source), str(dest))
-        logger.info("Font désactivée : %s → %s", source, dest)
+    result = _move_without_overwrite(source, DISABLED_DIR, expected_hash)
+    if result in (MoveResult.MOVED, MoveResult.DEDUPLICATED):
+        logger.info("Font désactivée : %s", source)
         _maybe_reindex(refresh_index)
-        return True
-
-    # Source absente de ~/Library/Fonts — vérifier si déjà dans disabled
-    if dest.exists():
-        logger.info("Font déjà désactivée : %s", dest)
-        return True
-
-    logger.warning(
-        "Font introuvable pour désactivation : ni dans %s ni dans %s",
-        source,
-        dest,
-    )
-    return False
+    return result

@@ -26,6 +26,7 @@ import pytest
 from agent import sync_command
 from agent.config import AgentConfig
 from agent.discovery import DiscoveredFont
+from agent.font_installer import MoveResult
 from agent.hashing import ScannedFont
 from agent.sync_command import SyncError, run_sync
 
@@ -465,7 +466,9 @@ def test_deactivates_font_present_and_instructed(
     monkeypatch.setattr(
         sync_command,
         "deactivate_font",
-        lambda p, *, refresh_index: calls.append((p, refresh_index)) or True,
+        lambda p, *, refresh_index, expected_hash=None: (
+            calls.append((p, refresh_index)) or MoveResult.MOVED
+        ),
     )
 
     client = FakeClient(
@@ -505,7 +508,9 @@ def test_activates_font_present_in_disabled_and_not_instructed(
     monkeypatch.setattr(
         sync_command,
         "activate_font",
-        lambda p, *, refresh_index: calls.append((p, refresh_index)) or True,
+        lambda p, *, refresh_index, expected_hash=None: (
+            calls.append((p, refresh_index)) or MoveResult.MOVED
+        ),
     )
 
     client = FakeClient(
@@ -592,7 +597,9 @@ def test_deactivates_every_file_sharing_a_hash(
     )
     calls: list[str] = []
     monkeypatch.setattr(
-        sync_command, "deactivate_font", lambda p, **kw: calls.append(p) or True
+        sync_command,
+        "deactivate_font",
+        lambda p, **kw: calls.append(p) or MoveResult.MOVED,
     )
 
     client = FakeClient(
@@ -629,7 +636,9 @@ def test_activation_convergence_triggers_a_single_reindex(
             ),
         ],
     )
-    monkeypatch.setattr(sync_command, "deactivate_font", lambda p, **kw: True)
+    monkeypatch.setattr(
+        sync_command, "deactivate_font", lambda p, **kw: MoveResult.MOVED
+    )
     reindexed: list[bool] = []
     monkeypatch.setattr(
         sync_command, "reindex_installed", lambda: reindexed.append(True) or True
@@ -669,3 +678,163 @@ def test_stateless_repeatable(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert (r1.pushed, r1.installed) == (1, 1)
     assert (r2.pushed, r2.installed) == (1, 1)
+
+
+# --- Homonymes entre ~/Library/Fonts et disabled/ (M-01, M-02) -------------
+
+
+@pytest.fixture
+def homonym_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Dossiers réels, vus à l'identique par sync_command et font_installer, et
+    un scan qui relit le disque à chaque sync (pas une liste figée)."""
+    import hashlib
+
+    from agent import font_installer
+
+    install = tmp_path / "Fonts"
+    disabled = tmp_path / "disabled"
+    install.mkdir()
+    disabled.mkdir()
+    for module in (sync_command, font_installer):
+        monkeypatch.setattr(module, "INSTALL_DIR", install)
+        monkeypatch.setattr(module, "DISABLED_DIR", disabled)
+
+    def _scan(*_a: Any, **_k: Any) -> list[ScannedFont]:
+        return [
+            ScannedFont(
+                path=p,
+                filename=p.name,
+                file_hash=hashlib.sha256(p.read_bytes()).hexdigest(),
+                file_size=p.stat().st_size,
+            )
+            for d in (install, disabled)
+            for p in sorted(d.iterdir())
+            if p.is_file()
+        ]
+
+    monkeypatch.setattr(sync_command, "discover_fonts", lambda *a, **k: [])
+    monkeypatch.setattr(sync_command, "discover_via_directories", lambda *a, **k: [])
+    monkeypatch.setattr(sync_command, "HashCache", _NoopCache)
+    monkeypatch.setattr(sync_command, "scan_fonts", _scan)
+    return install, disabled
+
+
+class _RecordingClient(FakeClient):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.declarations: list[set[str]] = []
+
+    def delta_sync(self, device_id: str, fonts: list[ScannedFont]) -> dict[str, Any]:
+        self.declarations.append({f.file_hash for f in fonts})
+        return super().delta_sync(device_id, fonts)
+
+
+def _foo_versions() -> tuple[bytes, bytes]:
+    from tests.backend.conftest import build_ttf
+
+    return build_ttf(family="Foo"), build_ttf(
+        family="Foo", extra_codepoints=[0x263A, 0x2603]
+    )
+
+
+def test_noop_activation_does_not_reindex_every_sync(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install, disabled = homonym_dirs
+    v1, v2 = _foo_versions()
+    (disabled / "Foo.ttf").write_bytes(v1)
+    (install / "Foo.ttf").write_bytes(v2)
+    reindexed: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "reindex_installed", lambda: reindexed.append(True) or True
+    )
+    client = FakeClient(
+        delta={"unknownToServer": [], "missingOnDevice": [], "toDeactivate": []}
+    )
+
+    for _ in range(3):
+        run_sync(_config(), client=client)
+
+    assert len(reindexed) == 1
+    assert not any(disabled.iterdir())
+
+
+def test_deactivation_homonym_not_reported_as_deletion(
+    homonym_dirs: tuple[Path, Path],
+) -> None:
+    import hashlib
+
+    install, disabled = homonym_dirs
+    v1, v2 = _foo_versions()
+    h1, h2 = hashlib.sha256(v1).hexdigest(), hashlib.sha256(v2).hexdigest()
+    (disabled / "Foo.ttf").write_bytes(v1)
+    (install / "Foo.ttf").write_bytes(v2)
+    client = _RecordingClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "toDeactivate": [
+                {"id": "f1", "originalFilename": "Foo.ttf", "fileHash": h1},
+                {"id": "f2", "originalFilename": "Foo.ttf", "fileHash": h2},
+            ],
+        }
+    )
+
+    run_sync(_config(), client=client)
+    run_sync(_config(), client=client)
+
+    assert {h1, h2} <= client.declarations[-1]
+
+
+def test_activation_of_exact_duplicate_is_not_counted_nor_reindexed(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install, disabled = homonym_dirs
+    v1, _ = _foo_versions()
+    (disabled / "Foo.ttf").write_bytes(v1)
+    (install / "Foo.ttf").write_bytes(v1)
+    reindexed: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "reindex_installed", lambda: reindexed.append(True) or True
+    )
+    client = FakeClient(
+        delta={"unknownToServer": [], "missingOnDevice": [], "toDeactivate": []}
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert (result.newly_activated, result.activate_errors) == (0, 0)
+    assert reindexed == []
+    assert not any(disabled.iterdir())
+
+
+def test_deactivation_of_exact_duplicate_counts_and_reindexes(
+    homonym_dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    install, disabled = homonym_dirs
+    v1, _ = _foo_versions()
+    (disabled / "Foo.ttf").write_bytes(v1)
+    (install / "Foo.ttf").write_bytes(v1)
+    reindexed: list[bool] = []
+    monkeypatch.setattr(
+        sync_command, "reindex_installed", lambda: reindexed.append(True) or True
+    )
+    h1 = hashlib.sha256(v1).hexdigest()
+    client = FakeClient(
+        delta={
+            "unknownToServer": [],
+            "missingOnDevice": [],
+            "toDeactivate": [
+                {"id": "f1", "originalFilename": "Foo.ttf", "fileHash": h1}
+            ],
+        }
+    )
+
+    result = run_sync(_config(), client=client)
+
+    assert (result.newly_deactivated, result.deactivate_errors) == (1, 0)
+    assert reindexed == [True]
+    assert not (install / "Foo.ttf").exists()
+    assert (disabled / "Foo.ttf").read_bytes() == v1
