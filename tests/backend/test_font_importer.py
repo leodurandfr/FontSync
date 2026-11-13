@@ -152,3 +152,65 @@ async def test_web_reupload_clears_stale_associations(
     assert stale.scalars().all() == []
     detection = await detect_local_deletions(b.id, {other.file_hash}, db)
     assert detection.quarantined == [] and detection.pending == []
+
+
+@pytest.mark.asyncio
+async def test_web_upload_of_harvested_font_is_allowed_and_clears_fingerprint(
+    db, storage, font_factory
+) -> None:
+    """M-29 : l'upload web est un geste explicite — il ramène une police
+    récoltée (nouvelle ligne) et retire son empreinte ; le push agent, lui,
+    est refusé tant que l'empreinte existe."""
+    from backend.models.harvested_fingerprint import HarvestedFingerprint
+    from backend.services.font_importer import HarvestedFontRefused
+
+    data = font_factory(family="Back From Harvest")
+    file_hash = hashlib.sha256(data).hexdigest()
+    now = datetime.now(timezone.utc)
+    db.add(HarvestedFingerprint(file_hash=file_hash, deleted_at=now, harvested_at=now))
+    await db.commit()
+
+    with pytest.raises(HarvestedFontRefused):
+        await import_font("Back.ttf", data, storage, db, revive_deleted=False)
+    assert await _count_fonts(db) == 0
+
+    font, is_duplicate = await import_font("Back.ttf", data, storage, db)
+
+    assert is_duplicate is False
+    assert font.deleted_at is None and font.file_hash == file_hash
+    left = await db.execute(
+        select(HarvestedFingerprint).where(HarvestedFingerprint.file_hash == file_hash)
+    )
+    assert left.first() is None
+
+
+@pytest.mark.asyncio
+async def test_failed_web_upload_of_harvested_font_keeps_the_fingerprint(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-29 : si le stockage échoue pendant l'upload web d'une police
+    récoltée, l'empreinte reste. La perdre sans importer la police rendrait
+    le hash inconnu : le delta suivant la réclamerait au push."""
+    from backend.models.harvested_fingerprint import HarvestedFingerprint
+
+    data = font_factory(family="Store Fails")
+    file_hash = hashlib.sha256(data).hexdigest()
+    now = datetime.now(timezone.utc)
+    db.add(HarvestedFingerprint(file_hash=file_hash, deleted_at=now, harvested_at=now))
+    await db.commit()
+
+    async def failing_store(*args, **kwargs) -> None:
+        raise OSError("disque NAS plein")
+
+    monkeypatch.setattr(storage, "store", failing_store)
+    with pytest.raises(OSError):
+        await import_font("StoreFails.ttf", data, storage, db)
+    # L'appelant (upload multiple) avale l'erreur et continue : simuler le
+    # commit d'un import suivant dans la même session.
+    await db.commit()
+
+    left = await db.execute(
+        select(HarvestedFingerprint).where(HarvestedFingerprint.file_hash == file_hash)
+    )
+    assert left.first() is not None
+    assert await _count_fonts(db) == 0

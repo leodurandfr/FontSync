@@ -423,3 +423,33 @@ async def test_to_uninstall_keeps_hash_also_held_in_managed_layer(
     )
 
     assert [ref.file_hash for ref in delta.to_uninstall] == [font.file_hash]
+
+
+@pytest.mark.asyncio
+async def test_harvested_hash_is_known(db) -> None:
+    """M-29 : l'empreinte d'une police récoltée reste « connue » du serveur —
+    elle n'est jamais réclamée au push."""
+    from datetime import datetime, timezone
+
+    from backend.models.harvested_fingerprint import HarvestedFingerprint
+
+    harvested = _fake_hash("harvested")
+    fresh = _fake_hash("fresh")
+    now = datetime.now(timezone.utc)
+    db.add(HarvestedFingerprint(file_hash=harvested, deleted_at=now, harvested_at=now))
+    device = Device(name="Mac", hostname="mac", os="macos")
+    db.add(device)
+    await db.commit()
+
+    delta = await compute_delta(
+        [
+            DeviceFontEntry(hash=harvested, filename="old.ttf"),
+            DeviceFontEntry(hash=fresh, filename="new.ttf"),
+        ],
+        db,
+        device_id=device.id,
+        propagate_deletions=True,
+    )
+
+    assert delta.unknown_to_server == [fresh]
+    assert harvested not in [ref.file_hash for ref in delta.to_uninstall]

@@ -23,7 +23,11 @@ from backend.services.device_activity import (
     PULL_ACTIVITY_INTERVAL,
     note_sync_activity,
 )
-from backend.services.font_importer import FontImportError, import_font
+from backend.services.font_importer import (
+    FontImportError,
+    HarvestedFontRefused,
+    import_font,
+)
 from backend.services.harvest import harvest_tombstones
 from backend.services.inventory import reconcile_inventory
 from backend.services.storage import StorageBackend, get_storage_backend
@@ -183,6 +187,16 @@ async def push_font(
         )
     except FontImportError as e:
         raise HTTPException(status_code=400, detail=e.detail)
+    except HarvestedFontRefused as refused:
+        # Police récoltée (M-29) : même refus qu'une pierre tombale, mais il
+        # n'y a plus de ligne `fonts` à désigner.
+        logger.info("Push refusé pour %s (police récoltée)", filename)
+        return PushResponse(
+            font_id=None,
+            file_hash=refused.file_hash,
+            is_duplicate=True,
+            refused_deleted=True,
+        )
 
     if font.deleted_at is not None:
         # Refus : ni association device ↔ font (l'appareil n'a pas à figurer

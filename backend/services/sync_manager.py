@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
+from backend.models.harvested_fingerprint import HarvestedFingerprint
 from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
 
 # Formats stockés et prévisualisables, jamais proposés à l'installation système.
@@ -113,7 +114,11 @@ async def compute_delta(
             deleted_map[row.file_hash] = row
 
     active_hashes = set(active_map)
-    known_hashes = active_hashes | set(deleted_map)
+    # Les empreintes récoltées (M-29) restent connues : leur ligne `fonts` a
+    # disparu, pas l'intention de suppression. Ni push réclamé, ni
+    # désinstallation (rien à proposer pour une police sans ligne).
+    harvested = await db.execute(select(HarvestedFingerprint.file_hash))
+    known_hashes = active_hashes | set(deleted_map) | set(harvested.scalars())
 
     # Fonts sur le device et inconnues du serveur → à pusher. « Inconnue » se
     # mesure sur *tout* ce que le serveur connaît, tombes comprises. Seul le

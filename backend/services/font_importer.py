@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
+from backend.models.harvested_fingerprint import HarvestedFingerprint
 from backend.services import font_analyzer
 from backend.services.family_grouper import group_font
 from backend.services.storage import StorageBackend
@@ -40,6 +41,17 @@ class FontImportError(Exception):
         self.filename = filename
         self.detail = detail
         super().__init__(f"{filename}: {detail}")
+
+
+class HarvestedFontRefused(Exception):
+    """Le fichier est celui d'une police récoltée (M-29) : son empreinte
+    survit dans `harvested_fingerprints`. Un push agent est refusé — ce n'est
+    pas une erreur d'import, l'appelant le signale comme refus."""
+
+    def __init__(self, filename: str, file_hash: str) -> None:
+        self.filename = filename
+        self.file_hash = file_hash
+        super().__init__(f"{filename}: police récoltée, push refusé")
 
 
 def _validate_extension(filename: str) -> str:
@@ -186,6 +198,9 @@ async def import_font(
 
     Raises:
         FontImportError: Si le fichier est invalide.
+        HarvestedFontRefused: Push agent (`revive_deleted=False`) d'un fichier
+            dont la police a été récoltée (empreinte dans
+            `harvested_fingerprints`) : refus, rien n'est importé.
     """
     # 1. Validation extension
     extension = _validate_extension(filename)
@@ -212,6 +227,20 @@ async def import_font(
                 # invisible jusqu'au prochain rechargement.
                 return existing, False
         return existing, True
+
+    # 4 bis. Empreinte d'une police récoltée (M-29) : plus de ligne `fonts`,
+    #    mais l'intention de suppression demeure. Le push agent est refusé ;
+    #    un upload web (`revive_deleted`) est le oui de l'utilisateur : il
+    #    retire l'empreinte et la police revient comme nouvelle. Le retrait se
+    #    fait à l'étape 7, dans la même écriture que la nouvelle ligne : un
+    #    échec de stockage ou d'insertion ne doit jamais laisser ni empreinte
+    #    ni police (le hash redeviendrait inconnu et la police reviendrait).
+    fingerprint = await db.execute(
+        select(HarvestedFingerprint).where(HarvestedFingerprint.file_hash == file_hash)
+    )
+    harvested = fingerprint.scalar_one_or_none()
+    if harvested is not None and not revive_deleted:
+        raise HarvestedFontRefused(filename, file_hash)
 
     # 5. Stockage. Le chemin est déterministe (dérivé du hash) : ré-écrire le
     #    même contenu est idempotent. En cas de doublon concurrent, le fichier
@@ -263,6 +292,8 @@ async def import_font(
 
     db.add(font)
     try:
+        if harvested is not None:
+            await db.delete(harvested)
         await db.flush()
         await db.refresh(font)
         await db.commit()
@@ -273,6 +304,15 @@ async def import_font(
         existing = await _find_by_hash(db, file_hash)
         if existing is not None:
             if revive_deleted:
+                if harvested is not None:
+                    # L'autre transaction a ramené la police : l'empreinte
+                    # (restaurée par le rollback) n'a plus lieu d'être.
+                    await db.execute(
+                        delete(HarvestedFingerprint).where(
+                            HarvestedFingerprint.file_hash == file_hash
+                        )
+                    )
+                    await db.commit()
                 await _restore_purged_file(existing, file_data, storage, db)
                 await _revive_if_deleted(existing, db)
             return existing, True

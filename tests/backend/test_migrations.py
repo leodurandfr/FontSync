@@ -148,3 +148,38 @@ def test_upgrade_drops_associations_to_active_web_fonts(tmp_path, monkeypatch) -
     # Active web fonts lose their association; the WOFF tombstone and the TTF keep theirs.
     assert kept == {"c" * 32, "e" * 32}
     assert font_count == 4
+
+
+def test_harvested_fingerprints_upgrade_downgrade(tmp_path, monkeypatch) -> None:
+    """M-29 : la table d'empreintes s'ajoute et se retire sans toucher aux
+    données existantes (le downgrade est le chemin de retour de P1-2d)."""
+    import sqlite3
+
+    db_path = tmp_path / "fingerprints.db"
+    _upgrade_to(db_path, monkeypatch, "5e2b7c9d1f40")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO fonts (id, file_hash, original_filename, file_size, "
+            "file_format, is_italic, is_oblique, is_variable, source) "
+            "VALUES (?, ?, 'kept.ttf', 1, 'ttf', 0, 0, 0, 'upload')",
+            ("f" * 32, "h" * 64),
+        )
+
+    _upgrade_head(db_path, monkeypatch)
+    with sqlite3.connect(db_path) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+        assert "harvested_fingerprints" in tables
+        conn.execute(
+            "INSERT INTO harvested_fingerprints (id, file_hash, harvested_at) "
+            "VALUES (?, ?, '2026-11-13 00:00:00')",
+            ("e" * 32, "g" * 64),
+        )
+        assert conn.execute("SELECT count(*) FROM fonts").fetchone()[0] == 1
+
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "alembic"))
+    command.downgrade(cfg, "5e2b7c9d1f40")
+    with sqlite3.connect(db_path) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+        assert "harvested_fingerprints" not in tables
+        assert conn.execute("SELECT file_hash FROM fonts").fetchall() == [("h" * 64,)]

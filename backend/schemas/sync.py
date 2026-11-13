@@ -92,11 +92,14 @@ class DeltaSyncResponse(CamelModel):
 class PushResponse(CamelModel):
     """Réponse après un push de font depuis un agent."""
 
-    font_id: uuid.UUID
+    font_id: uuid.UUID | None
+    """`None` seulement pour un refus sur une police récoltée (M-29) : il n'y a
+    plus de ligne `fonts` à désigner, seulement son empreinte."""
     file_hash: str
     is_duplicate: bool
     family_name: str | None = None
     refused_deleted: bool = False
-    """La font est connue du serveur mais **supprimée** : le push est refusé,
-    rien n'a été importé et elle n'a pas été ressuscitée. Ce n'est pas une
-    erreur — l'agent ne doit pas la compter comme telle."""
+    """La font est connue du serveur mais **supprimée** (pierre tombale, ou
+    récoltée) : le push est refusé, rien n'a été importé et elle n'a pas été
+    ressuscitée. Ce n'est pas une erreur — l'agent ne doit pas la compter comme
+    telle."""

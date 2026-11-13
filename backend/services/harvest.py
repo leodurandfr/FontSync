@@ -16,7 +16,9 @@ commit ici — `routers/sync.py:delta_sync` maîtrise la transaction) :
 2. **Récolte** — supprime, dans la limite de G9 (`tombstone_harvest_max_per_pass`),
    les pierres tombales dont la candidature est ouverte depuis au moins
    `tombstone_harvest_grace_hours` (G8) et dont plus aucun appareil vivant n'a
-   redéclaré depuis cette ouverture.
+   redéclaré depuis cette ouverture. Seul leur hash survit, dans
+   `harvested_fingerprints` (M-29) : la récolte libère métadonnées et
+   registre, jamais l'intention de suppression.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font, deletion_confirmed_clause
 from backend.models.font_family import FontFamily, FontFamilyMember
+from backend.models.harvested_fingerprint import HarvestedFingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +52,15 @@ _ingestible_holder_exists = select(DeviceFont.font_id).where(
 )
 # G6bis (B-120) : une association non ingérable (`/Library/Fonts`, couche que
 # FontSync ne gère pas) ne compte pas pour G6, mais elle dit que le fichier est
-# encore sur une machine vivante. Il n'est pas offert au push tel quel ; mais
-# récolter l'empreinte efface l'intention de suppression, et le fichier
-# reviendrait comme police neuve dès qu'il devient ingérable (copié dans
-# `~/Library/Fonts`, `ingest_directories` élargi, agent trop ancien pour
-# envoyer son chemin). « Vider la corbeille conserve l'empreinte » : tant
-# qu'une machine vivante la déclare, la tombe reste. G6 reste seul juge pour
-# les appareils supprimés ; un appareil supprimé qui revient (le `register`
-# le ranime) est rattrapé par G6bis en phase 2.
+# encore sur une machine vivante. Depuis M-29 son hash survit à la récolte
+# (`harvested_fingerprints`), mais la pierre tombale porte plus que lui : le
+# motif et la date de la suppression, le signal `deleted_on_server`, et la
+# désinstallation (`to_uninstall`) sur une machine qui propage si le fichier
+# devient ingérable (copié dans `~/Library/Fonts`, `ingest_directories`
+# élargi). Une empreinte récoltée, elle, n'est plus désinstallée nulle part.
+# Tant qu'une machine vivante détient le fichier, la tombe reste entière. G6
+# reste seul juge pour les appareils supprimés ; un appareil supprimé qui
+# revient (le `register` le ranime) est rattrapé par G6bis en phase 2.
 _live_holder_exists = (
     select(DeviceFont.font_id)
     .join(Device, Device.id == DeviceFont.device_id)
@@ -183,7 +187,32 @@ async def _delete_fonts(db: AsyncSession, font_ids: list[uuid.UUID]) -> None:
     Ordre exact de `docs/PLAN-ETATS-FONTS.md` §3.4 : les familles auto-groupées
     devenues vides sont retirées à la fin, jamais celles créées à la main
     (`is_auto_grouped = 1`).
+
+    L'empreinte survit à la ligne (M-29) : son hash passe dans
+    `harvested_fingerprints`, dans la même transaction. Sans elle, le delta
+    réclamerait de nouveau le fichier au push et la police reviendrait.
     """
+    now = datetime.now(timezone.utc)
+    harvested = (
+        await db.execute(
+            select(Font.file_hash, Font.deleted_at).where(Font.id.in_(font_ids))
+        )
+    ).all()
+    already = set(
+        (
+            await db.execute(
+                select(HarvestedFingerprint.file_hash).where(
+                    HarvestedFingerprint.file_hash.in_([h for h, _ in harvested])
+                )
+            )
+        ).scalars()
+    )
+    db.add_all(
+        HarvestedFingerprint(file_hash=h, deleted_at=deleted_at, harvested_at=now)
+        for h, deleted_at in harvested
+        if h not in already
+    )
+
     families_result = await db.execute(
         select(FontFamilyMember.family_id)
         .where(FontFamilyMember.font_id.in_(font_ids))

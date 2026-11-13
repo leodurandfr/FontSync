@@ -368,7 +368,8 @@ async def list_trash(
     une entrée de corbeille : c'est une pierre tombale. Elle reste en base — son
     empreinte est ce qui empêche la police de revenir au push suivant — mais
     l'afficher ne proposait qu'un bouton grisé et une explication. Elle sort donc
-    de la vue, sans sortir de la base.
+    de la vue, sans sortir de la base (jusqu'à la récolte, qui n'en garde que le
+    hash, `harvested_fingerprints`).
     """
     query = select(Font).where(Font.deleted_at.is_not(None), Font.purged_at.is_(None))
 
@@ -412,9 +413,10 @@ async def empty_trash(
 ) -> PurgeResponse:
     """Vide la corbeille : retire les fichiers du stockage, garde les empreintes.
 
-    Garder la ligne n'est pas une demi-mesure. Sans elle, la police reviendrait
-    au premier push d'une machine qui détient encore le fichier — et une purge
-    au jour 30 la ferait réapparaître au jour 31, indéfiniment.
+    Garder la ligne n'est pas une demi-mesure. Sans empreinte, la police
+    reviendrait au premier push d'une machine qui détient encore le fichier — et
+    une purge au jour 30 la ferait réapparaître au jour 31, indéfiniment. (La
+    récolte retire plus tard la ligne mais garde le hash, `harvested_fingerprints`.)
 
     Les suppressions **non confirmées** sont épargnées : retirer leur fichier les
     rendrait irrécupérables alors qu'elles attendent précisément un arbitrage. On

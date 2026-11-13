@@ -79,7 +79,10 @@ This is the simplest and most reproducible method, including on Synology whose
 | `DATABASE_URL`      | SQLite URL (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
 | `STORAGE_BACKEND`   | Storage backend                                    | `filesystem`                                  |
 | `FONT_STORAGE_PATH` | Font files folder                                  | `/fonts`                                       |
-| `TRASH_RETENTION_DAYS` | Auto-empty the trash after N days. `0` = never (default) | `0`                                     |
+| `TRASH_RETENTION_DAYS` | Auto-empty the trash after N days. `0` = never (default). Emptying deletes the **files** (the fonts can no longer be restored, only re-uploaded): leave it at `0` unless you want that to happen on its own | `0`                                     |
+| `TOMBSTONE_HARVEST_ENABLED` | Lets the server delete, for good, the database rows of emptied fonts once every guard holds — to keep the database lean; only their hash is kept, so they never come back by themselves, but they can no longer be seen or restored (only re-uploaded). `false` = never (default) | `false` |
+| `TOMBSTONE_HARVEST_GRACE_HOURS` | With the harvest on: how long a row waits, after it qualifies, before it is deleted — a Mac whose declaration missed the file once gets to declare it again. Default `24` | `24` |
+| `TOMBSTONE_HARVEST_MAX_PER_PASS` | With the harvest on: at most this many rows deleted per sync. Default `5` | `5` |
 | `WATCHTOWER_TOKEN`  | Shared secret for the update button (see §4)       | output of `openssl rand -base64 32`           |
 | `WATCHTOWER_URL`    | Where the update request goes; already set by the compose file | `http://watchtower:8080`          |
 | `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |

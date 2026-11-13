@@ -5,7 +5,8 @@ n'est pas une demi-mesure, c'est la seule forme correcte : l'empreinte
 (`file_hash`) est ce qui rend la suppression durable. Supprimer la ligne aussi
 ferait revenir la police au premier push d'une machine qui détient encore le
 fichier — et une purge automatique au jour 30 la ferait réapparaître au jour 31,
-indéfiniment.
+indéfiniment. La récolte (`services/harvest.py`) finit par retirer la ligne
+d'une pierre tombale, mais son hash survit dans `harvested_fingerprints` (M-29).
 
 La purge automatique est **désactivée par défaut** (`TRASH_RETENTION_DAYS=0`) :
 une suppression de fichier qui se déclenche toute seule doit être demandée.

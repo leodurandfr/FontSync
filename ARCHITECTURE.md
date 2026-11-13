@@ -198,7 +198,7 @@ Each record = a unique physical font file, identified by its SHA-256 hash.
 | `updated_at` | DateTime (tz) | |
 | `deleted_at` | DateTime (tz), nullable | Soft delete |
 | `deleted_reason` | VARCHAR(30), nullable | `manual`, `quarantine`, `quarantine_pending` — cf. §4.4 |
-| `purged_at` | DateTime (tz), nullable | File removed from storage; the row (and its fingerprint) is kept |
+| `purged_at` | DateTime (tz), nullable | File removed from storage; the row is kept until the harvest, the fingerprint for good (`harvested_fingerprints`, §4.4) |
 
 Indexes: `family_name`, `classification`, `file_hash`, `source`, `deleted_at`.
 
@@ -238,6 +238,17 @@ Fonts known to be present on a device.
 > **Note**: the former `sync_queue` table was removed during the overhaul —
 > the agent is **stateless** (each `sync` recomputes the delta from the real disk
 > state), so there is no longer a queue on the server side.
+
+#### `harvested_fingerprints`
+
+The hash of a harvested tombstone, once its `fonts` row is gone (§4.4).
+
+| Column | Type | Description |
+|---------|------|-------------|
+| `id` | UUID | PK |
+| `file_hash` | VARCHAR(64), unique | SHA-256 of the harvested font's file |
+| `deleted_at` | DateTime (tz), nullable | When the font was originally deleted |
+| `harvested_at` | DateTime (tz) | When its row was harvested |
 
 ### 4.2 Families (delivered)
 
@@ -353,6 +364,21 @@ it — and a day-30 purge would make it reappear on day 31, forever. A purged fo
 can no longer be restored; re-importing the file is the way back (it also
 rewrites the file to storage). Automatic purge is opt-in and off by default
 (`TRASH_RETENTION_DAYS=0`).
+
+**The harvest** (`services/harvest.py`, off unless `TOMBSTONE_HARVEST_ENABLED`)
+eventually deletes a tombstone's row — metadata, registry, family membership —
+once every guard holds (`docs/PLAN-ETATS-FONTS.md` §3.4): purged, confirmed, at
+least one live device, no ingestible holder (removed devices included), no live
+device still declaring it whatever the layer, every live device has declared
+since the deletion, then a grace period after which every live device has
+declared again, at most N rows per pass. The fingerprint still outlives the row:
+its hash moves to `harvested_fingerprints`, in the same transaction.
+`compute_delta` counts it as known (never asked for a push), an agent push of
+that file is refused (`refused_deleted: true`, `font_id: null`), and only a web
+upload brings the font back, as a new row, removing the fingerprint. Unlike a
+tombstone, a harvested hash is neither counted in `deleted_on_server` nor sent in
+`to_uninstall`: a Mac that still holds the file keeps it, silently. Rows
+harvested before migration `d81f3c2a6b94` (November 2026) left no fingerprint.
 
 Two consequences of that design are load-bearing enough to name:
 

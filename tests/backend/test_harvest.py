@@ -24,10 +24,10 @@ from backend.models.font_family import FontFamily, FontFamilyMember
 from backend.routers.devices import register_device
 from backend.schemas.device import DeviceRegister
 from backend.schemas.sync import DeviceFontEntry
-from backend.services.font_importer import import_font
+from backend.services.font_importer import HarvestedFontRefused, import_font
 from backend.services.harvest import harvest_tombstones
 from backend.services.inventory import reconcile_inventory
-from backend.services.sync_manager import register_device_font
+from backend.services.sync_manager import compute_delta, register_device_font
 
 
 async def _make_device(db, *, hostname: str = "mac") -> Device:
@@ -881,3 +881,135 @@ async def test_device_revival_restarts_the_grace_of_tombs_it_holds(
     await db.commit()
     assert await harvest_tombstones(db) == 0
     assert await _font_exists(db, tomb.id)
+
+
+# ---------- Empreinte minimale après récolte (M-29) ----------
+
+
+@pytest.mark.asyncio
+async def test_harvested_font_is_not_resurrected_by_push(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-29 : « vider la corbeille conserve l'empreinte » doit rester vrai
+    après la récolte. Un appareil qui déclare pour la première fois le fichier
+    d'une police récoltée ne doit pas se voir réclamer un push, et un push
+    forcé (agent sans delta) est refusé sans recréer de police."""
+    _enable_harvest(monkeypatch)
+    a = await _make_device(db, hostname="a")
+    data = font_factory(family="Harvested Once")
+    tomb, _ = await import_font("HarvestedOnce.ttf", data, storage, db)
+    tomb.deleted_at = datetime.now(timezone.utc)
+    tomb.deletion_confirmed = True
+    tomb.purged_at = datetime.now(timezone.utc)
+    a.last_declaration_at = tomb.deleted_at + timedelta(seconds=1)
+    file_hash = tomb.file_hash
+    await db.commit()
+    assert await harvest_tombstones(db) == 1
+
+    newcomer = await _make_device(db, hostname="newcomer")
+    delta = await compute_delta(
+        [DeviceFontEntry(hash=file_hash, filename="HarvestedOnce.ttf")],
+        db,
+        device_id=newcomer.id,
+        propagate_deletions=False,
+    )
+    assert file_hash not in delta.unknown_to_server
+
+    with pytest.raises(HarvestedFontRefused):
+        await import_font("HarvestedOnce.ttf", data, storage, db, revive_deleted=False)
+    rows = await db.execute(select(Font.id).where(Font.file_hash == file_hash))
+    assert rows.first() is None
+
+
+@pytest.mark.asyncio
+async def test_api_push_of_harvested_font_is_refused_until_web_upload(
+    api_client, font_factory, monkeypatch, caplog
+) -> None:
+    """M-29 de bout en bout, par l'API : suppression, vidage, récolte au fil
+    des deltas ; le push agent est refusé (`refusedDeleted`, sans `fontId`) ;
+    un upload web — le geste explicite — la ramène."""
+    from tests.backend.conftest import AUTH_HEADERS
+
+    _enable_harvest(monkeypatch)
+    x = font_factory(family="Api Harvested")
+    y = font_factory(family="Api Kept")
+
+    async def upload(data: bytes, name: str) -> dict:
+        resp = await api_client.post(
+            "/api/fonts/upload",
+            headers=AUTH_HEADERS,
+            files=[("files", (name, data, "font/ttf"))],
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["imported"][0]
+
+    fx, fy = await upload(x, "ApiHarvested.ttf"), await upload(y, "ApiKept.ttf")
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "A", "hostname": "mac-a", "os": "macos"},
+    )
+    device = resp.json()["id"]
+    assert (
+        await api_client.delete(f"/api/fonts/{fx['id']}", headers=AUTH_HEADERS)
+    ).status_code == 204
+    await api_client.post("/api/fonts/trash/empty", headers=AUTH_HEADERS)
+
+    with caplog.at_level("WARNING", logger="backend.services.harvest"):
+        for _ in range(2):
+            resp = await api_client.post(
+                "/api/sync/delta",
+                headers=AUTH_HEADERS,
+                json={
+                    "deviceId": device,
+                    "fonts": [{"hash": fy["fileHash"], "filename": "ApiKept.ttf"}],
+                },
+            )
+            assert resp.status_code == 200, resp.text
+    assert any(fx["id"] in r.getMessage() for r in caplog.records), "pas récoltée"
+
+    resp = await api_client.post(
+        "/api/sync/push",
+        headers=AUTH_HEADERS,
+        files={"file": ("ApiHarvested.ttf", x, "font/ttf")},
+        data={"device_id": device, "local_path": "/Users/u/Library/Fonts/x.ttf"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["refusedDeleted"] is True
+    assert resp.json()["fontId"] is None
+
+    back = await upload(x, "ApiHarvested.ttf")
+    assert back["fileHash"] == fx["fileHash"]
+
+
+@pytest.mark.asyncio
+async def test_each_harvested_font_leaves_its_fingerprint(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """M-29 : une passe récolte plusieurs tombes (plafond 5 par défaut) ;
+    chacune laisse son empreinte, avec sa date de suppression d'origine — et
+    une police vivante n'en laisse aucune."""
+    from backend.models.harvested_fingerprint import HarvestedFingerprint
+
+    _enable_harvest(monkeypatch)
+    device = await _make_device(db)
+    tombs = [
+        await _make_tombstone(db, storage, font_factory, f"MultiHarvest{i}")
+        for i in range(2)
+    ]
+    live = await _make_font(db, storage, font_factory, "MultiHarvestLive")
+    deleted = {t.file_hash: t.deleted_at for t in tombs}
+    device.last_declaration_at = datetime.now(timezone.utc) + timedelta(seconds=1)
+    await db.commit()
+
+    assert await harvest_tombstones(db) == 2
+
+    rows = (await db.execute(select(HarvestedFingerprint))).scalars().all()
+    assert {r.file_hash for r in rows} == set(deleted)
+    assert live.file_hash not in {r.file_hash for r in rows}
+    for r in rows:
+        original = deleted[r.file_hash]
+        got = r.deleted_at
+        if got is not None and got.tzinfo is None:
+            got = got.replace(tzinfo=timezone.utc)
+        assert got == original
