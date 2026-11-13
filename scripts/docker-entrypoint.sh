@@ -26,6 +26,12 @@ if settings.storage_backend == "filesystem" and settings.font_storage_path:
     os.makedirs(settings.font_storage_path, exist_ok=True)
 PY
 
+# Avant toute migration : instantané si une migration est en attente, refus
+# d'une base plus récente que l'image, réparation d'une migration SQLite
+# interrompue quand c'est sans danger. Code non nul = pas de démarrage.
+echo "[entrypoint] Contrôles avant migration…"
+python -m backend.premigrate
+
 echo "[entrypoint] Migrations de schéma (alembic upgrade head)…"
 alembic upgrade head
 

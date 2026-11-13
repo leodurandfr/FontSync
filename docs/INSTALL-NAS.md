@@ -253,6 +253,24 @@ write-once (named by hash), never modified in place.
 3. `docker compose -f docker-compose.nas.yml up -d`. The migrations
    re-apply at boot if needed.
 
+**From a database snapshot** (`/backups/fontsync-*.db`, or the
+`pre-migrate-<revision>-*.db` the container takes before every schema
+migration):
+
+1. `docker compose -f docker-compose.nas.yml down`.
+2. In the `db` volume, **delete `fontsync.db-wal` and `fontsync.db-shm`
+   first** — otherwise SQLite replays the old journal on top of the restored
+   file and silently undoes the restore.
+3. Copy the chosen snapshot over `fontsync.db`. After a failed update, take
+   the **first** `pre-migrate-*` snapshot written since the update.
+4. Start the image that created that snapshot (pin its `sha-<short>` tag,
+   cf. [RELEASE.md](RELEASE.md) → Rollback); a newer image migrates it again.
+
+At boot, the container refuses to start — with a message saying why — on a
+database migrated by a newer image, on a half-applied migration it cannot
+repair safely, or after three failed migration attempts within 24 h (it
+stops taking a snapshot on every restart).
+
 ---
 
 ## 6. Network exposure

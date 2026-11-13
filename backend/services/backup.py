@@ -192,38 +192,51 @@ async def backup_database(
     while dest_path.exists():
         dest_path = dest_dir / f"fontsync-{stamp}-{suffix}.db"
         suffix += 1
-    tmp_path = dest_path.with_name(dest_path.name + ".tmp")
-
-    def _copy_check_and_publish() -> None:
-        try:
-            src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
-            try:
-                dst = sqlite3.connect(str(tmp_path))
-                try:
-                    src.backup(dst)
-                    verdict = dst.execute("PRAGMA integrity_check").fetchone()[0]
-                    tables = dst.execute(
-                        "SELECT count(*) FROM sqlite_master WHERE type = 'table'"
-                    ).fetchone()[0]
-                finally:
-                    dst.close()
-            finally:
-                src.close()
-            if verdict != "ok":
-                raise RuntimeError(f"integrity_check sur la copie : {verdict}")
-            if tables == 0:
-                raise RuntimeError("copie sans aucune table : source vide ou invalide")
-            _fsync_file(tmp_path)
-            os.replace(tmp_path, dest_path)
-            _fsync_dir(dest_dir)
-        except BaseException:
-            for leftover in (tmp_path, *_sqlite_sidecars(tmp_path)):
-                leftover.unlink(missing_ok=True)
-            raise
-
-    await asyncio.to_thread(_copy_check_and_publish)
+    await asyncio.to_thread(write_snapshot, source_path, dest_path)
     _rotate_snapshots(dest_dir, keep)
     return dest_path
+
+
+def write_snapshot(source_path: Path, dest_path: Path) -> None:
+    """Écrit atomiquement un instantané vérifié de `source_path` en `dest_path`.
+
+    Copie via `sqlite3.Connection.backup()` dans `<dest>.tmp`, puis
+    `integrity_check` et au moins une table, fsync, et seulement alors
+    renommage vers `dest_path`. Sur toute erreur, le `.tmp` et ses annexes
+    SQLite sont retirés : rien ne passe pour une sauvegarde valide.
+
+    Bloquant : à appeler via `asyncio.to_thread` depuis du code asynchrone.
+
+    Raises:
+        RuntimeError: si `integrity_check` ne renvoie pas `ok` ou si la copie
+            ne contient aucune table.
+    """
+    tmp_path = dest_path.with_name(dest_path.name + ".tmp")
+    try:
+        src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
+        try:
+            dst = sqlite3.connect(str(tmp_path))
+            try:
+                src.backup(dst)
+                verdict = dst.execute("PRAGMA integrity_check").fetchone()[0]
+                tables = dst.execute(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'table'"
+                ).fetchone()[0]
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        if verdict != "ok":
+            raise RuntimeError(f"integrity_check sur la copie : {verdict}")
+        if tables == 0:
+            raise RuntimeError("copie sans aucune table : source vide ou invalide")
+        _fsync_file(tmp_path)
+        os.replace(tmp_path, dest_path)
+        _fsync_dir(dest_path.parent)
+    except BaseException:
+        for leftover in (tmp_path, *_sqlite_sidecars(tmp_path)):
+            leftover.unlink(missing_ok=True)
+        raise
 
 
 def _sqlite_sidecars(path: Path) -> list[Path]:
