@@ -139,6 +139,20 @@ export default {
       "The server has not come back yet. It may still be starting; reload in a moment, or check the container on your NAS.",
     updateNotConfigured:
       "Updating from here is not set up on this server. Add the watchtower service from the deployment compose file, or update manually.",
+    backups: "Backups",
+    backupsDisabled:
+      "Automatic backups are turned off on this server (BACKUP_DIR is not set).",
+    backupsLast: "Latest database snapshot: {date} ({size}).",
+    backupsNone: "No database snapshot yet.",
+    backupsMirror:
+      "Font mirror: {date} — {copied} copied, {repaired} repaired, {failed} failed.",
+    backupsStale:
+      "No database backup in more than 36 hours. Check the backup folder and the server logs.",
+    backupsNeverOk:
+      "No database snapshot has succeeded yet. Check the backup folder and the server logs.",
+    backupsError: "The last backup failed: {error}",
+    backupsMirrorFailed:
+      "{n} font could not be copied to the mirror. See the server logs. | {n} fonts could not be copied to the mirror. See the server logs.",
     accessToken: "Access token",
     tokenDesc:
       "The instance token ({code}) protects access to this library. It is stored in this browser. Change it to enter another token or sign out of this instance.",

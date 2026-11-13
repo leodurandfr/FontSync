@@ -26,6 +26,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useTheme, type Theme } from "@/composables/useTheme";
 import { useLocale } from "@/composables/useLocale";
 import { useServerUpdate } from "@/composables/useServerUpdate";
+import { useBackupHealth } from "@/composables/useBackupHealth";
 import type { Locale } from "@/i18n";
 import { storeToRefs } from "pinia";
 
@@ -37,7 +38,7 @@ const { status } = storeToRefs(wsStore);
 const authStore = useAuthStore();
 
 const { theme, setTheme } = useTheme();
-const { locale, setLocale } = useLocale();
+const { locale, setLocale, dateLocale } = useLocale();
 
 const {
   info,
@@ -48,7 +49,31 @@ const {
   update,
 } = useServerUpdate();
 
-onMounted(fetchInfo);
+const {
+  health: backups,
+  warning: backupWarning,
+  fetchHealth: fetchBackups,
+} = useBackupHealth();
+
+onMounted(() => {
+  void fetchInfo();
+  void fetchBackups();
+});
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(dateLocale.value, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function formatMegabytes(bytes: number): string {
+  return new Intl.NumberFormat(dateLocale.value, {
+    style: "unit",
+    unit: "megabyte",
+    maximumFractionDigits: 1,
+  }).format(bytes / 1_000_000);
+}
 
 const themeOptions = computed<
   { value: Theme; label: string; icon: typeof Sun }[]
@@ -292,6 +317,72 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             >
               {{ t("settings.updateNotConfigured") }}
             </p>
+          </div>
+
+          <!-- Sauvegardes automatiques. Masqué si le serveur ne connaît pas la
+               route (version antérieure) ; avertit si rien de récent. -->
+          <div v-if="backups">
+            <SectionLabel as="p" class="mb-1.5">{{
+              t("settings.backups")
+            }}</SectionLabel>
+            <p
+              v-if="!backups.enabled"
+              class="text-[13px] text-muted-foreground"
+            >
+              {{ t("settings.backupsDisabled") }}
+            </p>
+            <template v-else>
+              <p class="text-[13px]">
+                {{
+                  backups.lastSnapshotAt
+                    ? t("settings.backupsLast", {
+                        date: formatDateTime(backups.lastSnapshotAt),
+                        size: formatMegabytes(backups.lastSnapshotBytes ?? 0),
+                      })
+                    : t("settings.backupsNone")
+                }}
+              </p>
+              <p
+                v-if="backups.lastMirrorAt"
+                class="mt-1 text-[13px] text-muted-foreground"
+              >
+                {{
+                  t("settings.backupsMirror", {
+                    date: formatDateTime(backups.lastMirrorAt),
+                    copied: backups.mirrorCopied ?? 0,
+                    repaired: backups.mirrorRepaired ?? 0,
+                    failed: backups.mirrorFailed ?? 0,
+                  })
+                }}
+              </p>
+              <p
+                v-if="backupWarning"
+                role="alert"
+                class="mt-2 text-[13px] text-destructive"
+              >
+                <template v-if="backupWarning === 'stale'">{{
+                  backups.lastSnapshotAt
+                    ? t("settings.backupsStale")
+                    : t("settings.backupsNeverOk")
+                }}</template>
+                <template v-else-if="backupWarning === 'error'">{{
+                  t("settings.backupsError", { error: backups.lastError ?? "" })
+                }}</template>
+                <template v-else>{{
+                  t(
+                    "settings.backupsMirrorFailed",
+                    { n: backups.mirrorFailed ?? 0 },
+                    backups.mirrorFailed ?? 0,
+                  )
+                }}</template>
+              </p>
+              <p
+                v-if="backupWarning === 'stale' && backups.lastError"
+                class="mt-1 break-words font-mono text-[12px] text-muted-foreground"
+              >
+                {{ backups.lastError }}
+              </p>
+            </template>
           </div>
         </Panel>
       </section>

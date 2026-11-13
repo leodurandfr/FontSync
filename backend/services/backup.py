@@ -23,8 +23,8 @@ import os
 import re
 import shutil
 import sqlite3
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy.engine import make_url
@@ -41,6 +41,122 @@ BACKUP_BLOBS_INTERVAL_SECONDS = 7 * 24 * 3600
 
 # Instantanés de base conservés (rotation), comme `KEEP` dans backup-prod.sh.
 BACKUP_KEEP = 14
+
+# Au-delà, la sauvegarde est signalée en retard : un jour de cadence plus une
+# demi-journée de marge (redémarrage, NAS en veille).
+BACKUP_STALE_AFTER = timedelta(hours=36)
+
+
+@dataclass
+class BackupStatus:
+    """Ce que le process sait des sauvegardes et que le disque ne dit pas.
+
+    La date du dernier instantané se relit sur disque (elle survit aux
+    redémarrages, cf. `latest_snapshot`) ; restent ici les erreurs en cours et
+    le bilan du dernier miroir. Une erreur par boucle (`database`, `mirror`) :
+    la réussite d'une boucle efface la sienne, jamais celle de l'autre.
+    """
+
+    errors: dict[str, tuple[datetime, str]] = field(default_factory=dict)
+    last_mirror_at: datetime | None = None
+    mirror: MirrorResult | None = None
+
+    def record_error(self, source: str, error: BaseException) -> None:
+        self.errors[source] = (datetime.now(timezone.utc), _describe_error(error))
+
+    def record_success(self, source: str) -> None:
+        self.errors.pop(source, None)
+
+    def record_mirror(self, result: MirrorResult) -> None:
+        self.last_mirror_at = datetime.now(timezone.utc)
+        self.mirror = result
+        self.record_success("mirror")
+
+    def latest_error(self) -> tuple[datetime, str] | None:
+        """L'erreur en cours la plus récente, toutes boucles confondues."""
+        return max(self.errors.values(), default=None, key=lambda item: item[0])
+
+
+# Chemin absolu dans un message libre (début de chaîne, espace ou guillemet
+# avant le `/`).
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])/[^\s'\"(),:]+")
+
+
+def _describe_error(error: BaseException) -> str:
+    """Message d'erreur lisible, sans chemin absolu de l'hôte.
+
+    Une `OSError` est reconstruite à partir de `strerror` et de ses noms de
+    fichier, ramenés à leur racine connue ; tout autre message voit ses
+    chemins absolus réduits au dernier composant. Ne lève jamais : appelée
+    depuis le `except` des boucles.
+    """
+    try:
+        if isinstance(error, OSError) and error.strerror:
+            message = f"{type(error).__name__}: {error.strerror}"
+            names = [os.fsdecode(n) for n in (error.filename, error.filename2) if n]
+            if names:
+                message += f" ({', '.join(_redact_path(n) for n in names)})"
+        else:
+            message = _ABSOLUTE_PATH.sub(
+                lambda match: _redact_path(match.group(0)),
+                f"{type(error).__name__}: {error}",
+            )
+    except Exception:
+        message = type(error).__name__
+    return message[:500]
+
+
+def _redact_path(raw: str) -> str:
+    """`BACKUP_DIR/…` ou `FONT_STORAGE_PATH/…` si le chemin y est, sinon `…/nom`."""
+    path = Path(raw)
+    for root, label in (
+        (settings.backup_dir, "BACKUP_DIR"),
+        (settings.font_storage_path, "FONT_STORAGE_PATH"),
+    ):
+        if root:
+            try:
+                return str(Path(label) / path.relative_to(root))
+            except ValueError:
+                continue
+    return f"…/{path.name}" if path.name else "…"
+
+
+def sqlite_database_path() -> Path | None:
+    """Fichier de la base SQLite, ou None si le backend n'est pas SQLite."""
+    url = make_url(settings.database_url)
+    if url.get_backend_name() != "sqlite" or not url.database:
+        return None
+    return Path(url.database)
+
+
+def database_backup_enabled() -> bool:
+    """Vrai si la boucle d'instantanés tourne (`BACKUP_DIR` défini, base SQLite)."""
+    return bool(settings.backup_dir) and sqlite_database_path() is not None
+
+
+def mirror_backup_enabled() -> bool:
+    """Vrai si la boucle de miroir tourne (`BACKUP_DIR` défini, stockage fichier)."""
+    return bool(settings.backup_dir) and settings.storage_backend == "filesystem"
+
+
+def latest_snapshot(dest_dir: Path) -> tuple[datetime, int] | None:
+    """Date (mtime, UTC) et taille de l'instantané le plus récent, s'il y en a un."""
+    newest: os.stat_result | None = None
+    for path in dest_dir.glob("fontsync-*.db"):
+        if not _SNAPSHOT_NAME.match(path.name):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if newest is None or stat.st_mtime > newest.st_mtime:
+            newest = stat
+    if newest is None:
+        return None
+    return datetime.fromtimestamp(newest.st_mtime, timezone.utc), newest.st_size
+
+
+status = BackupStatus()
 
 
 async def backup_database(
@@ -263,15 +379,14 @@ async def run_database_backup_loop() -> None:
     if not settings.backup_dir:
         logger.info("Sauvegarde automatique désactivée (BACKUP_DIR non défini).")
         return
-    url = make_url(settings.database_url)
-    if url.get_backend_name() != "sqlite":
+    source_path = sqlite_database_path()
+    if source_path is None:
         logger.info(
             "Sauvegarde automatique de la base non applicable (backend %s, pas SQLite).",
-            url.get_backend_name(),
+            make_url(settings.database_url).get_backend_name(),
         )
         return
 
-    source_path = Path(url.database)
     dest_dir = Path(settings.backup_dir)
     logger.info(
         "Sauvegarde automatique de la base activée : %s → %s (quotidienne, %d conservés).",
@@ -283,12 +398,14 @@ async def run_database_backup_loop() -> None:
         try:
             snapshot = await backup_database(source_path, dest_dir, keep=BACKUP_KEEP)
             logger.info("Base sauvegardée : %s", snapshot)
+            status.record_success("database")
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             logger.exception(
                 "Sauvegarde automatique de la base échouée (la boucle continue)"
             )
+            status.record_error("database", error)
         await asyncio.sleep(BACKUP_DB_INTERVAL_SECONDS)
 
 
@@ -326,8 +443,10 @@ async def run_blob_backup_loop() -> None:
                     "(voir les avertissements ci-dessus).",
                     result.failed,
                 )
+            status.record_mirror(result)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             logger.exception("Miroir des polices échoué (la boucle continue)")
+            status.record_error("mirror", error)
         await asyncio.sleep(BACKUP_BLOBS_INTERVAL_SECONDS)

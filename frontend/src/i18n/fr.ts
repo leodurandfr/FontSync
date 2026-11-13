@@ -141,6 +141,20 @@ const fr: typeof en = {
       "Le serveur n'est pas encore revenu. Il démarre peut-être encore : rechargez dans un instant, ou vérifiez le conteneur sur votre NAS.",
     updateNotConfigured:
       "La mise à jour depuis l'interface n'est pas configurée sur ce serveur. Ajoutez le service watchtower du compose de déploiement, ou mettez à jour à la main.",
+    backups: "Sauvegardes",
+    backupsDisabled:
+      "Sauvegardes automatiques désactivées sur ce serveur (BACKUP_DIR non défini).",
+    backupsLast: "Dernier instantané de la base : {date} ({size}).",
+    backupsNone: "Aucun instantané de la base pour l'instant.",
+    backupsMirror:
+      "Miroir des polices : {date} — {copied} copiés, {repaired} réparés, {failed} en échec.",
+    backupsStale:
+      "Aucune sauvegarde de la base depuis plus de 36 h. Vérifiez le dossier de sauvegarde et les journaux du serveur.",
+    backupsNeverOk:
+      "Aucun instantané de la base n'a encore réussi. Vérifiez le dossier de sauvegarde et les journaux du serveur.",
+    backupsError: "La dernière sauvegarde a échoué : {error}",
+    backupsMirrorFailed:
+      "{n} police n'a pas pu être copiée dans le miroir. Voir les journaux du serveur. | {n} polices n'ont pas pu être copiées dans le miroir. Voir les journaux du serveur.",
     accessToken: "Token d'accès",
     tokenDesc:
       "Le token d'instance ({code}) protège l'accès à cette bibliothèque. Il est mémorisé dans ce navigateur. Changez-le pour saisir un autre token ou vous déconnecter de cette instance.",

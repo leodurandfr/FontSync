@@ -547,6 +547,7 @@ way — those groups go undetected, never mis-resolved.
 | Method | Endpoint | Description |
 |---------|----------|-------------|
 | `GET` | `/api/system/info` | Running version, and whether self-update is set up |
+| `GET` | `/api/system/backups` | Backup health: latest snapshot (date read from disk, size), last error, last font-mirror pass, `stale` when enabled and no snapshot in 36 h |
 | `POST` | `/api/system/update` | Ask Watchtower to pull the image and recreate the container |
 
 > FontSync **never** mounts the Docker socket. A container cannot replace itself

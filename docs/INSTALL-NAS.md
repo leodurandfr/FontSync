@@ -187,6 +187,9 @@ no cron job, no NAS Task Scheduler, no `docker exec` from the host:
 
 Leave `BACKUP_DIR` empty to disable it — a snapshot written without a
 mounted volume would just vanish on the next container recreation, silently.
+**Settings → Server** shows the latest snapshot and the last mirror pass, and
+warns when no snapshot is younger than 36 h, when the last backup failed, or
+when fonts could not be mirrored (same data: `GET /api/system/backups`).
 Inspect what's there with `docker compose -f docker-compose.nas.yml exec
 fontsync ls -la /backups /backups/fonts`.
 

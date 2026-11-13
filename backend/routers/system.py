@@ -12,13 +12,17 @@ pas une erreur, c'est le succès. L'interface attend le retour de `/health`
 plutôt que la réponse.
 """
 
+import asyncio
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
 
 from backend.config import settings
-from backend.schemas.system import SystemInfo, UpdateResponse
+from backend.schemas.system import BackupHealth, SystemInfo, UpdateResponse
+from backend.services import backup as backup_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,40 @@ async def system_info() -> SystemInfo:
     return SystemInfo(
         version=settings.fontsync_version or "dev",
         update_available=_update_configured(),
+    )
+
+
+@router.get("/backups", response_model=BackupHealth)
+async def backups_health() -> BackupHealth:
+    """État des sauvegardes : dernier instantané, dernière erreur, dernier miroir.
+
+    Lisible sans accès au NAS : c'est ce relevé qui dit si les sauvegardes
+    tournent, au lieu d'un journal que personne ne lit.
+    """
+    database_enabled = backup_service.database_backup_enabled()
+    latest = None
+    if database_enabled:
+        latest = await asyncio.to_thread(
+            backup_service.latest_snapshot, Path(settings.backup_dir)
+        )
+    stale = database_enabled and (
+        latest is None
+        or datetime.now(timezone.utc) - latest[0] > backup_service.BACKUP_STALE_AFTER
+    )
+    state = backup_service.status
+    error = state.latest_error()
+    mirror = state.mirror
+    return BackupHealth(
+        enabled=database_enabled or backup_service.mirror_backup_enabled(),
+        last_snapshot_at=latest[0] if latest else None,
+        last_snapshot_bytes=latest[1] if latest else None,
+        last_error_at=error[0] if error else None,
+        last_error=error[1] if error else None,
+        last_mirror_at=state.last_mirror_at,
+        mirror_copied=mirror.copied if mirror else None,
+        mirror_repaired=mirror.repaired if mirror else None,
+        mirror_failed=mirror.failed if mirror else None,
+        stale=stale,
     )
 
 

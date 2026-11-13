@@ -172,6 +172,24 @@ export interface SystemInfo {
   updateAvailable: boolean;
 }
 
+/** État des sauvegardes automatiques (`GET /api/system/backups`). */
+export interface BackupHealth {
+  /** Instantanés de base actifs (`BACKUP_DIR` défini côté serveur). */
+  enabled: boolean;
+  lastSnapshotAt: string | null;
+  lastSnapshotBytes: number | null;
+  /** Dernière erreur d'une boucle de sauvegarde, effacée par la réussite suivante. */
+  lastErrorAt: string | null;
+  lastError: string | null;
+  /** Dernière passe du miroir des polices depuis le démarrage du serveur. */
+  lastMirrorAt: string | null;
+  mirrorCopied: number | null;
+  mirrorRepaired: number | null;
+  mirrorFailed: number | null;
+  /** Activé, et aucun instantané ou le plus récent a plus de 36 h. */
+  stale: boolean;
+}
+
 export interface Stats {
   totalFonts: number;
   byClassification: { classification: string | null; count: number }[];
