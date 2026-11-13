@@ -192,25 +192,27 @@ async def test_existing_association_is_updated_in_place(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_hash_ingestible_wins(db, storage, font_factory) -> None:
+@pytest.mark.parametrize("managed_first", [True, False])
+async def test_duplicate_hash_ingestible_wins(
+    db, storage, font_factory, managed_first: bool
+) -> None:
     """Une police installée à la fois pour l'utilisateur et pour tous produit
     deux entrées du même hash — `ingestible=True` doit toujours l'emporter,
-    quel que soit l'ordre de déclaration."""
+    quel que soit l'ordre de déclaration (B-167 : les deux ordres)."""
     device = await _make_device(db)
     font = await _make_font(db, storage, font_factory, "Both")
     await db.commit()
+    managed = DeviceFontEntry(hash=font.file_hash, filename="Both.ttf", ingestible=True)
+    shared = DeviceFontEntry(
+        hash=font.file_hash,
+        filename="Both.ttf",
+        local_path="/Library/Fonts/Both.ttf",
+        ingestible=False,
+    )
 
     stats = await reconcile_inventory(
         device.id,
-        [
-            DeviceFontEntry(hash=font.file_hash, filename="Both.ttf", ingestible=True),
-            DeviceFontEntry(
-                hash=font.file_hash,
-                filename="Both.ttf",
-                local_path="/Library/Fonts/Both.ttf",
-                ingestible=False,
-            ),
-        ],
+        [managed, shared] if managed_first else [shared, managed],
         db,
     )
 
@@ -324,3 +326,70 @@ async def test_undeclared_non_ingestible_association_of_active_font_departs(
     assert await _association(db, device.id, shared.id) is None
     await db.refresh(shared)
     assert shared.deleted_at is None
+
+
+# =====================================================================
+# Verrous de non-régression (B-167)
+# =====================================================================
+
+
+@pytest.mark.asyncio
+async def test_ingestible_flip_at_the_same_path_is_recorded(
+    db, storage, font_factory
+) -> None:
+    """B-167 : seul `ingestible` change (même chemin, `ingest_directories`
+    modifié côté agent) — la mise à jour doit le voir, G6 en dépend."""
+    device = await _make_device(db)
+    font = await _make_font(db, storage, font_factory, "Flip")
+    db.add(
+        DeviceFont(
+            device_id=device.id,
+            font_id=font.id,
+            local_path="/Users/x/Flip.ttf",
+            ingestible=False,
+        )
+    )
+    await db.commit()
+
+    stats = await reconcile_inventory(
+        device.id,
+        [
+            DeviceFontEntry(
+                hash=font.file_hash,
+                filename="Flip.ttf",
+                local_path="/Users/x/Flip.ttf",
+                ingestible=True,
+            )
+        ],
+        db,
+    )
+
+    assert stats.updates == 1
+    association = await _association(db, device.id, font.id)
+    assert association.ingestible is True
+
+
+@pytest.mark.asyncio
+async def test_departures_only_touch_the_declaring_device(
+    db, storage, font_factory
+) -> None:
+    """B-167 : A ne déclare plus une pierre tombale ; l'association de B à la
+    même tombe, qu'il détient toujours, reste (G6 en dépend)."""
+    a = await _make_device(db, hostname="a")
+    b = await _make_device(db, hostname="b")
+    tomb = await _make_font(db, storage, font_factory, "SharedTomb")
+    kept = await _make_font(db, storage, font_factory, "KeptOnA")
+    await register_device_font(a.id, tomb.id, "SharedTomb.ttf", db)
+    await register_device_font(a.id, kept.id, "KeptOnA.ttf", db)
+    await register_device_font(b.id, tomb.id, "SharedTomb.ttf", db)
+    tomb.deleted_at = datetime.now(timezone.utc)
+    tomb.deletion_confirmed = True
+    await db.commit()
+
+    stats = await reconcile_inventory(
+        a.id, [DeviceFontEntry(hash=kept.file_hash, filename="KeptOnA.ttf")], db
+    )
+
+    assert stats.departs == 1
+    assert await _association(db, a.id, tomb.id) is None
+    assert await _association(db, b.id, tomb.id) is not None

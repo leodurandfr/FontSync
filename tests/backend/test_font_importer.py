@@ -5,12 +5,17 @@ et la robustesse « une font malformée est stockée, jamais rejetée » (CLAUDE
 """
 
 import hashlib
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import func, select
 
+from backend.models.device import Device
+from backend.models.device_font import DeviceFont
 from backend.models.font import Font
+from backend.services.deletion_propagation import detect_local_deletions
 from backend.services.font_importer import FontImportError, import_font
+from backend.services.sync_manager import register_device_font
 
 
 async def _count_fonts(db) -> int:
@@ -116,3 +121,34 @@ async def test_wrong_magic_bytes_is_rejected(db, storage) -> None:
     """Extension .ttf mais contenu qui n'est pas une font → FontImportError."""
     with pytest.raises(FontImportError):
         await import_font("fake.ttf", b"this is not a font at all", storage, db)
+
+
+@pytest.mark.asyncio
+async def test_web_reupload_clears_stale_associations(
+    db, storage, font_factory
+) -> None:
+    """M-51 : B détenait X en corbeille puis l'a désinstallée ; l'utilisateur la
+    ré-uploade. Sans remise à zéro des associations, le delta suivant de B la
+    verrait « associée, non déclarée » : re-quarantaine confirmée sous le
+    seuil, désinstallée partout — la police tout juste ramenée repartirait."""
+    b = Device(name="B", hostname="b", os="macos")
+    db.add(b)
+    await db.flush()
+    data = font_factory(family="Comeback")
+    font, _ = await import_font("Comeback.ttf", data, storage, db)
+    other, _ = await import_font(
+        "Other.ttf", font_factory(family="OtherOnB"), storage, db
+    )
+    await register_device_font(b.id, font.id, "/Users/b/Comeback.ttf", db)
+    await register_device_font(b.id, other.id, "/Users/b/Other.ttf", db)
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+
+    revived, _ = await import_font("Comeback.ttf", data, storage, db)
+    assert revived.id == font.id and revived.deleted_at is None
+
+    stale = await db.execute(select(DeviceFont).where(DeviceFont.font_id == font.id))
+    assert stale.scalars().all() == []
+    detection = await detect_local_deletions(b.id, {other.file_hash}, db)
+    assert detection.quarantined == [] and detection.pending == []

@@ -1368,3 +1368,198 @@ async def test_agent_upgrade_to_explicit_flag_causes_no_false_deletion(
     resp = await api_client.get(f"/api/fonts/{imported['id']}", headers=AUTH_HEADERS)
     assert resp.status_code == 200, resp.text
     assert resp.json()["deletedAt"] is None
+
+
+# =====================================================================
+# Verrous de non-régression (B-166, B-169)
+# =====================================================================
+
+
+def _fake_hashes(n: int) -> set[str]:
+    """Hashes déclarés sans police derrière, pour remplir une déclaration."""
+    return {f"{i:064x}" for i in range(n)}
+
+
+async def _registry(db, device_id) -> set:
+    rows = await db.execute(
+        select(DeviceFont.font_id).where(DeviceFont.device_id == device_id)
+    )
+    return set(rows.scalars().all())
+
+
+@pytest.mark.asyncio
+async def test_pending_quarantine_is_never_confirmed_by_another_device(
+    db, storage, font_factory
+) -> None:
+    """B-166 : X est en quarantaine EN ATTENTE (disparition massive sur A). B la
+    détient encore, puis la retire à la main : une seule police, sous le
+    seuil — elle ne doit pas être re-détectée, sinon elle serait confirmée,
+    donc désinstallée partout, sans le oui de l'utilisateur."""
+    b = await _make_device(db, hostname="b")
+    held = await _make_font(db, storage, font_factory, "HeldPending")
+    kept = await _make_font(db, storage, font_factory, "KeptOnB")
+    await register_device_font(b.id, held.id, "/Users/b/HeldPending.ttf", db)
+    await register_device_font(b.id, kept.id, "/Users/b/KeptOnB.ttf", db)
+    held.deleted_at = datetime.now(timezone.utc)
+    held.deletion_confirmed = False
+    await db.commit()
+
+    detection = await detect_local_deletions(b.id, {kept.file_hash}, db)
+
+    assert detection.quarantined == [] and detection.pending == []
+    await db.refresh(held)
+    assert held.deletion_confirmed is False
+
+
+@pytest.mark.asyncio
+async def test_propagation_threshold_is_inclusive(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-166 : exactement le seuil propage ; un de plus attend."""
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 1)
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 2)
+    monkeypatch.setattr(settings, "deletion_propagation_max_ratio", 1.0)
+    at_limit = await _make_device(db, hostname="at-limit")
+    over = await _make_device(db, hostname="over")
+    for i in range(2):
+        f = await _make_font(db, storage, font_factory, f"EdgeAt{i}")
+        await register_device_font(at_limit.id, f.id, f"/Users/a/{f.id}.ttf", db)
+    for i in range(3):
+        f = await _make_font(db, storage, font_factory, f"EdgeOver{i}")
+        await register_device_font(over.id, f.id, f"/Users/o/{f.id}.ttf", db)
+    await db.commit()
+    assert propagation_limit(10) == 2
+
+    exact = await detect_local_deletions(at_limit.id, _fake_hashes(10), db)
+    assert len(exact.quarantined) == 2 and exact.pending == []
+
+    beyond = await detect_local_deletions(over.id, _fake_hashes(10), db)
+    assert beyond.quarantined == [] and len(beyond.pending) == 3
+
+
+@pytest.mark.asyncio
+async def test_propagation_threshold_counts_declared_fonts_only(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-166 : le dénominateur du seuil est le nombre DÉCLARÉ. 190 polices
+    associées encore déclarées, 10 disparues : 5 % de 190 = 9 → en attente.
+    Compter le registre de l'appareil (200) ou ajouter les disparues aurait
+    donné 10, et la disparition se serait propagée."""
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 3)
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 25)
+    monkeypatch.setattr(settings, "deletion_propagation_max_ratio", 0.05)
+    device = await _make_device(db)
+    fonts = [await _make_font(db, storage, font_factory, f"Lib{i}") for i in range(200)]
+    for f in fonts:
+        await register_device_font(device.id, f.id, f"/Users/x/{f.id}.ttf", db)
+    await db.commit()
+    assert propagation_limit(190) == 9 and propagation_limit(200) == 10
+
+    still_there = {f.file_hash for f in fonts[10:]}
+    detection = await detect_local_deletions(device.id, still_there, db)
+
+    assert detection.quarantined == []
+    assert len(detection.pending) == 10
+
+
+@pytest.mark.asyncio
+async def test_propagation_threshold_uses_the_whole_declaration(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-166, l'autre sens : 200 déclarées, 10 disparues → 5 % de 200 = 10,
+    la disparition se propage. Un dénominateur trop petit (registre de
+    l'appareil, déclarées moins disparues, bibliothèque active) la mettrait
+    en attente."""
+    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 3)
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 25)
+    monkeypatch.setattr(settings, "deletion_propagation_max_ratio", 0.05)
+    device = await _make_device(db)
+    for i in range(10):
+        f = await _make_font(db, storage, font_factory, f"Ten{i}")
+        await register_device_font(device.id, f.id, f"/Users/x/{f.id}.ttf", db)
+    await db.commit()
+
+    detection = await detect_local_deletions(device.id, _fake_hashes(200), db)
+
+    assert len(detection.quarantined) == 10
+    assert detection.pending == []
+
+
+@pytest.mark.asyncio
+async def test_detection_only_drops_the_detecting_device_associations(
+    db, storage, font_factory
+) -> None:
+    """B-166 : A perd X ; l'association de B à X, qui la détient toujours,
+    reste — c'est elle qui protège X de la récolte (G6)."""
+    a = await _make_device(db, hostname="a")
+    b = await _make_device(db, hostname="b")
+    shared = await _make_font(db, storage, font_factory, "SharedLost")
+    kept = await _make_font(db, storage, font_factory, "KeptOnA")
+    await register_device_font(a.id, shared.id, "/Users/a/SharedLost.ttf", db)
+    await register_device_font(a.id, kept.id, "/Users/a/KeptOnA.ttf", db)
+    await register_device_font(b.id, shared.id, "/Users/b/SharedLost.ttf", db)
+    await db.commit()
+
+    await detect_local_deletions(a.id, {kept.file_hash}, db)
+
+    assert await _registry(db, a.id) == {kept.id}
+    assert await _registry(db, b.id) == {shared.id}
+
+
+@pytest.mark.asyncio
+async def test_storage_failure_never_marks_purged(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-169 : une erreur d'E/S laisse la ligne intacte — `purged_at` posé sur
+    un fichier toujours présent refuserait la restauration et satisferait G3
+    (récolte, blob orphelin)."""
+    font = await _make_font(db, storage, font_factory, "IoError")
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+
+    async def failing_delete(file_hash: str, extension: str) -> bool:
+        raise OSError("disque NAS indisponible")
+
+    monkeypatch.setattr(storage, "delete", failing_delete)
+
+    assert await purge_font(font, storage, db) is False
+    assert font.purged_at is None
+
+
+@pytest.mark.asyncio
+async def test_purge_of_a_missing_file_marks_purged(db, storage, font_factory) -> None:
+    """B-169 : le fichier a déjà disparu du stockage (le backend fichier le
+    signale en renvoyant False) — la purge le constate au lieu de laisser la
+    police indéfiniment « non purgée », restaurable sans fichier."""
+    font = await _make_font(db, storage, font_factory, "Vanished")
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+    assert await storage.delete(font.file_hash, font.file_format) is True
+
+    await purge_font(font, storage, db)
+
+    assert font.purged_at is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_survives_a_file_not_found_race(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """B-169 : branche FileNotFoundError — le fichier disparaît entre le
+    contrôle d'existence et la suppression (boucle de purge et vidage manuel
+    simultanés). Ce n'est pas une erreur : la ligne est marquée purgée."""
+    font = await _make_font(db, storage, font_factory, "Raced")
+    font.deleted_at = datetime.now(timezone.utc)
+    font.deletion_confirmed = True
+    await db.commit()
+
+    async def raced(file_hash: str, extension: str) -> bool:
+        raise FileNotFoundError(file_hash)
+
+    monkeypatch.setattr(storage, "delete", raced)
+
+    await purge_font(font, storage, db)
+
+    assert font.purged_at is not None
