@@ -136,6 +136,14 @@ class TrashListResponse(FontListResponse):
     propagée."""
 
 
+class ProtectedDuplicate(CamelModel):
+    """Un fichier en trop qui reste : la seule copie de la face sur un appareil."""
+
+    font: FontResponse
+    devices: list[str]
+    """Noms des appareils qui perdraient la face."""
+
+
 class DuplicateFaceGroup(CamelModel):
     """Une face portée par plusieurs fichiers."""
 
@@ -156,6 +164,10 @@ class DuplicateFaceGroup(CamelModel):
     """Gardés sans être *le* gardé — plusieurs fichiers couvrant chacun
     plusieurs styles, qu'on ne saurait départager sans perdre de la matière."""
 
+    protected: list[ProtectedDuplicate] = []
+    """Redondants gardés : la seule copie de la face sur ces appareils, qui
+    propagent les suppressions sans installer automatiquement (M-36)."""
+
     bytes_freed: int
     """Ce que le retrait des redondants libérerait, une fois la corbeille vidée."""
 
@@ -170,6 +182,14 @@ class DuplicateFacesResponse(CamelModel):
     total_redundant: int
     """Fichiers en trop. C'est le nombre qui compte : le geste de résolution
     porte sur lui, pas sur le nombre de groupes."""
+
+    total_protected: int = 0
+    """Fichiers en trop gardés : seule copie d'une face sur un appareil. Les
+    faces dont il ne reste que ceux-là ne figurent ni dans `items` ni dans
+    `total_groups` (aucun geste possible)."""
+
+    protected_devices: list[str] = []
+    """Appareils concernés par ces fichiers gardés, pour le dire avant le clic."""
 
     bytes_freed: int
     scanned: int
@@ -196,6 +216,9 @@ class ResolveDuplicatesResponse(CamelModel):
     trashed: int
     bytes_freed: int
     dry_run: bool
+    protected: int = 0
+    """Fichiers en trop gardés, chacun seule copie de sa face sur au moins un
+    appareil qui propage sans installer automatiquement (M-36)."""
 
 
 class PurgeResponse(CamelModel):

@@ -90,13 +90,24 @@ export interface DuplicateFaceGroup {
   redundant: Font[];
   /** Gardés sans être *le* gardé (plusieurs fichiers multi-styles). */
   alsoKept: Font[];
+  /** En trop mais gardés : seule copie de la face sur ces appareils (M-36). */
+  protected: ProtectedDuplicate[];
   bytesFreed: number;
+}
+
+export interface ProtectedDuplicate {
+  font: Font;
+  /** Appareils qui perdraient la face (propagent sans installer d'office). */
+  devices: string[];
 }
 
 export interface DuplicateFacesResponse {
   items: DuplicateFaceGroup[];
   totalGroups: number;
   totalRedundant: number;
+  /** Fichiers en trop gardés (seule copie sur un appareil), toutes faces. */
+  totalProtected: number;
+  protectedDevices: string[];
   bytesFreed: number;
   scanned: number;
   page: number;
@@ -109,6 +120,7 @@ export interface ResolveDuplicatesResponse {
   trashed: number;
   bytesFreed: number;
   dryRun: boolean;
+  protected: number;
 }
 
 export interface FontUploadResponse {

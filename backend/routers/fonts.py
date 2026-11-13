@@ -32,6 +32,7 @@ from backend.schemas.font import (
     FontSortField,
     FontUpdate,
     FontUploadResponse,
+    ProtectedDuplicate,
     PurgeResponse,
     ResolveDuplicatesRequest,
     ResolveDuplicatesResponse,
@@ -41,6 +42,7 @@ from backend.schemas.font import (
 from backend.services.duplicate_faces import (
     DuplicateGroup,
     FaceKey,
+    actionable,
     decode_key,
     encode_key,
     find_duplicate_faces,
@@ -259,13 +261,18 @@ async def list_duplicate_faces(
     Le recensement porte sur `(famille typographique, style, italique, graisse,
     chasse)` — l'identité réelle d'une face — là où la déduplication à l'import
     ne compare que des empreintes de fichier. Trois noms différents pour une
-    seule face donnent
-    trois empreintes : par hash, aucun de ces doublons n'est visible.
+    seule face donnent trois empreintes : par hash, aucun de ces doublons n'est
+    visible.
 
     Lecture pure. Les totaux décrivent l'ensemble du recensement, pas la page :
     c'est sur eux que porte le geste de résolution.
     """
-    groups = await find_duplicate_faces(db)
+    every = await find_duplicate_faces(db)
+    # Une face dont tous les fichiers en trop sont gardés (seule copie sur un
+    # appareil) n'a plus de geste possible : hors de la liste et du décompte
+    # des faces, mais comptée dans `total_protected` avec ses appareils.
+    groups = actionable(every)
+    protected = [p for g in every for p in g.protected]
     scanned = await db.execute(
         select(func.count()).select_from(Font).where(Font.deleted_at.is_(None))
     )
@@ -275,6 +282,8 @@ async def list_duplicate_faces(
         items=[_to_group_schema(g) for g in groups[start : start + per_page]],
         total_groups=len(groups),
         total_redundant=sum(len(g.redundant) for g in groups),
+        total_protected=len(protected),
+        protected_devices=sorted({d for p in protected for d in p.devices}),
         bytes_freed=sum(f.file_size for g in groups for f in g.redundant),
         scanned=scanned.scalar() or 0,
         page=page,
@@ -291,6 +300,12 @@ def _to_group_schema(group: DuplicateGroup) -> DuplicateFaceGroup:
         keeper=FontResponse.model_validate(group.keeper),
         redundant=[FontResponse.model_validate(f) for f in group.redundant],
         also_kept=[FontResponse.model_validate(f) for f in group.also_kept],
+        protected=[
+            ProtectedDuplicate(
+                font=FontResponse.model_validate(p.font), devices=p.devices
+            )
+            for p in group.protected
+        ],
         bytes_freed=sum(f.file_size for f in group.redundant),
     )
 
@@ -327,10 +342,11 @@ async def resolve_duplicate_faces_endpoint(
         if keys is not None:
             groups = [g for g in groups if g.key in keys]
         return ResolveDuplicatesResponse(
-            groups=len(groups),
+            groups=len(actionable(groups)),
             trashed=sum(len(g.redundant) for g in groups),
             bytes_freed=sum(f.file_size for g in groups for f in g.redundant),
             dry_run=True,
+            protected=sum(len(g.protected) for g in groups),
         )
 
     outcome = await resolve_duplicate_faces(db, keys=keys)
@@ -350,6 +366,7 @@ async def resolve_duplicate_faces_endpoint(
         trashed=len(outcome.trashed),
         bytes_freed=outcome.bytes_freed,
         dry_run=False,
+        protected=len(outcome.protected),
     )
 
 

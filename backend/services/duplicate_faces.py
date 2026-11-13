@@ -56,12 +56,13 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
 
@@ -206,9 +207,22 @@ class DuplicateGroup:
     """Fichiers gardés sans être *le* gardé : plusieurs variables ou collections
     dans le même groupe, qu'on ne saurait départager sans perdre des styles."""
 
+    protected: list[ProtectedFile] = field(default_factory=list)
+    """Redondants gardés parce qu'ils sont la seule copie de la face sur un
+    appareil qui propage les suppressions sans installer automatiquement
+    (M-36). Jamais proposés au retrait."""
+
     @property
     def total_files(self) -> int:
-        return 1 + len(self.redundant) + len(self.also_kept)
+        return 1 + len(self.redundant) + len(self.also_kept) + len(self.protected)
+
+
+@dataclass
+class ProtectedFile:
+    """Un redondant gardé, et les appareils qui y perdraient la face."""
+
+    font: Font
+    devices: list[str]
 
 
 def group_by_face(fonts: list[Font]) -> list[DuplicateGroup]:
@@ -286,7 +300,101 @@ async def find_duplicate_faces(db: AsyncSession) -> list[DuplicateGroup]:
     bibliothèque.
     """
     result = await db.execute(select(Font).where(Font.deleted_at.is_(None)))
-    return group_by_face(list(result.scalars().all()))
+    groups = group_by_face(list(result.scalars().all()))
+    await _protect_sole_copies(db, groups)
+    # La protection a pu vider des groupes : re-trier, les plus coûteux
+    # d'abord. Un groupe sans plus rien à retirer reste dans la liste rendue
+    # (ses fichiers gardés se comptent) ; les appelants n'en montrent et n'en
+    # comptent comme faces que les groupes actionnables (`actionable`).
+    groups.sort(key=lambda g: (-len(g.redundant), g.key))
+    return groups
+
+
+def actionable(groups: list[DuplicateGroup]) -> list[DuplicateGroup]:
+    """Groupes où il reste au moins un fichier à retirer."""
+    return [g for g in groups if g.redundant]
+
+
+_HOLDINGS_BATCH = 500
+
+
+@dataclass(frozen=True)
+class _Holding:
+    device_id: object
+    name: str
+    ingestible: bool
+    active: bool
+    propagates: bool
+    auto_pull: bool
+
+
+async def _protect_sole_copies(db: AsyncSession, groups: list[DuplicateGroup]) -> None:
+    """Retire des redondants la seule copie d'une face sur un appareil (M-36).
+
+    Mettre un redondant R en corbeille le désinstalle des appareils qui
+    propagent les suppressions (`propagate_deletions`), s'ils le détiennent dans
+    une couche gérée (`ingestible`). Un tel appareil perd la face s'il ne
+    détient aucune copie gardée, installable et active, et s'il ne la recevra
+    pas : sans installation automatique (`auto_pull`), ou quand aucun gardé
+    n'est installable (une WOFF n'est jamais installée). R reste alors, avec le
+    nom de ces appareils.
+
+    Les appareils retirés de l'interface comptent comme les autres : leur agent
+    se ré-enregistre au sync suivant et `register` les ranime avec leurs
+    réglages (même règle que la récolte, `services/harvest.py`). Les redondants
+    sont traités du meilleur au moins bon : un R gardé et installable couvre
+    ensuite les autres sur ses appareils.
+    """
+    ids = [f.id for g in groups for f in (g.keeper, *g.also_kept, *g.redundant)]
+    holdings: dict = {}
+    for start in range(0, len(ids), _HOLDINGS_BATCH):
+        chunk = ids[start : start + _HOLDINGS_BATCH]
+        rows = await db.execute(
+            select(
+                DeviceFont.font_id,
+                DeviceFont.ingestible,
+                DeviceFont.active,
+                Device.id,
+                Device.name,
+                Device.propagate_deletions,
+                Device.auto_pull,
+            )
+            .join(Device, Device.id == DeviceFont.device_id)
+            .where(DeviceFont.font_id.in_(chunk))
+        )
+        for font_id, ingestible, active, device_id, name, propagates, pull in rows:
+            holdings.setdefault(font_id, []).append(
+                _Holding(device_id, name, ingestible, active, propagates, pull)
+            )
+
+    def covering(font: Font) -> set:
+        """Appareils où ce fichier, gardé, laisse la face installée."""
+        if not _installable(font):
+            return set()
+        return {h.device_id for h in holdings.get(font.id, []) if h.active}
+
+    for group in groups:
+        kept = (group.keeper, *group.also_kept)
+        reinstallable = any(_installable(f) for f in kept)
+        covered: set = set()
+        for font in kept:
+            covered |= covering(font)
+        still_redundant: list[Font] = []
+        for font in group.redundant:
+            losing = {
+                h.device_id: h.name
+                for h in holdings.get(font.id, [])
+                if h.ingestible
+                and h.propagates
+                and h.device_id not in covered
+                and not (h.auto_pull and reinstallable)
+            }
+            if losing:
+                group.protected.append(ProtectedFile(font, sorted(losing.values())))
+                covered |= covering(font)
+            else:
+                still_redundant.append(font)
+        group.redundant = still_redundant
 
 
 @dataclass
@@ -301,6 +409,9 @@ class ResolveOutcome:
 
     bytes_freed: int
     """Octets que le vidage de la corbeille libérerait."""
+
+    protected: list[ProtectedFile] = field(default_factory=list)
+    """Redondants gardés : seule copie de la face sur un appareil (M-36)."""
 
 
 async def resolve_duplicate_faces(
@@ -350,7 +461,8 @@ async def resolve_duplicate_faces(
         )
 
     return ResolveOutcome(
-        groups=len(groups),
+        groups=len(actionable(groups)),
         trashed=trashed,
         bytes_freed=sum(f.file_size for f in trashed),
+        protected=[p for g in groups for p in g.protected],
     )

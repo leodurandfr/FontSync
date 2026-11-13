@@ -209,7 +209,12 @@ const fr: typeof en = {
     // groupe par groupe ce serait des heures.
     rule: "Pour chaque face, le fichier le plus complet est gardé, un format installable (OTF, TTF) passant avant une police web — une police variable ou une collection l'emporte toujours, puisqu'elle porte des styles que les autres n'ont pas.",
     reversible:
-      "Rien n'est effacé : les fichiers partent à la corbeille, d'où ils reviennent d'un clic tant que vous ne l'avez pas vidée.",
+      "Rien n'est effacé du serveur : les fichiers partent à la corbeille, d'où ils se restaurent d'un clic tant que vous ne l'avez pas vidée. Une police restaurée n'est réinstallée que sur les appareils en « Pull automatique ».",
+    protectedSummary:
+      "{n} fichier en trop est gardé : c'est la seule copie de sa face sur {devices}, qui a « Propager les suppressions » sans « Pull automatique » — le retirer l'y effacerait sans rien réinstaller. Activer le pull automatique sur cet appareil le rendrait retirable. | {n} fichiers en trop sont gardés : chacun est la seule copie de sa face sur {devices}, qui a « Propager les suppressions » sans « Pull automatique » — les retirer les y effacerait sans rien réinstaller. Activer le pull automatique sur ces appareils les rendrait retirables.",
+    protectedOn: "Gardé (seule copie sur {devices}) :",
+    doneProtected:
+      "{n} fichier en trop a été gardé : seule copie de sa face sur un appareil. | {n} fichiers en trop ont été gardés : seule copie de leur face sur un appareil.",
     resolve:
       "Envoyer {n} fichier à la corbeille | Envoyer {n} fichiers à la corbeille",
     review: "Ce qui sera retiré",

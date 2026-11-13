@@ -601,3 +601,495 @@ async def test_width_mismatch_not_grouped(db, storage, font_factory) -> None:
     )
 
     assert await find_duplicate_faces(db) == []
+
+
+# =====================================================================
+# 6. Jamais la seule copie d'une face sur un appareil (M-36)
+# =====================================================================
+
+
+async def _pair(db, storage, font_factory, family: str) -> tuple[Font, Font]:
+    """K (plus riche, gardé) et R (redondant) : une même face."""
+    from backend.services.font_importer import import_font
+
+    keeper, _ = await import_font(
+        f"{family}-Full.ttf",
+        font_factory(family=family, extra_codepoints=list(range(0x100, 0x140))),
+        storage,
+        db,
+    )
+    redundant, _ = await import_font(
+        f"{family}.ttf", font_factory(family=family), storage, db
+    )
+    return keeper, redundant
+
+
+async def _device(db, name: str, *, propagate: bool, auto_pull: bool):
+    from backend.models.device import Device
+
+    device = Device(
+        name=name,
+        hostname=name.lower(),
+        os="macos",
+        propagate_deletions=propagate,
+        auto_pull=auto_pull,
+    )
+    db.add(device)
+    await db.flush()
+    return device
+
+
+async def _hold(db, device, font) -> None:
+    from backend.models.device_font import DeviceFont
+
+    db.add(DeviceFont(device_id=device.id, font_id=font.id, local_path=f"/u/{font.id}"))
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_resolve_keeps_sole_copy_on_propagating_device_without_autopull(
+    db, storage, font_factory
+) -> None:
+    """M-36 : X propage les suppressions sans installation automatique et ne
+    détient que R ; Y détient K. Mettre R en corbeille le désinstallerait de X
+    sans que K y revienne : X perdrait la face. R est gardé, et dit pourquoi."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "SoleCopy")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    y = await _device(db, "Mac-Y", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    await _hold(db, y, keeper)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+    await db.commit()
+
+    await db.refresh(redundant)
+    assert redundant.deleted_at is None
+    assert [(p.font.id, p.devices) for p in outcome.protected] == [
+        (redundant.id, ["Mac-X"])
+    ]
+
+
+@pytest.mark.asyncio
+async def test_resolve_trashes_when_device_also_holds_keeper(
+    db, storage, font_factory
+) -> None:
+    """X détient aussi K : retirer R ne lui fait rien perdre."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "AlsoKeeper")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    await _hold(db, x, keeper)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+    assert outcome.protected == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_trashes_when_device_autopulls(db, storage, font_factory) -> None:
+    """X installe automatiquement : il recevra K au sync suivant, R peut partir."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "AutoPulls")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=True)
+    await _hold(db, x, redundant)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+    assert outcome.protected == []
+
+
+@pytest.mark.asyncio
+async def test_dry_run_reports_protected(api_client: AsyncClient, font_factory) -> None:
+    """Le dry-run et le recensement disent, avant le clic, combien de fichiers
+    restent gardés et sur quel appareil."""
+    full = font_factory(family="DryProt", extra_codepoints=list(range(0x100, 0x140)))
+    thin = font_factory(family="DryProt")
+    await _upload(api_client, full, "DryProt-Full.ttf")
+    thin_id = (await _upload(api_client, thin, "DryProt.ttf"))["imported"][0]["id"]
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "Mac-X", "hostname": "mac-x", "os": "macos"},
+    )
+    device = resp.json()["id"]
+    await api_client.patch(
+        f"/api/devices/{device}",
+        headers=AUTH_HEADERS,
+        json={"propagateDeletions": True, "autoPull": False},
+    )
+    resp = await api_client.post(
+        "/api/sync/delta",
+        headers=AUTH_HEADERS,
+        json={
+            "deviceId": device,
+            "fonts": [{"hash": _sha(thin), "filename": "DryProt.ttf"}],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    dry = await api_client.post(
+        "/api/fonts/duplicates/resolve",
+        headers=AUTH_HEADERS,
+        json={"dryRun": True},
+    )
+    assert dry.status_code == 200, dry.text
+    assert dry.json()["trashed"] == 0
+    assert dry.json()["protected"] == 1
+    assert dry.json()["groups"] == 0
+
+    listing = (
+        await api_client.get("/api/fonts/duplicates", headers=AUTH_HEADERS)
+    ).json()
+    # Plus rien à retirer sur cette face : hors de la liste et du décompte,
+    # mais le fichier gardé et son appareil restent annoncés.
+    assert listing["items"] == []
+    assert listing["totalGroups"] == 0
+    assert listing["totalProtected"] == 1
+    assert listing["protectedDevices"] == ["Mac-X"]
+    assert thin_id
+
+
+@pytest.mark.asyncio
+async def test_mixed_group_lists_its_protected_file(db, storage, font_factory) -> None:
+    """Une face où un fichier part et un autre est gardé reste listée, avec
+    sa ligne « seule copie sur X »."""
+    from backend.services.duplicate_faces import actionable, find_duplicate_faces
+    from backend.services.font_importer import import_font
+
+    keeper, second = await _pair(db, storage, font_factory, "Mixed")
+    third, _ = await import_font(
+        "Mixed-Mid.ttf",
+        font_factory(family="Mixed", extra_codepoints=list(range(0x100, 0x110))),
+        storage,
+        db,
+    )
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, second)
+    await db.commit()
+
+    groups = actionable(await find_duplicate_faces(db))
+
+    assert len(groups) == 1
+    assert [f.id for f in groups[0].redundant] == [third.id]
+    assert [(p.font.id, p.devices) for p in groups[0].protected] == [
+        (second.id, ["Mac-X"])
+    ]
+
+
+def _sha(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_resolve_ignores_holders_outside_managed_folders(
+    db, storage, font_factory
+) -> None:
+    """X détient R dans `/Library/Fonts` (non ingérable) : l'agent n'y
+    désinstalle rien, X ne perd pas la face — R peut partir."""
+    from backend.models.device_font import DeviceFont
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "SharedLayer")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    db.add(
+        DeviceFont(
+            device_id=x.id,
+            font_id=redundant.id,
+            local_path="/Library/Fonts/SharedLayer.ttf",
+            ingestible=False,
+        )
+    )
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+    assert outcome.protected == []
+
+
+@pytest.mark.asyncio
+async def test_one_kept_copy_is_enough_per_device(db, storage, font_factory) -> None:
+    """X détient deux redondants de la même face, et pas le gardé : on lui en
+    garde un (le meilleur), l'autre peut partir — la face reste sur X."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+    from backend.services.font_importer import import_font
+
+    keeper, second = await _pair(db, storage, font_factory, "TwoCopies")
+    third, _ = await import_font(
+        "TwoCopies-Mid.ttf",
+        font_factory(family="TwoCopies", extra_codepoints=list(range(0x100, 0x110))),
+        storage,
+        db,
+    )
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, second)
+    await _hold(db, x, third)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [p.font.id for p in outcome.protected] == [third.id]
+    assert [f.id for f in outcome.trashed] == [second.id]
+
+
+@pytest.mark.asyncio
+async def test_resolve_trashes_when_device_does_not_propagate(
+    db, storage, font_factory
+) -> None:
+    """X n'applique pas les suppressions : il garde son fichier quoi qu'il
+    arrive au serveur, rien à protéger."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "NoPropagate")
+    x = await _device(db, "Mac-X", propagate=False, auto_pull=False)
+    await _hold(db, x, redundant)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+    assert outcome.protected == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_protects_a_removed_device_that_may_come_back(
+    db, storage, font_factory
+) -> None:
+    """Un appareil retiré de l'interface revient au sync suivant de son agent
+    (`register` le ranime, réglages compris) : sa seule copie est protégée
+    comme celle d'un appareil vivant (même règle que la récolte)."""
+    from datetime import datetime, timezone
+
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "RemovedDevice")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    x.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert outcome.trashed == []
+    assert [(p.font.id, p.devices) for p in outcome.protected] == [
+        (redundant.id, ["Mac-X"])
+    ]
+
+
+@pytest.mark.asyncio
+async def test_autopull_does_not_help_when_no_kept_copy_is_installable(
+    db, storage, font_factory
+) -> None:
+    """X installe automatiquement, mais le gardé est une WOFF (jamais
+    installée) : X ne récupérerait rien — sa copie est protégée."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+    from backend.services.font_importer import import_font
+
+    richer = font_factory(family="WebOnly", extra_codepoints=list(range(0x100, 0x140)))
+    keeper, _ = await import_font("WebOnly-Full.woff", _woff_from(richer), storage, db)
+    redundant, _ = await import_font(
+        "WebOnly.woff", _woff_from(font_factory(family="WebOnly")), storage, db
+    )
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=True)
+    await _hold(db, x, redundant)
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert outcome.trashed == []
+    assert [p.font.id for p in outcome.protected] == [redundant.id]
+
+
+@pytest.mark.asyncio
+async def test_deactivated_keeper_does_not_cover(db, storage, font_factory) -> None:
+    """X détient K mais l'a désactivé : retirer R lui laisserait la face
+    seulement en `disabled/` — R est gardé."""
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "Deactivated")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    await _hold(db, x, keeper)
+    from sqlalchemy import update
+
+    from backend.models.device_font import DeviceFont
+
+    await db.execute(
+        update(DeviceFont)
+        .where(DeviceFont.device_id == x.id, DeviceFont.font_id == keeper.id)
+        .values(active=False)
+    )
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [p.font.id for p in outcome.protected] == [redundant.id]
+
+
+@pytest.mark.asyncio
+async def test_keeper_in_shared_layer_covers(db, storage, font_factory) -> None:
+    """X détient K dans `/Library/Fonts` (non ingérable) : la face y reste
+    installée pour tous les utilisateurs, R peut partir."""
+    from backend.models.device_font import DeviceFont
+    from backend.services.duplicate_faces import resolve_duplicate_faces
+
+    keeper, redundant = await _pair(db, storage, font_factory, "SharedKeeper")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    db.add(
+        DeviceFont(
+            device_id=x.id,
+            font_id=keeper.id,
+            local_path="/Library/Fonts/SharedKeeper.ttf",
+            ingestible=False,
+        )
+    )
+    await db.commit()
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+
+
+@pytest.mark.asyncio
+async def test_also_kept_file_covers(db, storage, font_factory) -> None:
+    """Deux variables gardées d'office (gardé + `also_kept`) et une statique
+    R : X détient la variable `also_kept` et R — R peut partir."""
+    from backend.services.duplicate_faces import (
+        find_duplicate_faces,
+        resolve_duplicate_faces,
+    )
+    from backend.services.font_importer import import_font
+
+    axes = [("wght", 100, 400, 900)]
+    await import_font(
+        "Cov-VF.ttf",
+        font_factory(
+            family="Cov",
+            variable_axes=axes,
+            extra_codepoints=list(range(0x100, 0x140)),
+        ),
+        storage,
+        db,
+    )
+    other_vf, _ = await import_font(
+        "Cov-VF2.ttf", font_factory(family="Cov", variable_axes=axes), storage, db
+    )
+    redundant, _ = await import_font("Cov.ttf", font_factory(family="Cov"), storage, db)
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, other_vf)
+    await _hold(db, x, redundant)
+    await db.commit()
+    (group,) = await find_duplicate_faces(db)
+    assert [f.id for f in group.also_kept] == [other_vf.id]
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [f.id for f in outcome.trashed] == [redundant.id]
+
+
+@pytest.mark.asyncio
+async def test_protection_holds_across_query_batches(
+    db, storage, font_factory, monkeypatch
+) -> None:
+    """Les détentions sont lues par lots : la protection ne dépend pas de la
+    taille du lot (une bibliothèque réelle en compte des milliers)."""
+    from backend.services import duplicate_faces
+
+    monkeypatch.setattr(duplicate_faces, "_HOLDINGS_BATCH", 1)
+    keeper, redundant = await _pair(db, storage, font_factory, "Batches")
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    y = await _device(db, "Mac-Y", propagate=True, auto_pull=False)
+    await _hold(db, x, redundant)
+    await _hold(db, y, keeper)
+    await db.commit()
+
+    outcome = await duplicate_faces.resolve_duplicate_faces(db)
+
+    assert [p.font.id for p in outcome.protected] == [redundant.id]
+
+
+@pytest.mark.asyncio
+async def test_resolve_response_counts_protected(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """La réponse de la résolution réelle (pas seulement le dry-run) dit
+    combien de fichiers sont restés gardés."""
+    full = font_factory(family="RespProt", extra_codepoints=list(range(0x100, 0x140)))
+    thin = font_factory(family="RespProt")
+    await _upload(api_client, full, "RespProt-Full.ttf")
+    await _upload(api_client, thin, "RespProt.ttf")
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "Mac-X", "hostname": "mac-x", "os": "macos"},
+    )
+    device = resp.json()["id"]
+    await api_client.patch(
+        f"/api/devices/{device}",
+        headers=AUTH_HEADERS,
+        json={"propagateDeletions": True, "autoPull": False},
+    )
+    await api_client.post(
+        "/api/sync/delta",
+        headers=AUTH_HEADERS,
+        json={
+            "deviceId": device,
+            "fonts": [{"hash": _sha(thin), "filename": "RespProt.ttf"}],
+        },
+    )
+
+    resp = await api_client.post(
+        "/api/fonts/duplicates/resolve", headers=AUTH_HEADERS, json={}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["trashed"] == 0
+    assert resp.json()["protected"] == 1
+
+
+@pytest.mark.asyncio
+async def test_web_copy_does_not_cover(db, storage, font_factory) -> None:
+    """Gardé = variable WOFF, `also_kept` = la meilleure TTF, R = une TTF
+    moins riche. X détient la WOFF et R : retirer R ne lui laisserait qu'une
+    police web, jamais installée — R est gardé."""
+    from backend.services.duplicate_faces import (
+        find_duplicate_faces,
+        resolve_duplicate_faces,
+    )
+    from backend.services.font_importer import import_font
+
+    woff, _ = await import_font(
+        "Web-VF.woff",
+        _woff_from(font_factory(family="Web", variable_axes=[("wght", 100, 400, 900)])),
+        storage,
+        db,
+    )
+    await import_font(
+        "Web-Best.ttf",
+        font_factory(family="Web", extra_codepoints=list(range(0x100, 0x140))),
+        storage,
+        db,
+    )
+    redundant, _ = await import_font("Web.ttf", font_factory(family="Web"), storage, db)
+    x = await _device(db, "Mac-X", propagate=True, auto_pull=False)
+    await _hold(db, x, woff)
+    await _hold(db, x, redundant)
+    await db.commit()
+    (group,) = await find_duplicate_faces(db)
+    assert group.keeper.id == woff.id
+
+    outcome = await resolve_duplicate_faces(db)
+
+    assert [p.font.id for p in outcome.protected] == [redundant.id]

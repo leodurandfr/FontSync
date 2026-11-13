@@ -204,7 +204,12 @@ export default {
     // group by group would take hours.
     rule: "For each face the most complete file is kept, an installable format (OTF, TTF) coming before a web font — a variable font or a collection always wins, since it carries styles the others don't.",
     reversible:
-      "Nothing is erased: files go to the trash, one click away from coming back for as long as you haven't emptied it.",
+      "Nothing is erased from the server: files go to the trash, one click away from being restored for as long as you haven't emptied it. A restored font is reinstalled only on devices with “Auto pull”.",
+    protectedSummary:
+      "{n} redundant file is kept: it is its face's only copy on {devices}, which has “Propagate deletions” but not “Auto pull” — removing it would erase it there and install nothing back. Turning auto pull on for that device would make it removable. | {n} redundant files are kept: each is its face's only copy on {devices}, which have “Propagate deletions” but not “Auto pull” — removing them would erase them there and install nothing back. Turning auto pull on for those devices would make them removable.",
+    protectedOn: "Kept (only copy on {devices}):",
+    doneProtected:
+      "{n} redundant file was kept: its face's only copy on a device. | {n} redundant files were kept: their face's only copy on a device.",
     resolve: "Move {n} file to trash | Move {n} files to trash",
     review: "What will be removed",
     showing: "Showing {shown} of {total} faces",

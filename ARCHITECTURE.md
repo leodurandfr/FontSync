@@ -448,7 +448,7 @@ on the safe side.
 
 Reviewing ~900 groups by hand is hours of work, so the resolution is **one
 gesture over a deterministic rule** rather than a group-by-group choice. What
-the user reviews is the rule's output. Three properties make that safe:
+the user reviews is the rule's output. Four properties make that safe:
 
 1. **Incomplete or bogus identity is never grouped.** Missing family *or* style,
    or a family reading `false`/`null`/`none`/`undefined` (a tool wrote an empty
@@ -466,8 +466,16 @@ the user reviews is the rule's output. Three properties make that safe:
    keeps its best installable copy. The ranking ends on `file_hash`, so the
    proposal is reproducible. A recommendation that moved between two loads
    would not be reviewable.
+4. **No device loses a face.** A redundant file is kept ("protected") when it
+   is the only copy of the face on a device that propagates deletions and
+   holds it in a managed folder, unless that device keeps an active,
+   installable copy of the face or would get one back (`auto_pull` and an
+   installable keeper). Devices removed from the UI count too: their agent
+   re-registers at its next sync. Protected files are listed with their
+   devices before the click and never trashed; a face left with nothing to
+   remove drops out of the list but stays counted (`totalProtected`).
 
-The redundant files get `deleted_reason = manual`: this is a user's gesture, so
+The redundant files become confirmed deletions: this is a user's gesture, so
 it is durable (no push revives it) and it reaches the devices that opted into
 propagation. Devices that did not keep their files — so the library is cleaned
 without Font Book being cleaned, until `propagate_deletions` is on for that
@@ -505,8 +513,8 @@ way — those groups go undetected, never mis-resolved.
 | `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row — `409` if the deletion is unconfirmed |
 | `POST` | `/api/fonts/trash/empty` | Same, for the whole trash; unconfirmed deletions are spared and returned as `retained` |
 | `POST` | `/api/fonts/trash/confirm` | Confirm the quarantines held back by the threshold |
-| `GET` | `/api/fonts/duplicates` | Faces held by several files, with the keeper picked — cf. §4.5 |
-| `POST` | `/api/fonts/duplicates/resolve` | Move the redundant files to the trash (`dryRun` to count first) |
+| `GET` | `/api/fonts/duplicates` | Faces held by several files, with the keeper picked and the protected files (`protected`, `totalProtected`, `protectedDevices`) — cf. §4.5 |
+| `POST` | `/api/fonts/duplicates/resolve` | Move the redundant files to the trash (`dryRun` to count first); reports `protected` |
 | `GET` | `/api/fonts/{id}/devices` | On which devices the font is installed |
 | `POST` | `/api/fonts/{id}/install/{device_id}` | Request installation (SSE signal → agent) |
 

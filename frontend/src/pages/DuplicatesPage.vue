@@ -15,7 +15,11 @@ const { t } = useI18n();
 const duplicates = useDuplicatesStore();
 
 const actionError = ref<string | null>(null);
-const resolved = ref<{ trashed: number; bytesFreed: number } | null>(null);
+const resolved = ref<{
+  trashed: number;
+  bytesFreed: number;
+  protected: number;
+} | null>(null);
 const confirming = ref(false);
 
 onMounted(() => duplicates.fetchDuplicates());
@@ -46,6 +50,7 @@ async function confirm() {
     resolved.value = {
       trashed: outcome.trashed,
       bytesFreed: outcome.bytesFreed,
+      protected: outcome.protected ?? 0,
     };
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e);
@@ -98,6 +103,12 @@ async function confirm() {
                 })
               }}
             </p>
+            <p
+              v-if="resolved.protected > 0"
+              class="text-[13px] text-amber-600 dark:text-amber-400"
+            >
+              {{ t("duplicates.doneProtected", { n: resolved.protected }) }}
+            </p>
           </div>
         </div>
         <Button variant="outline" size="sm" as-child>
@@ -116,6 +127,19 @@ async function confirm() {
         <p class="mt-1 text-[13px] text-foreground-subtle">
           {{ t("duplicates.noneDesc", { n: duplicates.scanned }) }}
         </p>
+        <!-- Rien à retirer, mais des doublons gardés : le dire, sinon
+             « aucun doublon » serait faux. -->
+        <p
+          v-if="duplicates.totalProtected > 0"
+          class="mt-3 text-[13px] text-amber-600 dark:text-amber-400"
+        >
+          {{
+            t("duplicates.protectedSummary", {
+              n: duplicates.totalProtected,
+              devices: duplicates.protectedDevices.join(", "),
+            })
+          }}
+        </p>
       </div>
 
       <template v-else>
@@ -126,6 +150,7 @@ async function confirm() {
             <p class="text-[13px] font-medium">
               {{
                 t("duplicates.summary", {
+                  n: duplicates.pendingCount,
                   files: duplicates.pendingCount,
                   faces: duplicates.selected.length,
                   size: formatFileSize(duplicates.pendingBytes),
@@ -137,6 +162,17 @@ async function confirm() {
             </p>
             <p class="text-[13px] text-muted-foreground">
               {{ t("duplicates.reversible") }}
+            </p>
+            <p
+              v-if="duplicates.totalProtected > 0"
+              class="text-[13px] text-amber-600 dark:text-amber-400"
+            >
+              {{
+                t("duplicates.protectedSummary", {
+                  n: duplicates.totalProtected,
+                  devices: duplicates.protectedDevices.join(", "),
+                })
+              }}
             </p>
           </div>
 
@@ -203,6 +239,18 @@ async function confirm() {
                     class="truncate text-xs text-muted-foreground"
                   >
                     {{ t("duplicates.kept") }} {{ font.originalFilename }}
+                  </p>
+                  <p
+                    v-for="item in group.protected ?? []"
+                    :key="item.font.id"
+                    class="truncate text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    {{
+                      t("duplicates.protectedOn", {
+                        devices: item.devices.join(", "),
+                      })
+                    }}
+                    {{ item.font.originalFilename }}
                   </p>
                 </div>
 

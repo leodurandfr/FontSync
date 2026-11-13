@@ -19,13 +19,18 @@ import type {
  *
  * - `exclude` retire des faces du geste, plutôt que d'exiger de les cocher une
  *   à une. On part de « tout », on retranche ce qu'on veut garder ;
- * - rien n'est effacé : les fichiers partent en corbeille, d'où ils reviennent
- *   d'un clic tant qu'elle n'a pas été vidée.
+ * - rien n'est effacé : les fichiers partent en corbeille, d'où ils se
+ *   restaurent d'un clic tant qu'elle n'a pas été vidée (réinstallés seulement
+ *   sur les appareils en installation automatique) ;
+ * - la seule copie d'une face sur un appareil qui propage sans installer
+ *   d'office n'est jamais proposée : le serveur la range dans `protected`.
  */
 export const useDuplicatesStore = defineStore("duplicates", () => {
   const items = ref<DuplicateFaceGroup[]>([]);
   const totalGroups = ref(0);
   const totalRedundant = ref(0);
+  const totalProtected = ref(0);
+  const protectedDevices = ref<string[]>([]);
   const bytesFreed = ref(0);
   const scanned = ref(0);
   const loading = ref(false);
@@ -74,6 +79,8 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
       items.value = data.items;
       totalGroups.value = data.totalGroups;
       totalRedundant.value = data.totalRedundant;
+      totalProtected.value = data.totalProtected ?? 0;
+      protectedDevices.value = data.protectedDevices ?? [];
       bytesFreed.value = data.bytesFreed;
       scanned.value = data.scanned;
       excluded.value = new Set();
@@ -132,6 +139,8 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
     items,
     totalGroups,
     totalRedundant,
+    totalProtected,
+    protectedDevices,
     bytesFreed,
     scanned,
     loading,
