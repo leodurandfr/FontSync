@@ -1,0 +1,9 @@
+name: Unpinned action probe (throwaway branch)
+on:
+  push:
+    branches: [ci/p1-1e-unpinned]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
