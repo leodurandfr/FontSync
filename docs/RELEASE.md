@@ -79,8 +79,9 @@ scripts/publish-release.sh
    inside-out → `.dmg` → notarisation/stapling → Sparkle) ;
 2. `gh release upload v1.0.0 …dmg appcast.xml --clobber`.
 
-> Pour couvrir les Macs Intel, viser `ARCH=universal2` (cf.
-> `macos-app/RELEASE.md` → « Architecture (Intel) »).
+> L'app vise **Apple silicon seul** (contrôles `lipo` et appcast bloquants).
+> `ARCH=universal2` (Mac Intel) n'est pas validé : cf. `macos-app/RELEASE.md`
+> → « Architecture : Apple silicon requis ».
 
 ### 3. Publier la Release
 

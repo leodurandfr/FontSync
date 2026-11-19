@@ -22,7 +22,9 @@
 #   NOTARY_PROFILE     profil notarytool stocké via `notarytool store-credentials`
 #   VERSION            ex. 1.0.0   (CFBundleShortVersionString)
 #   BUILD              ex. 1       (CFBundleVersion ; entier monotone)
-# Optionnel : ARCH=universal2 (défaut: arche hôte), SKIP_NOTARIZE=1, SKIP_APPCAST=1
+# Optionnel : ARCH=universal2 (défaut : Apple silicon seul, depuis un Mac Apple
+#             silicon ; universal2 = Intel aussi, non validé — P3-9),
+#             SKIP_NOTARIZE=1, SKIP_APPCAST=1
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,6 +38,21 @@ APP_NAME="FontSync"
 : "${DEVELOPER_ID_APP:?DEVELOPER_ID_APP requis (Developer ID Application: …)}"
 : "${TEAM_ID:?TEAM_ID requis}"
 ARCH="${ARCH:-host}"
+
+# L'app et son agent doivent viser les mêmes Mac (M-21) : la 0.1.1 était
+# universelle avec un agent arm64 seul, et se lançait sur un Mac Intel sans
+# pouvoir synchroniser. Par défaut : Apple silicon seul, app ET agent.
+case "$ARCH" in
+  host)
+    [[ "$(uname -m)" == "arm64" ]] || {
+      echo "Release Apple silicon : à construire depuis un Mac Apple silicon (ou ARCH=universal2)." >&2
+      exit 1
+    }
+    APP_ARCHS="arm64"
+    ;;
+  universal2) APP_ARCHS="arm64 x86_64" ;;
+  *) echo "ARCH inconnue : $ARCH (host ou universal2)" >&2; exit 1 ;;
+esac
 
 # Le cache SPM de Sparkle est un dépôt git « bare » ; certaines configs git
 # globales (safe.bareRepository=explicit) le rejettent. On neutralise pour ce run.
@@ -62,7 +79,7 @@ step "1/8 Agent Python embarqué ($ARCH)"
 "$REPO_ROOT/scripts/build-agent-venv.sh" --out "$BUILD_DIR/agent-venv" --arch "$ARCH"
 
 # ---------------------------------------------------------------------------
-step "2/8 Compilation Release signée Developer ID"
+step "2/8 Compilation Release signée Developer ID ($APP_ARCHS)"
 DERIVED="$BUILD_DIR/DerivedData"
 xcodebuild \
   -project "$APP_DIR/$APP_NAME.xcodeproj" \
@@ -70,6 +87,8 @@ xcodebuild \
   -configuration Release \
   -derivedDataPath "$DERIVED" \
   -clonedSourcePackagesDirPath "$BUILD_DIR/SourcePackages" \
+  ARCHS="$APP_ARCHS" \
+  ONLY_ACTIVE_ARCH=NO \
   MARKETING_VERSION="$VERSION" \
   CURRENT_PROJECT_VERSION="$BUILD" \
   CODE_SIGN_STYLE=Manual \
@@ -87,6 +106,10 @@ RES_VENV="$APP/Contents/Resources/agent-venv"
 rm -rf "$RES_VENV"
 mkdir -p "$APP/Contents/Resources"
 cp -R "$BUILD_DIR/agent-venv" "$RES_VENV"
+
+# Contrôle bloquant (lipo) : l'app exactement $APP_ARCHS, l'interpréteur et
+# chaque .so/.dylib au moins $APP_ARCHS. Avant toute signature.
+"$REPO_ROOT/scripts/lib/check-archs.sh" --expect "$APP_ARCHS" "$APP"
 
 # ---------------------------------------------------------------------------
 step "4/8 Signature inside-out (Hardened Runtime + horodatage)"
@@ -186,6 +209,11 @@ else
     # et produit/maj appcast.xml à partir des artefacts présents dans le dossier.
     "$SPARKLE_BIN/generate_appcast" "$DIST_DIR"
     echo "  → appcast : $DIST_DIR/appcast.xml"
+    # generate_appcast (Sparkle ≥ 2.9) déclare lui-même hardwareRequirements
+    # arm64 pour un binaire sans tranche x86_64 ; on le vérifie plutôt que de
+    # retoucher le flux après coup (ce qui casserait un flux signé).
+    if [[ "$ARCH" == "universal2" ]]; then appcast_mode=--universal; else appcast_mode=--arm64-only; fi
+    python3 "$REPO_ROOT/scripts/lib/check-appcast-arch.py" "$DIST_DIR/appcast.xml" "$VERSION" "$appcast_mode"
     echo "  → signature EdDSA isolée (pour notes de release) :"
     "$SPARKLE_BIN/sign_update" "$DMG" || true
   fi

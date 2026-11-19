@@ -105,20 +105,39 @@ scripts/release-macos-app.sh
 Sortie : `macos-app/dist/FontSync-1.0.0.dmg` (signé, notarisé, staplé) +
 `macos-app/dist/appcast.xml`.
 
-### Architecture (Intel)
+### Architecture : Apple silicon requis
 
-Par défaut l'agent embarqué est compilé pour l'**arche de la machine** (arm64
-sur Apple Silicon). Pour couvrir les Macs Intel, viser **universal2** :
+Par défaut, la release vise **Apple silicon seul**, app ET agent (`ARCH=host`,
+à lancer depuis un Mac Apple silicon) : `xcodebuild` reçoit `ARCHS=arm64
+ONLY_ACTIVE_ARCH=NO`. La 0.1.1 était universelle avec un agent arm64 seul — sur
+un Mac Intel l'app se lançait sans pouvoir synchroniser (M-21).
+
+Deux contrôles bloquent la release en cas d'écart :
+
+- **`scripts/lib/check-archs.sh`** (avant toute signature, `lipo -archs`) :
+  `Contents/MacOS/FontSync` doit porter **exactement** les arches visées ;
+  l'interpréteur de l'agent, chaque `.so`/`.dylib` (liens compris) et chaque
+  exécutable hors de l'agent (Sparkle.framework : `Sparkle`, `Autoupdate`,
+  `Updater`, services XPC) doivent **au moins** les porter (les roues
+  universal2, pyobjc par exemple, et Sparkle, précompilé, gardent une tranche
+  x86_64 inoffensive). Une énumération incomplète du bundle (dossier
+  illisible…) arrête aussi la release.
+- **`scripts/lib/check-appcast-arch.py`** (après `generate_appcast`) : l'item de
+  la version doit déclarer `<sparkle:hardwareRequirements>arm64`. Sparkle ≥ 2.9
+  l'ajoute **lui-même** quand le binaire principal n'a pas de tranche x86_64
+  (et que `LSMinimumSystemVersion` < 27) ; le script le vérifie au lieu de
+  retoucher le flux après coup, ce qui casserait un flux signé. Les Mac Intel
+  ne se voient donc jamais proposer la mise à jour.
+
+Mac Intel (P3-9, **non validé**) : `ARCH=universal2` construit l'app et le venv
+pour les deux arches (venv fusionné au `lipo`, l'arche x86_64 demande **Rosetta
+2** pour l'introspection uv) ; les mêmes contrôles exigent alors x86_64 partout
+et l'absence d'exigence arm64 dans l'appcast. À valider sur du matériel Intel
+réel avant toute release annoncée Intel.
 
 ```bash
 ARCH=universal2 scripts/release-macos-app.sh
 ```
-
-> ⚠️ Le venv universal2 est fusionné au `lipo` à partir des deux arches
-> (l'arche x86_64 nécessite **Rosetta 2** sur Apple Silicon pour l'introspection
-> uv). **À valider sur du matériel Intel réel** avant la 1re release annoncée
-> Intel. L'app Swift, elle, est nativement universelle (Xcode). Alternative CI :
-> construire chaque arche sur son runner et fusionner.
 
 ### Publication
 

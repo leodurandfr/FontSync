@@ -60,6 +60,9 @@ volumes, backup): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
 ### 2. Configure the **first** Mac
 
+> The Mac app requires a Mac with **Apple silicon** (M1 or later) and macOS 14
+> or later. Intel Macs are not supported yet.
+
 1. Download `FontSync-X.Y.Z.dmg` from the
    [latest release](https://github.com/leodurandfr/FontSync/releases/latest),
    open it, and drag **FontSync** into `Applications`.
@@ -106,7 +109,8 @@ restore**): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 ## Install the agent (Mac app)
 
 The synchronization agent is **embedded in the Mac app** (menu bar, signed and
-notarized): there is **nothing to install separately**.
+notarized): there is **nothing to install separately**. Apple silicon (M1 or
+later) and macOS 14+ required.
 
 1. Download the `.dmg` from the
    [GitHub Releases](https://github.com/leodurandfr/FontSync/releases/latest).
