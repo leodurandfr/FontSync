@@ -8,8 +8,10 @@ name: Create GitHub Release
 #     hors CI, cf. macos-app/RELEASE.md) puis téléversés via `scripts/publish-release.sh`.
 #
 # La release est créée en **draft** : le mainteneur y attache le `.dmg` et
-# `appcast.xml` signés, puis la publie. Publier seulement une fois l'`appcast.xml`
-# en place garde l'URL Sparkle `releases/latest/download/appcast.xml` cohérente.
+# `appcast.xml` signés, puis la publie. Le flux Sparkle des apps ≥ 0.1.2 est
+# l'asset de la release fixe `appcast` (indépendant de « latest ») ; les 0.1.1
+# lisent encore `releases/latest/download/appcast.xml` : ne publier une release
+# en « latest » qu'avec son `appcast.xml` (cf. docs/RELEASE.md).
 on:
   push:
     tags:

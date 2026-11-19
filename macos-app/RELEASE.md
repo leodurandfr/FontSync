@@ -84,9 +84,15 @@ SPARKLE_BIN="$(find macos-app/build/SourcePackages/artifacts -path '*/Sparkle/bi
 
 ### 5. URL du flux Sparkle (`SUFeedURL`)
 
-`Info.plist` pointe sur `…/releases/latest/download/appcast.xml`. Ajuster
-l'`owner/repo` GitHub si nécessaire. L'`appcast.xml` est uploadé sur **chaque**
-GitHub Release sous ce nom stable.
+`Info.plist` pointe (depuis la 0.1.2) sur le flux stable
+`…/releases/download/appcast/appcast.xml` : l'asset de la release fixe
+`appcast`, que `publish-release.sh` crée au besoin (pré-release, jamais
+« latest ») et met à jour après chaque publication. `release-macos-app.sh`
+passe `--download-url-prefix …/releases/download/v$VERSION/` à
+`generate_appcast` : chaque enclosure reste téléchargeable quelle que soit la
+release « latest » (B-100). Ajuster l'`owner/repo` (`REPO=`) si nécessaire.
+Les 0.1.1 et antérieures lisent encore `…/releases/latest/download/appcast.xml` :
+l'`appcast.xml` reste donc aussi joint à chaque release versionnée.
 
 ---
 
@@ -150,12 +156,17 @@ upload`). En résumé :
    (`docker-publish.yml`) et crée la **Release en draft** (`release.yml`).
 2. Sur ce Mac : `scripts/publish-release.sh` construit le `.dmg` signé +
    `appcast.xml` et les téléverse sur la Release.
-3. `PUBLISH=1 scripts/publish-release.sh` (ou via l'UI) retire le draft.
+3. `PUBLISH=1 SKIP_BUILD=1 scripts/publish-release.sh` retire le draft puis met à
+   jour le flux stable. Jamais « via l'UI » : le flux stable ne suivrait pas,
+   et les apps ≥ 0.1.2 ne verraient pas la mise à jour.
 
-`appcast.xml` doit rester accessible à l'URL `SUFeedURL` (lien
-`releases/latest/download/appcast.xml`) → les clients existants y trouvent la
-mise à jour. `generate_appcast` accumule les versions : republier le fichier
-à jour à chaque release (le garder versionné/archivé hors-git si besoin).
+`publish-release.sh` refuse d'envoyer quoi que ce soit si l'appcast ne décrit
+pas exactement le DMG (version, build, URL versionnée, taille, signature EdDSA),
+et refuse `PUBLISH=1` sans appcast. `release-macos-app.sh` met de côté dans
+`macos-app/dist/previous/` les anciennes archives et l'ancien `appcast.xml`
+(le préfixe d'URL de `generate_appcast` vaut pour tous les DMG du dossier) :
+le flux généré ne décrit que la version publiée. Avec `PUBLISH=1`, la release versionnée est publiée (« latest », pour
+les clients ≤ 0.1.1), puis le flux stable est mis à jour.
 
 ---
 

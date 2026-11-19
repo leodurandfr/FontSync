@@ -24,9 +24,12 @@ certificat et les clés Sparkle, jamais commités (cf.
   notarisée par Apple → l'étape vit sur une machine du mainteneur, pas dans un
   runner public.
 
-Les deux convergent sur **une seule GitHub Release par version**, qui sert aussi
-de flux de mise à jour Sparkle (`SUFeedURL` →
-`releases/latest/download/appcast.xml`).
+Les deux convergent sur **une seule GitHub Release par version**. Le flux de
+mise à jour Sparkle vit à part, sur une URL stable qui ne dépend pas de
+« latest » : l'asset `appcast.xml` de la release fixe `appcast`
+(`SUFeedURL` → `releases/download/appcast/appcast.xml`, depuis la 0.1.2), et
+chaque enclosure pointe sur sa release versionnée
+(`releases/download/vX.Y.Z/FontSync-X.Y.Z.dmg`).
 
 ---
 
@@ -88,13 +91,36 @@ scripts/publish-release.sh
 Vérifier le contenu (DMG présent, notes correctes), puis retirer le draft :
 
 ```bash
-PUBLISH=1 scripts/publish-release.sh      # ou : gh release edit v1.0.0 --draft=false --latest
+PUBLISH=1 SKIP_BUILD=1 scripts/publish-release.sh   # jamais « via l'UI » : le flux stable ne serait pas mis à jour
 ```
 
-Publier rend l'`appcast.xml` accessible à l'URL Sparkle stable
-(`releases/latest/download/appcast.xml`) → les clients existants détectent la
-mise à jour. Si seul l'appcast a changé (re-signature), `--clobber` le remplace
-en place.
+Avant tout envoi, `publish-release.sh` vérifie l'appcast
+(`scripts/lib/check-appcast.py`) : un seul item pour `$VERSION`, `BUILD`
+identique, enclosure sur `releases/download/v$VERSION/` avec la taille et la
+signature EdDSA du DMG (comparée à `sign_update` s'il est disponible), et
+chaque autre item sur sa propre release `v<version>/`. Au moindre écart, rien ne part ; sans
+appcast, `PUBLISH=1` est refusé.
+
+Avec `PUBLISH=1`, l'ordre est fixe : la release `vX.Y.Z` est publiée
+(`--latest`), **puis** l'appcast est téléversé sur la release `appcast` (créée
+au besoin en pré-release, `--latest=false`) — jamais avant, sinon le flux
+annoncerait un DMG encore en draft (404).
+
+- Clients ≥ 0.1.2 : ils lisent le flux stable, que rien d'autre ne touche.
+- Clients ≤ 0.1.1 : ils lisent encore `releases/latest/download/appcast.xml`.
+  Tant qu'il en reste, chaque release de l'app doit rester « latest » avec son
+  `appcast.xml`, et **aucune autre release** (serveur seul, par exemple) ne
+  doit être publiée en « latest » sans appcast : ces clients ne verraient plus
+  aucune mise à jour.
+- Refus de `PUBLISH=1` : version pré-release (`-rc1`…), tag `vX.Y.Z` absent du
+  dépôt local, ou version qui n'est pas le plus haut tag final (le flux stable
+  et « latest » reculeraient). Une pré-release se publie à la main, en
+  `--prerelease --latest=false`, sans toucher au flux stable.
+- `--clobber` retire l'ancien asset avant d'envoyer le nouveau : si l'envoi du
+  flux stable échoue, le script le dit et donne la commande de relance ; les
+  clients réessaient à leur prochain contrôle, sans rien installer.
+- Ne pas activer l'immuabilité des releases du dépôt (réglage GitHub) : la
+  release `appcast` ne pourrait plus être mise à jour.
 
 ---
 
@@ -122,8 +148,11 @@ docker buildx imagetools inspect ghcr.io/<owner>/<repo>:1.0.0
 # DMG signé, notarisé, staplé
 spctl --assess --type install --verbose=4 macos-app/dist/FontSync-1.0.0.dmg
 
-# Appcast servi à l'URL Sparkle
+# Appcast servi aux deux URL Sparkle (flux stable ≥ 0.1.2, ancien flux ≤ 0.1.1)
+curl -fsSL https://github.com/<owner>/<repo>/releases/download/appcast/appcast.xml | head
 curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/appcast.xml | head
+# Enclosure versionnée téléchargeable
+curl -fsSIL https://github.com/<owner>/<repo>/releases/download/v1.0.0/FontSync-1.0.0.dmg | head -1
 ```
 
 Un Mac déjà installé en version antérieure doit proposer la mise à jour

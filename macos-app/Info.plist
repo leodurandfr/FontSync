@@ -25,12 +25,13 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright (C) 2026 Leo Durand. Licensed under AGPL-3.0-or-later.</string>
 	<!-- Sparkle (P3.7) — mises à jour automatiques signées EdDSA.
-	     • SUFeedURL : appcast hébergé sur les GitHub Releases (cf. RELEASE.md).
+	     • SUFeedURL : flux stable, asset de la release fixe « appcast »
+	       (jamais « latest », cf. RELEASE.md).
 	     • SUPublicEDKey : clé publique EdDSA générée par `generate_keys`
 	       (la clé privée reste dans le Trousseau, jamais commitée).
 	     • Intervalle : vérification quotidienne, activée par défaut. -->
 	<key>SUFeedURL</key>
-	<string>https://github.com/leodurandfr/FontSync/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/leodurandfr/FontSync/releases/download/appcast/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>Y2QX4ngX8IOLgon1CoLlqi3pyFCfoJMv6v3gu8kkG4Q=</string>
 	<key>SUEnableAutomaticChecks</key>

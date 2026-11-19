@@ -24,7 +24,8 @@
 #   BUILD              ex. 1       (CFBundleVersion ; entier monotone)
 # Optionnel : ARCH=universal2 (défaut : Apple silicon seul, depuis un Mac Apple
 #             silicon ; universal2 = Intel aussi, non validé — P3-9),
-#             SKIP_NOTARIZE=1, SKIP_APPCAST=1
+#             SKIP_NOTARIZE=1, SKIP_APPCAST=1,
+#             REPO=owner/name (enclosures de l'appcast ; défaut leodurandfr/FontSync)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,6 +39,8 @@ APP_NAME="FontSync"
 : "${DEVELOPER_ID_APP:?DEVELOPER_ID_APP requis (Developer ID Application: …)}"
 : "${TEAM_ID:?TEAM_ID requis}"
 ARCH="${ARCH:-host}"
+# Dépôt GitHub des releases (enclosures de l'appcast), cf. SUFeedURL d'Info.plist.
+FEED_REPO="${REPO:-leodurandfr/FontSync}"
 
 # L'app et son agent doivent viser les mêmes Mac (M-21) : la 0.1.1 était
 # universelle avec un agent arm64 seul, et se lançait sur un Mac Intel sans
@@ -207,7 +210,23 @@ else
   else
     # generate_appcast lit la clé privée EdDSA dans le Trousseau (cf. generate_keys)
     # et produit/maj appcast.xml à partir des artefacts présents dans le dossier.
-    "$SPARKLE_BIN/generate_appcast" "$DIST_DIR"
+    # Enclosures figées sur la release versionnée (B-100) : sans préfixe, elles
+    # dérivaient de SUFeedURL (`releases/latest/…`) et mouraient dès qu'une autre
+    # release devenait « latest ».
+    # Le préfixe ci-dessous vaut pour TOUTES les archives du dossier (une
+    # ancienne y recevrait l'URL v$VERSION/ancien.dmg → 404), et un appcast.xml
+    # présent garderait ses anciens items : on les met de côté (déplacés, jamais
+    # effacés) pour générer un flux qui ne décrit que $VERSION.
+    PREVIOUS="$DIST_DIR/previous"
+    while IFS= read -r -d '' old; do
+      mkdir -p "$PREVIOUS"
+      mv -f "$old" "$PREVIOUS/"
+      echo "  mis de côté : ${old#"$DIST_DIR"/} → previous/"
+    done < <(find "$DIST_DIR" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \
+      -o -name '*.delta' -o -name 'appcast.xml' \) ! -path "$DMG" -print0)
+    "$SPARKLE_BIN/generate_appcast" \
+      --download-url-prefix "https://github.com/$FEED_REPO/releases/download/v$VERSION/" \
+      "$DIST_DIR"
     echo "  → appcast : $DIST_DIR/appcast.xml"
     # generate_appcast (Sparkle ≥ 2.9) déclare lui-même hardwareRequirements
     # arm64 pour un binaire sans tranche x86_64 ; on le vérifie plutôt que de
@@ -220,4 +239,4 @@ else
 fi
 
 step "Terminé : $DMG"
-echo "Publier : le .dmg + appcast.xml sur la GitHub Release (cf. SUFeedURL dans Info.plist)."
+echo "Publier : scripts/publish-release.sh (SKIP_BUILD=1) — contrôle l'appcast, puis release v$VERSION et flux stable."

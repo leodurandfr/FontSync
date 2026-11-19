@@ -647,3 +647,33 @@ def test_release_run_universal2(release: Release) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     (build,) = release.calls("xcodebuild")
     assert "ARCHS=arm64 x86_64" in build
+
+
+def test_release_run_pins_enclosures_to_the_versioned_release(release: Release) -> None:
+    """B-100 : sans préfixe, generate_appcast dérivait les URL de SUFeedURL."""
+    result = release.run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    (call,) = release.calls("generate_appcast")
+    prefix = "https://github.com/leodurandfr/FontSync/releases/download/v0.1.2/"
+    assert call[call.index("--download-url-prefix") + 1] == prefix
+    forked = release.run(REPO="someone/fork")
+    assert forked.returncode == 0
+    call = release.calls("generate_appcast")[-1]
+    assert call[call.index("--download-url-prefix") + 1].startswith(
+        "https://github.com/someone/fork/releases/download/v0.1.2/"
+    )
+
+
+def test_release_run_sets_stale_archives_aside(release: Release) -> None:
+    """Le préfixe d'URL donnerait une enclosure v0.1.2/FontSync-0.1.1.dmg (404) ;
+    un ancien appcast.xml garderait ses items. Déplacés, jamais effacés."""
+    dist = release.repo / "macos-app" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "FontSync-0.1.1.dmg").write_bytes(b"old")
+    (dist / "appcast.xml").write_text("<rss/>")
+    result = release.run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (dist / "previous" / "FontSync-0.1.1.dmg").read_bytes() == b"old"
+    assert (dist / "previous" / "appcast.xml").read_text() == "<rss/>"
+    assert not (dist / "FontSync-0.1.1.dmg").exists()
+    assert (dist / "FontSync-0.1.2.dmg").exists()
