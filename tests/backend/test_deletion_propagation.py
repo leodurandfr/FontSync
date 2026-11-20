@@ -1563,3 +1563,63 @@ async def test_purge_survives_a_file_not_found_race(
     await purge_font(font, storage, db)
 
     assert font.purged_at is not None
+
+
+# ---------- Notification de quarantaine (P1-7c, B-44) ----------
+
+
+class _CapturingManager:
+    """Remplace ws_manager dans le routeur sync : journalise les diffusions."""
+
+    def __init__(self, events: list[tuple[str, object]]) -> None:
+        self.events = events
+
+    async def broadcast_to_clients(self, message: dict) -> None:
+        self.events.append(("ws", message))
+
+    async def broadcast_sync(self, exclude_device_id: str | None = None) -> None:
+        self.events.append(("sse", exclude_device_id))
+
+    async def signal_sync(self, device_id: str) -> None:
+        self.events.append(("sse-one", device_id))
+
+
+@pytest.mark.asyncio
+async def test_quarantine_emits_single_message(
+    api_client: AsyncClient, font_factory, monkeypatch
+) -> None:
+    """50 polices disparues d'un coup : UN message fonts.deleted de 50 ids, et
+    non 50 diffusions (qui retenaient la réponse et faisaient 50 passes)."""
+    from backend.routers import sync as sync_router
+
+    laptop = await _register_device(api_client, hostname="laptop")
+    pushed = [
+        await _push(
+            api_client, laptop, font_factory(family=f"Gone {i:02d}"), f"g{i}.ttf"
+        )
+        for i in range(50)
+    ]
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(sync_router, "ws_manager", _CapturingManager(events))
+    await _delta(api_client, laptop, [kept["fileHash"]])
+
+    ws_messages = [m for kind, m in events if kind == "ws"]
+    assert [m["type"] for m in ws_messages] == ["fonts.deleted"]  # type: ignore[index]
+    ids = ws_messages[0]["data"]["ids"]  # type: ignore[index]
+    assert sorted(ids) == sorted(p["fontId"] for p in pushed)
+
+
+@pytest.mark.asyncio
+async def test_no_quarantine_no_message(
+    api_client: AsyncClient, font_factory, monkeypatch
+) -> None:
+    from backend.routers import sync as sync_router
+
+    laptop = await _register_device(api_client, hostname="laptop")
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(sync_router, "ws_manager", _CapturingManager(events))
+    await _delta(api_client, laptop, [kept["fileHash"]])
+    assert [k for k, _ in events if k == "ws"] == []

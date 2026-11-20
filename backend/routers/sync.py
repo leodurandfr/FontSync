@@ -119,6 +119,10 @@ async def delta_sync(
 
     await db.commit()
     if detection.total:
+        # Juste après le commit, pas après la réponse : différée, la diffusion
+        # pouvait arriver après la restauration d'une de ces polices et la
+        # retirer de l'onglet. Un seul message (B-44), déposé sans attente
+        # (files par client, P1-7a) : la réponse n'est pas retenue.
         await _notify_quarantined(detection, source_device_id=str(device.id))
 
     return await compute_delta(
@@ -139,10 +143,18 @@ async def _notify_quarantined(
     attente de confirmation ne déclenche aucun re-sync — c'est tout l'objet du
     seuil : personne d'autre ne touche à ses fichiers avant un oui.
     """
-    for font in detection.quarantined + detection.pending:
-        await ws_manager.broadcast_to_clients(
-            {"type": "font.deleted", "data": {"id": str(font.id)}}
-        )
+    # Un seul message pour toute la quarantaine (B-44) : 625 polices disparues
+    # d'un coup faisaient 625 diffusions, et autant de passes côté frontend.
+    await ws_manager.broadcast_to_clients(
+        {
+            "type": "fonts.deleted",
+            "data": {
+                "ids": [
+                    str(font.id) for font in detection.quarantined + detection.pending
+                ]
+            },
+        }
+    )
     if detection.quarantined:
         await ws_manager.broadcast_sync(exclude_device_id=source_device_id)
 

@@ -127,6 +127,18 @@ export const useFontsStore = defineStore("fonts", () => {
     total.value = Math.max(0, total.value - 1);
   }
 
+  /** Retire plusieurs polices en une passe (quarantaine : `fonts.deleted`). */
+  function removeFonts(fontIds: string[]) {
+    const ids = new Set(fontIds);
+    if (ids.size === 0) return;
+    const before = fonts.value.length;
+    fonts.value = fonts.value.filter((f) => !ids.has(f.id));
+    // Seules les polices réellement retirées comptent : un id déjà retiré
+    // (font.deleted antérieur) ou hors des filtres de la liste ne doit pas
+    // faire baisser son total.
+    total.value = Math.max(0, total.value - (before - fonts.value.length));
+  }
+
   function updateFont(fontId: string, data: Partial<Font>) {
     const idx = fonts.value.findIndex((f) => f.id === fontId);
     const existing = fonts.value[idx];
@@ -152,6 +164,7 @@ export const useFontsStore = defineStore("fonts", () => {
     uploadFonts,
     addFont,
     removeFont,
+    removeFonts,
     updateFont,
   };
 });

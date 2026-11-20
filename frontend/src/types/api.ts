@@ -276,6 +276,7 @@ export interface FamilyFilters {
 export type WsEventType =
   | "font.added"
   | "font.deleted"
+  | "fonts.deleted"
   | "font.updated"
   | "device.connected"
   | "device.disconnected"

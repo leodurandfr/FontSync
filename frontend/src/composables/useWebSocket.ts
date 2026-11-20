@@ -5,6 +5,7 @@ import { useFontsStore } from "@/stores/fonts";
 import { useDevicesStore } from "@/stores/devices";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
+import { useTrashStore } from "@/stores/trash";
 import type { WsMessage, Font, FontFamily } from "@/types/api";
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
@@ -23,7 +24,7 @@ function getWsUrl(): string {
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
-function dispatch(message: WsMessage) {
+export function dispatch(message: WsMessage) {
   const fontsStore = useFontsStore();
   const devicesStore = useDevicesStore();
   const familiesStore = useFamiliesStore();
@@ -37,6 +38,21 @@ function dispatch(message: WsMessage) {
         fontsStore.removeFont(message.data.id);
       }
       break;
+    case "fonts.deleted": {
+      // Quarantaine (P1-7c) : un seul message pour toutes les polices.
+      const ids = message.data.ids;
+      if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
+        fontsStore.removeFonts(ids as string[]);
+        if (familiesStore.initialized) {
+          familiesStore.fetchFamilies(useFamilyFiltersStore().toFilters());
+        }
+        // La Corbeille affiche la quarantaine (bannière « à confirmer ») :
+        // elle se met à jour si elle est ouverte.
+        const trashStore = useTrashStore();
+        if (trashStore.initialized) trashStore.fetchTrash();
+      }
+      break;
+    }
     case "font.updated":
       if (typeof message.data.id === "string") {
         fontsStore.updateFont(
