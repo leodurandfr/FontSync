@@ -46,8 +46,10 @@ The goal: one server, two Macs, fonts synchronized between them.
 On the NAS (or any Docker host):
 
 ```bash
-# Generate an instance token and put it in a .env
-echo "FONTSYNC_TOKEN=$(openssl rand -base64 32)" > .env
+# Generate the two secrets (instance token + Update button) into a new .env.
+# It refuses to overwrite an existing .env: already installed? Keep your
+# FONTSYNC_TOKEN (every Mac uses it) and only add a WATCHTOWER_TOKEN= line.
+(set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
 
 # Fetch the example compose file and start
 curl -O https://raw.githubusercontent.com/leodurandfr/FontSync/main/docker-compose.nas.yml
@@ -96,8 +98,8 @@ The server image is **multi-arch** (amd64 + arm64), published on
 `ghcr.io/leodurandfr/fontsync`. Single-container deployment:
 
 ```bash
-# 1. Generate an instance token
-openssl rand -base64 32          # → put it in a .env file: FONTSYNC_TOKEN=...
+# 1. Generate the instance token and the Update-button secret into a .env
+(set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
 # 2. Start (provided NAS example)
 docker compose -f docker-compose.nas.yml up -d
 ```

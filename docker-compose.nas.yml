@@ -5,10 +5,14 @@
 # multi-arch publiée sur ghcr.io (amd64 + arm64) → aucun build local requis.
 #
 # Démarrage rapide :
-#   1. Générer un token :   openssl rand -base64 32
-#   2. Le poser dans un fichier .env à côté de ce compose :
-#        FONTSYNC_TOKEN=le-token-généré
-#   3. docker compose -f docker-compose.nas.yml up -d
+#   1. Générer les deux secrets dans un fichier .env à côté de ce compose :
+#        (set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
+#      (FONTSYNC_TOKEN protège l'API ; WATCHTOWER_TOKEN sert au bouton
+#      « Mettre à jour » — les deux sont exigés au démarrage.) La commande
+#      refuse d'écraser un .env existant : déjà installé, gardez votre
+#      FONTSYNC_TOKEN (tous les Mac l'utilisent) et ajoutez seulement
+#      WATCHTOWER_TOKEN=….
+#   2. docker compose -f docker-compose.nas.yml up -d
 #
 # ⚠️  HTTP en clair : à réserver au LAN, ou à placer derrière un reverse-proxy
 #     TLS (cf. README, section « Transport & sécurité réseau »).

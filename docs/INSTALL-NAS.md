@@ -41,7 +41,16 @@ This is the simplest and most reproducible method, including on Synology whose
 
 1. Create a folder on the NAS, e.g. `docker/fontsync/`.
 2. Drop the [`docker-compose.nas.yml`](../docker-compose.nas.yml) file from the repo into it.
-3. Next to it, create a **`.env`** file containing your token:
+3. Next to it, create a **`.env`** file containing your two secrets — both are
+   required, the compose refuses to start without either. The command refuses
+   to overwrite an existing `.env`: if you are upgrading, **keep** your
+   `FONTSYNC_TOKEN` (every Mac uses it) and only add a `WATCHTOWER_TOKEN=` line.
+
+   ```bash
+   (set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
+   ```
+
+   or by hand:
 
    ```dotenv
    FONTSYNC_TOKEN=paste-the-generated-token-here
@@ -65,9 +74,10 @@ This is the simplest and most reproducible method, including on Synology whose
 1. **Container Manager → Project → Create**.
 2. Source: "Create a docker-compose.yml" (paste the content of
    `docker-compose.nas.yml`) or "Import" the file.
-3. Fill in the `FONTSYNC_TOKEN` variable (environment tab, or via the
-   `.env` placed in the project folder).
-4. Start the project. Container Manager creates the `db` and `fonts` volumes.
+3. Fill in the `FONTSYNC_TOKEN` **and** `WATCHTOWER_TOKEN` variables
+   (environment tab, or via the `.env` placed in the project folder): the
+   compose refuses to start without either.
+4. Start the project. Container Manager creates the `db`, `fonts` and `backups` volumes.
 
 ---
 
