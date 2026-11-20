@@ -72,9 +72,9 @@ def _fresh_ws_manager(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un `ws_manager` neuf par test.
 
     Les tests SSE (boucle asyncio de pytest) et WS (TestClient, thread/loop
-    dédié) ne doivent pas partager le `asyncio.Lock` du singleton, sous peine de
-    « Future attached to a different loop ». Un manager neuf, utilisé par une
-    seule boucle à la fois, lie son lock paresseusement à la bonne boucle.
+    dédié) ne doivent pas partager les files et tâches d'envoi du singleton,
+    liées à la boucle qui les a créées (« Future attached to a different
+    loop »). Un manager neuf est utilisé par une seule boucle à la fois.
     """
     mgr = WebSocketManager()
     monkeypatch.setattr(agent_events, "ws_manager", mgr)

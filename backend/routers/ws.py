@@ -45,20 +45,22 @@ async def ws_client(websocket: WebSocket) -> None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await ws_manager.connect_client(websocket)
-
-    # Envoyer la liste des agents actuellement connectés (présence SSE `listen`).
-    for agent_id in ws_manager.connected_sse_devices:
-        await websocket.send_json(
-            {
-                "type": "device.connected",
-                "data": {"deviceId": agent_id},
-            }
-        )
+    # Présence initiale des agents (SSE `listen`) : par la file du client, que
+    # seule sa tâche d'envoi écrit (P1-7a).
+    await ws_manager.connect_client(
+        websocket,
+        initial=[
+            {"type": "device.connected", "data": {"deviceId": agent_id}}
+            for agent_id in ws_manager.connected_sse_devices
+        ],
+    )
 
     try:
         while True:
             # Maintient la connexion ouverte, ignore les messages entrants
             await websocket.receive_text()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
+        # RuntimeError : socket déjà fermé par une éviction (client trop lent).
+        pass
+    finally:
         ws_manager.disconnect(websocket)

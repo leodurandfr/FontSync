@@ -9,6 +9,8 @@ avec un bon token. `Origin` absent (client hors navigateur) : le token suffit.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import WebSocketDisconnect
 from starlette.testclient import TestClient
@@ -32,7 +34,7 @@ def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "allowed_hosts", "")
     if hasattr(settings, "allowed_origins"):
         monkeypatch.setattr(settings, "allowed_origins", "")
-    # Un manager neuf par test (cf. test_auth.py : lock lié à une seule boucle).
+    # Un manager neuf par test (cf. test_auth.py : files et tâches liées à une boucle).
     mgr = WebSocketManager()
     monkeypatch.setattr(agent_events, "ws_manager", mgr)
     monkeypatch.setattr(ws_router, "ws_manager", mgr)
@@ -213,3 +215,25 @@ def test_ws_query_token_still_accepted_with_a_cookie() -> None:
 
 def test_ws_header_token_still_accepted() -> None:
     connect(LOCAL, "/ws/client", authorization=f"Bearer {TOKEN}")
+
+
+# ---- Route /ws/client et gestionnaire (P1-7a) ----
+
+
+def test_ws_route_sends_initial_presence_then_unregisters() -> None:
+    """La présence initiale passe par la file du client ; à la fermeture, le
+    client est retiré du gestionnaire (`finally: disconnect`)."""
+    mgr = ws_router.ws_manager
+    mgr._sse_subscribers["dev-1"] = set()  # un agent `listen` connecté
+    with TestClient(app).websocket_connect(ws_url(LOCAL)) as ws:
+        assert ws.receive_json() == {
+            "type": "device.connected",
+            "data": {"deviceId": "dev-1"},
+        }
+        assert mgr.client_count == 1
+    for _ in range(100):
+        if mgr.client_count == 0:
+            break
+
+        time.sleep(0.01)
+    assert mgr.client_count == 0
