@@ -126,6 +126,13 @@ cd frontend && npm install && npm run dev   # proxies to localhost:8080
 
 ## 6. Testing with a real 2nd Mac
 
+> ⚠️ **Never on a production agent Mac.** The steps below overwrite
+> `~/.fontsync/config.yaml` (server, token, `device_id`) and, with `auto_pull`,
+> install fonts into `~/Library/Fonts`: on a Mac that syncs with the production
+> server, that replaces its configuration and touches its real fonts. Use a
+> **dedicated macOS account** (e.g. `fontsync-e2e`) on each Mac, pointed at a
+> test server.
+
 For a full-scale test (real Core Text discovery, real system installation,
 launchd), both Macs need to talk to the **same server**. The simplest approach:
 this Mac acts as the server on the LAN, and the other Mac connects its agent to it.
@@ -169,10 +176,9 @@ YAML
 You'll see both Macs appear in the **Devices** tab, and the fonts from
 one Mac propagate to the other.
 
-> The real prod target remains the **NAS** as a permanent server (both Macs
-> point to it). But until the reworked backend is deployed to the
-> NAS, test with this Mac as the LAN server — otherwise you'd be exercising the old
-> server code.
+> In production both Macs point to the permanent server (see *Deploying the
+> reference instance* below). This section is for testing a branch that is not
+> deployed yet, with this Mac as the server.
 
 ## Continuous integration and image builds
 
@@ -201,6 +207,33 @@ All local dev state lives in `.dev/` (gitignored). To start fresh:
 ```bash
 rm -rf .dev
 ```
+
+## Deploying the reference instance
+
+The reference instance runs the image that CI publishes (`docker-publish.yml`),
+**pinned by digest** — never a moving tag, so what runs is exactly what was
+tested, and going back means naming the previous digest. One deployment:
+
+1. **Test first**: `pytest tests/ -q`, `npm run build` (vue-tsc), then the same
+   digest on a staging copy of the production database (a restored backup, never
+   the live volumes).
+2. **Back up** right before (database snapshot + checked copy off the server,
+   see *Backing up production* and [docs/INSTALL-NAS.md](docs/INSTALL-NAS.md) §5).
+3. **Deploy**: set the new digest in the server's compose file and
+   `docker compose up -d` (the entrypoint applies Alembic migrations).
+4. **Check** that `/api/system/info` reports the new version, and that `/health`,
+   `/api/stats`, the trash and its `pendingConfirmation` count did not move
+   because of the deployment. Watch for a while before calling it done.
+5. **Going back**: the previous digest, as long as no migration ran; after a
+   migration the old image refuses the newer schema, so going back means a
+   restore — follow [docs/INSTALL-NAS.md](docs/INSTALL-NAS.md) §5 *Roll back an
+   update* (`scripts/restore-from-backup.sh`; the server also keeps an automatic
+   `pre-migrate-*.db` snapshot).
+
+The digest is in the `docker-publish.yml` run log, or from the immutable tag:
+`docker buildx imagetools inspect ghcr.io/<owner>/<repo>:sha-<short-sha>`. An
+instance pinned by digest ignores the **Update** button (Watchtower follows
+`:main`): on the reference instance, updates go through the steps above.
 
 ## Backing up production
 

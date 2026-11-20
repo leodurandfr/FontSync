@@ -1,5 +1,12 @@
 # FontSync — Checklist de validation end-to-end
 
+> ⚠️ **Jamais sur un Mac agent de production.** Cette checklist réécrit
+> `~/.fontsync/config.yaml`, installe et désinstalle des polices et relance les
+> jobs launchd : sur un Mac de prod, elle remplacerait sa configuration (token,
+> `device_id`) et toucherait ses vraies polices. Voie recommandée : un **compte
+> macOS dédié** (ex. `fontsync-e2e`) sur chaque Mac, pointé vers une instance de
+> test, jamais vers le serveur de prod.
+
 > **But.** Les tests agent tournent sur FS isolé / `MockTransport`. Le cœur produit
 > — `push → import serveur → signal SSE → pull → install` **entre deux machines
 > réelles** — se valide ici bout-en-bout, sur **2 Macs + 1 serveur**, avec commandes
@@ -40,13 +47,15 @@ Ces points conditionnent les résultats attendus — les ignorer fait conclure �
    que `auto_pull` n'est pas activé pour son device.** On l'active ici dans le
    `config.yaml` *avant le premier `sync`* (valeur envoyée au `register`) **et/ou**
    via l'UI (onglet Appareils). `auto_push` vaut `true` par défaut.
-2. **Deux canaux temps réel distincts :**
-   - **SSE** `GET /api/agent/{device_id}/events` → signal « re-sync » serveur→agent.
-     C'est le **seul** canal que l'agent (`listen`) écoute aujourd'hui.
-   - **WebSocket legacy** `/ws/agent/{device_id}` → utilisé par les endpoints
-     install/uninstall/activate/deactivate (`ws_manager.send_to_agent`). **L'agent
-     refondu ne s'y connecte plus** (cf. `CLAUDE.md` : WS = canal frontend). ⚠️ Voir
-     **S3** : les actions UI vers l'agent risquent donc de renvoyer `503`.
+2. **Un seul canal serveur→agent :**
+   - **SSE** `GET /api/agent/{device_id}/events` → signal « re-sync » serveur→agent,
+     le **seul** canal que l'agent (`listen`) écoute. Le WebSocket est réservé au
+     frontend (`/ws/client`).
+   - Les actions UI vers un appareil passent par REST : activate/deactivate posent
+     l'état voulu puis envoient ce signal ; install n'envoie que le signal
+     (l'appareil pull selon son `auto_pull` — rien ne s'installe s'il est coupé) ;
+     l'uninstall par appareil répond `501` (reporté, B1). Le `503` observé en **S3** venait d'un ancien canal WebSocket agent,
+     supprimé depuis.
 3. **L'agent est stateless.** Chaque `sync` repart de l'état réel du disque
    (`~/Library/Fonts`) ; le delta est calculé côté serveur par **hash** seulement
    (`compute_delta`), pas via les associations `device_font`.
@@ -270,13 +279,12 @@ propagation A → serveur → B. Voir l'en-tête du script pour le détail.
   - `[UI]` la font apparaît immédiatement (event WS `font.added` vers le frontend).
   - `[M1]` et `[M2]` : `~/Library/Fonts/E2ERoboto-Bold.ttf` finit par être installé.
 
-- **⚠️ Bug suspecté — à confirmer (même racine que S3) :** `POST /api/fonts/upload`
-  **n'émet PAS** de signal SSE « re-sync » : il appelle `broadcast_to_clients`
-  (frontend, OK) + `broadcast_to_agents` (**WS legacy, canal mort**), mais **jamais
-  `ws_manager.broadcast_sync()`** — contrairement à `/sync/push` (S1) et `/restore`
-  (S8). Conséquence probable : **aucune propagation réactive** vers les agents ; la
-  font n'arrive qu'au prochain `sync` **périodique** (`StartInterval` ~600 s) ou
-  **manuel**. Pour le vérifier vite, forcer un sync :
+- **État actuel (B2 corrigé) :** `POST /api/fonts/upload` émet le signal SSE
+  « re-sync » (`ws_manager.broadcast_sync()`), comme `/sync/push` (S1) et
+  `/restore` (S8) : propagation réactive attendue vers les agents `listen`. (Lors
+  de la première passe, il visait un canal WebSocket agent supprimé depuis, et la
+  police n'arrivait qu'au `sync` périodique.) Pour vérifier sans attendre, forcer
+  un sync :
 
 ```bash
 [M1] .venv/bin/fontsync-agent sync && ls ~/Library/Fonts | grep -i E2ERoboto
@@ -304,14 +312,11 @@ disparaître **localement** sur ce device mais **rester sur le serveur**.
   - `[S]` la font **reste** dans la bibliothèque (jamais supprimée du serveur).
   - `[M2]` inchangé.
 
-- **⚠️ Bug suspecté — à confirmer pendant le test :** l'endpoint
-  `POST /api/fonts/{id}/uninstall/{device_id}` envoie l'ordre via
-  `ws_manager.send_to_agent` (**WebSocket legacy `/ws/agent`**). Or l'agent refondu
-  **ne se connecte plus** à ce WS (il n'écoute que la SSE). `send_to_agent` devrait
-  donc retourner `False` → **`503 "L'agent n'est pas connecté."`**, et **rien ne se
-  passe sur M1**. Idem pour **install / activate / deactivate** (même canal).
-  → Si confirmé : **❌ bug bloquant** (tout le canal commande UI→agent est mort
-  depuis la bascule SSE). À consigner dans le Journal des bugs.
+- **État actuel :** `POST /api/fonts/{id}/uninstall/{device_id}` répond **`501`**
+  (désinstallation par appareil reportée, B1) ; rien ne se passe sur M1. Install,
+  activate et deactivate passent par le signal SSE « re-sync ». (Lors de la
+  première passe, ces endpoints visaient un WebSocket agent que l'agent n'ouvrait
+  plus → `503` ; ce canal a été supprimé.)
 
 - **⚠️ Tension `auto_pull` (même si l'uninstall marchait) :** la font restant sur le
   serveur et `auto_pull` étant `true`, le **prochain `sync` de M1 la ré-installerait**

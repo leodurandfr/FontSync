@@ -133,13 +133,15 @@ The frontend maintains a permanent WebSocket connection (`WS /ws/client`) and up
 **Server → Frontend:**
 - `font.added`: new font added (by an agent or via upload) → refresh the grid
 - `font.deleted`: font deleted → remove from the grid
+- `fonts.deleted` (`ids`): a quarantine, in one message → remove them all at once
 - `font.updated`: metadata modified (edit, restore) → update the card
 - `device.connected` / `device.disconnected`: an agent appears / disappears
 - `sync.progress`: progress of an ongoing sync
 - `sync.completed`: sync finished (stats)
 
-**Frontend → Server:**
-- `install.request`: request to install a font on a specific device (relayed to the agent)
+**Frontend → Server:** nothing — the server ignores incoming messages. Actions go
+through REST (e.g. `POST /api/fonts/{id}/install/{device_id}`, which signals the
+device over SSE).
 
 #### Server → Agent — SSE (« re-sync » signal)
 
@@ -583,8 +585,10 @@ way — those groups go undetected, never mis-resolved.
 | `WS /ws/client` | Frontend ↔ server channel (token in query `?token=`, URL-encoded) |
 | `GET /api/agent/{device_id}/events` | **SSE** server → agent: « re-sync » signal consumed by `listen` |
 
-> A `WS /ws/agent/{device_id}` endpoint **remains in the code but is unused**:
-> the agent moved to the SSE channel above. To be considered legacy.
+> The agent has no WebSocket of its own: it only listens to the SSE channel above.
+> UI actions aimed at a device go through REST: activate/deactivate set the desired
+> state (`device_fonts.active`) and signal a re-sync; install only signals the re-sync
+> (the device pulls what it misses according to its `auto_pull` setting).
 
 #### Statistics
 
@@ -849,7 +853,7 @@ No more WebSocket on the agent side (no backoff reconnection, no « on-restorati
 
 ### 6.9 Triggering from the frontend
 
-There is no longer a local `localhost:7850` endpoint (the CORS/mixed-content constraint disappears). To install a font on a device, the frontend sends `install.request` to the **server** (via its frontend WebSocket); the server emits the SSE `sync` signal to the relevant device, which pulls and installs on the next `sync`. No CORS workaround needed.
+There is no longer a local `localhost:7850` endpoint (the CORS/mixed-content constraint disappears). To install a font on a device, the frontend calls `POST /api/fonts/{id}/install/{device_id}` on the **server**; the server emits the SSE `sync` signal to the relevant device, which pulls and installs on the next `sync` (according to its `auto_pull` setting). No CORS workaround needed.
 
 ### 6.10 macOS packaging
 
@@ -907,7 +911,7 @@ Each card displays:
 - Name + style
 - Classification + number of glyphs
 - Main language/script badges
-- "Download" button (if no agent) or "Install" button (if agent connected, command relayed via WebSocket)
+- "Download" button (if no agent) or "Install" button (REST call; the server signals the device over SSE)
 
 **Lazy loading**: fonts are only loaded via @font-face when the card enters the viewport. Fonts outside the viewport are unloaded to save memory.
 
@@ -931,7 +935,7 @@ List of registered devices with: name, OS, last connection, sync state (idle/syn
 
 ### 7.4 Agent detection
 
-Rather than contacting `localhost:7850` (CORS/mixed-content problem over HTTPS), detection goes through the **server's WebSocket**. The frontend knows which agents are connected thanks to the `device.connected`/`device.disconnected` events. To send an install command, the frontend sends an `install.request` message to the server via WebSocket, which relays it to the relevant agent.
+Rather than contacting `localhost:7850` (CORS/mixed-content problem over HTTPS), detection goes through the **server's WebSocket**. The frontend knows which agents are connected thanks to the `device.connected`/`device.disconnected` events. To ask a device to install a font, the frontend calls the server's REST endpoint (`POST /api/fonts/{id}/install/{device_id}`), which signals that device over SSE; the frontend WebSocket only carries server → browser events.
 
 ---
 
@@ -1053,7 +1057,7 @@ fontsync/
 
 | Constraint | Impact | Mitigation |
 |------------|--------|------------|
-| **CORS / mixed-content (agent ↔ frontend)** | HTTPS frontend cannot contact local HTTP agent | Relay commands via the server's WebSocket (recommended solution) |
+| **CORS / mixed-content (agent ↔ frontend)** | HTTPS frontend cannot contact local HTTP agent | Go through the server: REST call, then SSE re-sync signal to the agent |
 | **Malformed fonts** | fonttools can crash | Systematic try/catch, store with partial metadata |
 | **Browser memory** | 500+ @font-face fonts saturate the RAM | Lazy loading + unload outside viewport |
 | **Slow initial scan** | SHA-256 of 500+ files ~30s | Explicit UX with progress, then real-time watcher |

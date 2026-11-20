@@ -18,7 +18,7 @@
 # Usage :
 #   scripts/dev/pull-prod-snapshot.sh                # ~300 fonts (échantillon aléatoire représentatif)
 #   scripts/dev/pull-prod-snapshot.sh --count 500    # N fonts
-#   scripts/dev/pull-prod-snapshot.sh --all          # toute la bibliothèque (2296)
+#   scripts/dev/pull-prod-snapshot.sh --all          # toute la bibliothèque (~8 000 polices)
 #   scripts/dev/pull-prod-snapshot.sh --reupload     # ré-ingère .dev/snapshot/fonts/ sans retoucher le NAS
 #
 # Pré-requis : serveur local démarré (scripts/dev/up.sh ou run-server.sh) et
