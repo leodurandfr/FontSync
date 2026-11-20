@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # rebinding (cf. `backend.host_guard`). Lu à chaque requête.
     allowed_hosts: str = ""
 
+    # Documentation interactive de l'API (/docs, /redoc, /openapi.json) :
+    # coupée par défaut, elle décrit toute la surface d'attaque sans token.
+    # `FONTSYNC_API_DOCS=true` pour le développement (cf. DEVELOPMENT.md).
+    api_docs_enabled: bool = Field(default=False, validation_alias="FONTSYNC_API_DOCS")
+
     # ---------- Corbeille et suppression propagée ----------
 
     # Purge automatique des polices supprimées depuis plus de N jours.

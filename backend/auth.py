@@ -5,11 +5,11 @@ pas de comptes utilisateurs** : le token protège une instance mono-utilisateur
 implicite (la frontière de tenancy se décide au passage cloud / Phase 7).
 
 Politique de présentation du token :
-- **REST** (`require_token`) : `Authorization: Bearer <token>`. L'agent (httpx)
-  et le frontend (`fetch`) peuvent tous deux poser cet en-tête.
-- **SSE** (`require_token_stream`) : en-tête `Authorization` **ou** query param
-  `?token=…`. L'agent SSE pose l'en-tête ; un `EventSource` navigateur, qui ne
-  peut pas poser d'en-tête, passe par le query param.
+- **Tout `/api/*`, SSE compris** : `Authorization: Bearer <token>`, vérifié par
+  `TokenAuthMiddleware` AVANT toute lecture du corps (P1-5e), puis de nouveau
+  par la dépendance `require_token` des routeurs (défense en profondeur).
+  L'agent (httpx) et le frontend (`fetch`) posent l'en-tête ; le flux SSE n'est
+  lu que par l'agent, qui le pose aussi (plus de `?token=`).
 - **WebSocket** (`websocket_token` / `verify_websocket_token`) : query param,
   en-tête `Authorization`, ou cookie `fontsync_token` — le `WebSocket` natif du
   navigateur ne permet pas d'en-tête custom au handshake.
@@ -21,10 +21,12 @@ exposé sur un NAS ne doit jamais rester ouvert par défaut.
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 
-from fastapi import Header, HTTPException, Query, WebSocket, status
+from fastapi import Header, HTTPException, WebSocket, status
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend.config import settings
 
@@ -71,10 +73,17 @@ def _bearer(authorization: str | None) -> str | None:
 
 
 def token_is_valid(token: str | None) -> bool:
-    """Compare le token fourni au token serveur en temps constant."""
+    """Compare le token fourni au token serveur en temps constant.
+
+    Sur octets UTF-8 : `compare_digest` lève TypeError sur une chaîne non ASCII
+    (un en-tête arbitraire donnait 500 au lieu de 401).
+    """
     if not token:
         return False
-    return secrets.compare_digest(token, get_server_token())
+    return secrets.compare_digest(
+        token.encode("utf-8", "surrogatepass"),
+        get_server_token().encode("utf-8", "surrogatepass"),
+    )
 
 
 def _unauthorized() -> HTTPException:
@@ -91,13 +100,76 @@ async def require_token(authorization: str | None = Header(default=None)) -> Non
         raise _unauthorized()
 
 
-async def require_token_stream(
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-) -> None:
-    """Dependency SSE : en-tête `Authorization` **ou** query param `?token=`."""
-    if not token_is_valid(_bearer(authorization) or token):
-        raise _unauthorized()
+def _route_path(scope: Scope) -> str:
+    """Path as Starlette routes it: `path` minus `root_path` (same rule as
+    `starlette._utils.get_route_path`). Under `--root-path /fs`, uvicorn sends
+    `path=/fs/api/…` and the router matches `/api/…` — checking `path` alone
+    would let every API call through unauthenticated."""
+    path: str = scope["path"]
+    root_path: str = scope.get("root_path", "")
+    if not root_path or not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return ""
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+    return path
+
+
+def _is_api_path(path: str) -> bool:
+    return path == "/api" or path.startswith("/api/")
+
+
+_UNAUTHORIZED_BODY = json.dumps(
+    {"detail": "Token manquant ou invalide."}, ensure_ascii=False
+).encode("utf-8")
+
+
+class TokenAuthMiddleware:
+    """Pure ASGI middleware: `/api/*` requires a valid Bearer token.
+
+    Refuses with 401 before the application, hence before `receive()` is ever
+    called: an unauthenticated client cannot make the server read or parse a
+    request body (multipart upload, JSON). WebSocket scopes are left to their
+    handler (`/ws/client`, browser handshake without headers).
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not _is_api_path(_route_path(scope)):
+            await self.app(scope, receive, send)
+            return
+        # Premier en-tête, comme `Header()` côté dépendance.
+        authorization = next(
+            (
+                value.decode("latin-1")
+                for key, value in scope.get("headers", ())
+                if key == b"authorization"
+            ),
+            None,
+        )
+        if token_is_valid(_bearer(authorization)):
+            await self.app(scope, receive, send)
+            return
+        # Point d'accroche du 413 (P2-5o) : la limite de taille du corps se
+        # posera ici aussi, sur Content-Length, toujours sans lire le corps.
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(_UNAUTHORIZED_BODY)).encode()),
+                    (b"www-authenticate", b"Bearer"),
+                    # Sinon le serveur garde la connexion et lit (pour le jeter)
+                    # tout le corps qu'un client non authentifié envoie.
+                    (b"connection", b"close"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": _UNAUTHORIZED_BODY})
 
 
 def websocket_token(websocket: WebSocket) -> str | None:

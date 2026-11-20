@@ -11,7 +11,8 @@
 
 """Logging filters keeping the instance token out of uvicorn's logs.
 
-The browser WebSocket and the SSE stream may carry the token as `?token=…`,
+The browser WebSocket carries the token as `?token=…` (any other `?token=`
+on /api is refused, but a client may still send one),
 and uvicorn logs the full path with its query string (`uvicorn.error` for
 WebSocket handshakes, `uvicorn.access` for HTTP requests).
 """

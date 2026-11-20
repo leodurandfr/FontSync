@@ -493,7 +493,10 @@ way — those groups go undetected, never mis-resolved.
 > **Auth:** all of `/api/*`, the SSE stream and the WebSocket require the shared
 > instance token (`FONTSYNC_TOKEN`) in the `Authorization: Bearer` header — except the
 > browser WS which accepts it in the query `?token=` (URL-encoded). Only `GET /health`
-> is public. Actual prefixes: `/api/fonts`, `/api/devices`, `/api/sync`,
+> (and the SPA) is public. `/api/*` is checked by an ASGI middleware (`TokenAuthMiddleware`)
+> that answers 401 **before the request body is read**, then again by each router's
+> `require_token` dependency. The interactive API docs (`/docs`, `/redoc`,
+> `/openapi.json`) are off unless `FONTSYNC_API_DOCS=true`. Actual prefixes: `/api/fonts`, `/api/devices`, `/api/sync`,
 > `/api/font-families`, `/api/stats`, `/api/agent`.
 
 ### 5.1 MVP endpoints

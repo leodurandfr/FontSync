@@ -55,6 +55,14 @@ agent's default (`server.url` in the config). Check:
 curl http://localhost:8080/health   # → {"status":"ok"}
 ```
 
+The interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are **off by
+default** (they map the whole API surface for anyone who can reach the server).
+Turn them on for development only:
+
+```bash
+FONTSYNC_API_DOCS=true scripts/dev/run-server.sh   # → http://localhost:8080/docs
+```
+
 ## 2. Simulate multiple machines
 
 `scripts/dev/run-agent.sh <profile> <command>` runs the agent under an isolated

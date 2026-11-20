@@ -94,8 +94,8 @@ def _stream_signals(config: AgentConfig, device_id: str) -> "Iterator[None]":
         "Accept": "text/event-stream",
         "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
     }
-    # Token partagé d'instance (P1.2) : l'agent SSE passe par httpx → en-tête
-    # `Authorization` (le query param est réservé à un EventSource navigateur).
+    # Token partagé d'instance (P1.2) : en-tête `Authorization`, seule voie
+    # acceptée sur /api, flux SSE compris (P1-5e).
     if config.server_token:
         headers["Authorization"] = f"Bearer {config.server_token}"
     with httpx.stream("GET", url, timeout=timeout, headers=headers) as resp:

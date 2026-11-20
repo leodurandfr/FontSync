@@ -5,7 +5,7 @@ Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
   vérifié route par route par énumération de l'app (M-49) ; REST n'accepte
   que l'en-tête `Authorization` ;
 - `/health` reste public, et aucune autre route publique n'apparaît en douce ;
-- le flux **SSE** accepte l'en-tête `Authorization` **ou** un query param ;
+- le flux **SSE** n'accepte que l'en-tête `Authorization` (P1-5e) ;
 - les **WebSocket** refusent le handshake sans token et l'acceptent via query
   param, en-tête ou cookie (le navigateur ne peut pas poser d'en-tête au
   handshake) ;
@@ -24,7 +24,7 @@ from urllib.parse import urlencode
 
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException, WebSocketDisconnect
+from fastapi import WebSocketDisconnect
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute, iter_route_contexts
 from httpx import ASGITransport, AsyncClient
@@ -167,13 +167,11 @@ async def test_sync_accepts_valid_token(client: AsyncClient) -> None:
     assert resp.status_code == 404
 
 
-# ---- SSE : header OU query param ----
+# ---- SSE : en-tête Authorization seulement (P1-5e) ----
 #
-# Le rejet (token absent/invalide) se vérifie de bout en bout : la dependency
-# lève **avant** d'ouvrir le flux. Le chemin « accepté », lui, ouvrirait un flux
-# SSE infini que `httpx.ASGITransport` bufferise sans jamais rendre la main — on
-# vérifie donc la dependency `require_token_stream` directement (c'est l'unité
-# d'auth ; l'endpoint ne fait que la déclarer).
+# Le rejet (token absent/invalide) se vérifie de bout en bout : le middleware
+# répond 401 avant d'ouvrir le flux. Le chemin « accepté » ouvrirait un flux SSE
+# infini (cf. test_auth_middleware.py pour l'échange ASGI brut).
 
 
 @pytest.mark.asyncio
@@ -193,21 +191,12 @@ async def test_sse_rejects_wrong_query_token(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_require_token_stream_accepts_header() -> None:
-    # Aucune exception levée = accepté.
-    await auth.require_token_stream(authorization=f"Bearer {TOKEN}", token=None)
-
-
-@pytest.mark.asyncio
-async def test_require_token_stream_accepts_query_param() -> None:
-    await auth.require_token_stream(authorization=None, token=TOKEN)
-
-
-@pytest.mark.asyncio
-async def test_require_token_stream_rejects_missing() -> None:
-    with pytest.raises(HTTPException) as exc:
-        await auth.require_token_stream(authorization=None, token=None)
-    assert exc.value.status_code == 401
+async def test_sse_rejects_valid_query_token(client: AsyncClient) -> None:
+    """`?token=` n'est plus accepté nulle part sur /api (l'agent pose l'en-tête)."""
+    resp = await asyncio.wait_for(
+        client.get("/api/agent/dev-x/events", params={"token": TOKEN}), 5
+    )
+    assert resp.status_code == 401
 
 
 # ---- WebSocket : query param ou cookie ----
@@ -264,13 +253,12 @@ def test_generates_and_logs_token_when_unset(
 # sans `Depends(require_token)` (ou un `include_router` qui la perd) fait
 # échouer la suite, sans qu'il faille penser à l'ajouter à une liste.
 
-# REST : en-tête seulement (`require_token`) ; le query param `?token=` n'est
-# admis que sur le flux SSE (`EventSource` ne pose pas d'en-tête).
-_SSE_PATH = "/api/agent/{device_id}/events"
+# Tout /api, SSE compris : en-tête seulement (`TokenAuthMiddleware` puis
+# `require_token`) ; `?token=` n'est admis que sur le WebSocket navigateur.
 # Hors `/api` : la santé et, si le frontend est buildé, le repli SPA.
 _PUBLIC_ROUTES = {"/health", "/{full_path:path}"}
-# Routes Starlette (pas FastAPI) admises : la doc OpenAPI, publique jusqu'à
-# P1-5, et les assets du frontend buildé. Toute autre (`add_route`, `mount`,
+# Routes Starlette (pas FastAPI) admises : la doc OpenAPI (seulement si
+# FONTSYNC_API_DOCS=true depuis P1-5e) et les assets du frontend buildé. Toute autre (`add_route`, `mount`,
 # `WebSocketRoute` brute) échappe à l'énumération ci-dessous : refusée.
 _STARLETTE_PUBLIC = {
     "/openapi.json",
@@ -335,9 +323,8 @@ def test_route_enumeration_sees_every_router() -> None:
 @pytest.mark.parametrize(("method", "path"), _API_CALLS)
 def test_every_api_route_declares_the_token_dependency(method: str, path: str) -> None:
     route = next(r for r in _api_routes() if r.path == path and method in r.methods)
-    expected = auth.require_token_stream if path == _SSE_PATH else auth.require_token
-    assert expected in _dependency_calls(route.dependant), (
-        f"{method} {path} n'exige pas {expected.__name__}"
+    assert auth.require_token in _dependency_calls(route.dependant), (
+        f"{method} {path} n'exige pas require_token"
     )
 
 
@@ -382,10 +369,7 @@ def test_no_low_priority_route() -> None:
 
 
 def test_auth_dependencies_are_never_overridden() -> None:
-    assert not set(_OVERRIDES_AT_IMPORT) & {
-        auth.require_token,
-        auth.require_token_stream,
-    }
+    assert auth.require_token not in _OVERRIDES_AT_IMPORT
 
 
 # Préfixe, suffixe, casse, troncature, substitution à longueur égale : une
@@ -422,13 +406,6 @@ def test_blank_configured_token_is_never_the_server_token(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=TypeError,
-    reason="Constat de relecture P1-4c : `compare_digest` lève TypeError sur un "
-    "token non ASCII (500 au lieu de 401). Corrigé avec P1-5e (comparaison sur "
-    "octets) : retirer ce marqueur alors.",
-)
 async def test_non_ascii_token_is_rejected_not_an_error() -> None:
     assert not auth.token_is_valid(TOKEN + "é")
 
@@ -444,14 +421,15 @@ async def test_rest_rejects_near_miss_bearer(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("candidate", _NEAR_MISSES)
-async def test_require_token_stream_rejects_near_misses(candidate: str) -> None:
+async def test_sse_rejects_near_misses(client: AsyncClient, candidate: str) -> None:
     for kwargs in (
-        {"authorization": f"Bearer {candidate}", "token": None},
-        {"authorization": None, "token": candidate},
+        {"headers": _bearer(candidate)},
+        {"params": {"token": candidate}},
     ):
-        with pytest.raises(HTTPException) as exc:
-            await asyncio.wait_for(auth.require_token_stream(**kwargs), 2)
-        assert exc.value.status_code == 401
+        resp = await asyncio.wait_for(
+            client.get("/api/agent/dev-x/events", **kwargs), 5
+        )
+        assert resp.status_code == 401
 
 
 def test_ws_client_rejected_with_wrong_cookie() -> None:

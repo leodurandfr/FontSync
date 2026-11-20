@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from backend.auth import get_server_token, require_token, require_token_stream
+from backend.auth import TokenAuthMiddleware, get_server_token, require_token
 from backend.config import settings
 from backend.database import async_session
 from backend.host_guard import HostGuardMiddleware
@@ -40,7 +40,7 @@ from backend.services.trash import run_purge_loop
 
 logger = logging.getLogger(__name__)
 
-# Le token peut arriver en `?token=` (WebSocket navigateur, SSE) : uvicorn
+# Le token peut arriver en `?token=` (WebSocket navigateur) : uvicorn
 # journalise le chemin complet, query comprise. Le filtre est posé à l'import,
 # après la configuration des loggers par uvicorn, qui ne retire pas les filtres.
 install_token_redaction()
@@ -78,8 +78,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 await task
 
 
+# Docs interactives coupées par défaut (B-143) : `FONTSYNC_API_DOCS=true`.
+_DOCS = settings.api_docs_enabled
 app = FastAPI(
-    title="FontSync", version=settings.fontsync_version or "dev", lifespan=lifespan
+    title="FontSync",
+    version=settings.fontsync_version or "dev",
+    lifespan=lifespan,
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+    openapi_url="/openapi.json" if _DOCS else None,
 )
 _default_openapi = app.openapi
 
@@ -96,23 +103,28 @@ def _versioned_openapi() -> dict:
 
 app.openapi = _versioned_openapi  # type: ignore[method-assign]
 
+# Auth par token (P1-5e) : tout `/api/*` sans `Authorization: Bearer` valide
+# reçoit 401 AVANT que le corps de la requête soit lu (B-157). Ajouté avant la
+# garde Host, donc exécuté après elle : Starlette fait du dernier middleware
+# ajouté le plus externe.
+app.add_middleware(TokenAuthMiddleware)
+
 # Garde anti DNS rebinding : un `Host` inattendu est refusé avant toute route
 # (400, ou fermeture 1008 pour le WebSocket). Réglage `ALLOWED_HOSTS`, cf.
 # `backend.host_guard` et docs/INSTALL-NAS.md.
 app.add_middleware(HostGuardMiddleware)
 
-# Auth par token partagé d'instance (P1) : tout `/api/*` exige le token. Les
-# routes REST le veulent en en-tête `Authorization: Bearer` ; le flux SSE
-# accepte en plus un query param (EventSource navigateur). Le WebSocket vérifie
-# le token dans son propre handler (handshake sans en-tête côté navigateur).
-# `/health` et la SPA restent publics.
+# Défense en profondeur : chaque routeur `/api/*` redemande le token (même règle
+# que le middleware, en-tête `Authorization: Bearer`, SSE compris). Le
+# WebSocket vérifie le token dans son propre handler (handshake sans en-tête
+# côté navigateur). `/health` et la SPA restent publics.
 app.include_router(fonts.router, dependencies=[Depends(require_token)])
 app.include_router(devices.router, dependencies=[Depends(require_token)])
 app.include_router(sync.router, dependencies=[Depends(require_token)])
 app.include_router(font_families.router, dependencies=[Depends(require_token)])
 app.include_router(stats.router, dependencies=[Depends(require_token)])
 app.include_router(system.router, dependencies=[Depends(require_token)])
-app.include_router(agent_events.router, dependencies=[Depends(require_token_stream)])
+app.include_router(agent_events.router, dependencies=[Depends(require_token)])
 app.include_router(ws.router)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -135,6 +147,9 @@ async def health() -> dict[str, str]:
 # contenu dans leur nom : leur URL change à chaque build, ils sont donc
 # immuables et cachables sans limite.
 _HTML_CACHE_CONTROL = "no-cache"
+# Chemins des docs d'API : 404 quand elles sont coupées, jamais la SPA (un 200
+# HTML ferait croire qu'elles sont servies).
+_RESERVED = frozenset({"api", "docs", "redoc", "openapi.json"})
 _ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
@@ -178,7 +193,7 @@ def mount_frontend(app: FastAPI, dist: Path) -> None:
         chaque build, et les fichiers racine (favicon, manifeste…) n'ont pas de
         hash dans leur nom — aucun n'est sûr à figer côté client.
         """
-        if full_path == "api" or full_path.startswith("api/"):
+        if full_path in _RESERVED or full_path.startswith(("api/", "docs/")):
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
         headers = {"Cache-Control": _HTML_CACHE_CONTROL}
         if full_path in root_files:

@@ -160,6 +160,26 @@ def test_unknown_api_path_is_json_404(client: TestClient) -> None:
         assert response.json() == {"detail": "Not Found"}
 
 
+def test_disabled_api_docs_paths_are_json_404_not_the_spa(dist: Path) -> None:
+    """Docs coupées (P1-5e) : jamais index.html à leur place. Testé sur une app
+    montée comme en prod (docs à None + SPA), la CI n'ayant pas de dist."""
+    from backend.main import mount_frontend
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    mount_frontend(app, dist)
+    client = TestClient(app)
+    for path in (
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/docs/x",
+        "/redoc",
+        "/openapi.json",
+    ):
+        response = client.get(path)
+        assert response.status_code == 404, path
+        assert response.json() == {"detail": "Not Found"}, path
+
+
 def test_assets_are_immutable(client: TestClient) -> None:
     response = client.get("/assets/app.js")
     assert response.status_code == 200
