@@ -7,8 +7,8 @@ Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
 - `/health` reste public, et aucune autre route publique n'apparaît en douce ;
 - le flux **SSE** n'accepte que l'en-tête `Authorization` (P1-5e) ;
 - les **WebSocket** refusent le handshake sans token et l'acceptent via query
-  param, en-tête ou cookie (le navigateur ne peut pas poser d'en-tête au
-  handshake) ;
+  param ou en-tête (le navigateur ne peut pas poser d'en-tête au handshake) ;
+  plus de cookie, et l'Origin est contrôlé (P1-5f, test_ws_origin.py) ;
 - les quasi-égalités (préfixe, suffixe, casse, substitution) sont refusées ;
 - un token est généré + loggé quand `FONTSYNC_TOKEN` est absent ou blanc.
 """
@@ -199,7 +199,7 @@ async def test_sse_rejects_valid_query_token(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-# ---- WebSocket : query param ou cookie ----
+# ---- WebSocket : query param ou en-tête (plus de cookie, P1-5f) ----
 
 
 def test_ws_client_rejected_without_token() -> None:
@@ -222,11 +222,13 @@ def test_ws_client_accepts_query_param() -> None:
         ws.close()
 
 
-def test_ws_client_accepts_cookie() -> None:
+def test_ws_client_rejects_cookie_only() -> None:
+    """Voie cookie retirée (P1-5f) : cf. test_ws_origin.py."""
     client = TestClient(app)
     client.cookies.set("fontsync_token", TOKEN)
-    with client.websocket_connect("/ws/client") as ws:
-        ws.close()
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/client"):
+            pass
 
 
 # ---- Token généré quand FONTSYNC_TOKEN est absent ----

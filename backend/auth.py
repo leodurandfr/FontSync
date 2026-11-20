@@ -10,9 +10,10 @@ Politique de présentation du token :
   par la dépendance `require_token` des routeurs (défense en profondeur).
   L'agent (httpx) et le frontend (`fetch`) posent l'en-tête ; le flux SSE n'est
   lu que par l'agent, qui le pose aussi (plus de `?token=`).
-- **WebSocket** (`websocket_token` / `verify_websocket_token`) : query param,
-  en-tête `Authorization`, ou cookie `fontsync_token` — le `WebSocket` natif du
-  navigateur ne permet pas d'en-tête custom au handshake.
+- **WebSocket** (`websocket_token` / `verify_websocket_token`) : query param ou
+  en-tête `Authorization` — le `WebSocket` natif du navigateur ne permet pas
+  d'en-tête custom au handshake. Plus de cookie (P1-5f) ; l'`Origin` du
+  handshake est contrôlé à part (`backend.host_guard.origin_is_allowed`).
 
 Si `FONTSYNC_TOKEN` n'est pas défini, on **génère** un token au démarrage et on
 le **loggue** (visible dans les logs du conteneur) : un serveur potentiellement
@@ -175,18 +176,16 @@ class TokenAuthMiddleware:
 def websocket_token(websocket: WebSocket) -> str | None:
     """Token présenté par un client WebSocket.
 
-    Ordre de priorité : query param `token`, en-tête `Authorization: Bearer`,
-    puis cookie `fontsync_token`. Le `WebSocket` natif du navigateur ne pouvant
-    pas poser d'en-tête au handshake, le query param (ou le cookie) est la voie
-    réaliste côté frontend.
+    Ordre de priorité : query param `token`, puis en-tête `Authorization:
+    Bearer`. Le `WebSocket` natif du navigateur ne pouvant pas poser d'en-tête
+    au handshake, le query param est la voie du frontend. Plus de cookie
+    (P1-5f) : rien ne le posait, et un navigateur le joint d'office à une
+    connexion ouverte par une page d'un autre site.
     """
     qp = websocket.query_params.get("token")
     if qp:
         return qp
-    header = _bearer(websocket.headers.get("authorization"))
-    if header:
-        return header
-    return websocket.cookies.get("fontsync_token")
+    return _bearer(websocket.headers.get("authorization"))
 
 
 def verify_websocket_token(websocket: WebSocket) -> bool:

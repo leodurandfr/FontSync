@@ -101,6 +101,67 @@ def host_is_allowed(host_header: str | None, allowed_hosts: str) -> bool:
     return any(_matches(name, pattern) for pattern in patterns)
 
 
+_ORIGIN = re.compile(r"(https?)://(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?")
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _parse_origin(value: str) -> tuple[str, str, int] | None:
+    """(scheme, host, port) of an `Origin` value; None if not http(s)://host[:port]."""
+    match = _ORIGIN.fullmatch(value.strip().lower())
+    if match is None:
+        return None
+    scheme, host, port = match.groups()
+    host = host[1:-1] if host.startswith("[") else host.removesuffix(".")
+    number = int(port) if port else _DEFAULT_PORTS[scheme]
+    return (scheme, host, number) if 0 < number < 65536 else None
+
+
+def _explicit_port(host_header: str) -> int | None:
+    host = host_header.strip(" \t")
+    if host.startswith("["):
+        rest = host[host.find("]") + 1 :]
+        return int(rest[1:]) if rest.startswith(":") and rest[1:].isdigit() else None
+    if host.count(":") == 1:
+        port = host.split(":")[1]
+        return int(port) if port.isdigit() else None
+    return None
+
+
+def origin_is_allowed(
+    origin: str | None,
+    host_header: str | None,
+    allowed_hosts: str,
+    allowed_origins: str,
+) -> bool:
+    """Whether a WebSocket handshake `Origin` may connect (CSWSH guard).
+
+    No `Origin` (non-browser client): allowed, the token still decides. Else the
+    origin must be the server itself as reached (same host as the `Host`
+    header, same port — a `Host` without port, as behind a TLS proxy, matches
+    the scheme's default port), a host listed explicitly in `ALLOWED_HOSTS`
+    (not its defaults, and `*` opens nothing), or an `ALLOWED_ORIGINS` entry
+    (`scheme://host[:port]`, comma-separated).
+    """
+    if origin is None:
+        return True
+    parsed = _parse_origin(origin)
+    if parsed is None:
+        return False
+    scheme, name, port = parsed
+    if host_header is not None and _hostname(host_header) == name:
+        host_port = _explicit_port(host_header)
+        if port == (host_port if host_port is not None else _DEFAULT_PORTS[scheme]):
+            return True
+    for entry in allowed_origins.split(","):
+        if entry.strip() and _parse_origin(entry) == parsed:
+            return True
+    for pattern in allowed_hosts.split(","):
+        pattern = pattern.strip().lower()
+        if pattern and pattern != "*" and _matches(name, pattern):
+            return True
+    return False
+
+
 class HostGuardMiddleware:
     """Pure ASGI middleware refusing requests with an unexpected `Host`."""
 

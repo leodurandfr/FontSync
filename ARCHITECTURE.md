@@ -496,7 +496,9 @@ way — those groups go undetected, never mis-resolved.
 > (and the SPA) is public. `/api/*` is checked by an ASGI middleware (`TokenAuthMiddleware`)
 > that answers 401 **before the request body is read**, then again by each router's
 > `require_token` dependency. The interactive API docs (`/docs`, `/redoc`,
-> `/openapi.json`) are off unless `FONTSYNC_API_DOCS=true`. Actual prefixes: `/api/fonts`, `/api/devices`, `/api/sync`,
+> `/openapi.json`) are off unless `FONTSYNC_API_DOCS=true`. The WebSocket takes the
+> token in the query or the header (no cookie) and refuses a foreign browser `Origin`
+> (`backend.host_guard.origin_is_allowed`, `ALLOWED_ORIGINS`). Actual prefixes: `/api/fonts`, `/api/devices`, `/api/sync`,
 > `/api/font-families`, `/api/stats`, `/api/agent`.
 
 ### 5.1 MVP endpoints

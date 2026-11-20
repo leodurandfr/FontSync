@@ -104,6 +104,20 @@ This is the simplest and most reproducible method, including on Synology whose
 > `example.com` itself. The example compose passes `ALLOWED_HOSTS` from your
 > `.env` to the container. Setting `ALLOWED_HOSTS=*` disables the check
 > entirely (not recommended).
+>
+> The live-update WebSocket also checks the browser's `Origin`: the page must
+> come from the address the server is reached at (same host and port as the
+> `Host` header; behind an HTTPS proxy such as Tailscale Serve, the `https://`
+> default port matches a `Host` without port), or from a name listed in
+> `ALLOWED_HOSTS` (its defaults and `*` do not count). A reverse proxy that
+> rewrites `Host` needs its public name in `ALLOWED_HOSTS`, or the exact origin
+> (`https://fonts.example.com:8443`) in `ALLOWED_ORIGINS` — unlike
+> `ALLOWED_HOSTS`, the example compose does not relay it from `.env`: add it
+> under the service's `environment:`. A name listed in `ALLOWED_HOSTS` is
+> accepted as an origin on any port and scheme, so never list a wildcard such
+> as `*.ts.net` there. Otherwise the library loads but every live update
+> (fonts, families, devices) stops, the page retries every 30 s, and the
+> server logs `WebSocket refusé : Origin … non admise pour Host …`.
 
 | Volume  | Mounted on | Content                                         |
 |---------|-----------|-------------------------------------------------|

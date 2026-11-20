@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # rebinding (cf. `backend.host_guard`). Lu à chaque requête.
     allowed_hosts: str = ""
 
+    # Origines admises au handshake du WebSocket navigateur, en plus du serveur
+    # lui-même et des hôtes listés dans ALLOWED_HOSTS : `scheme://hôte[:port]`
+    # séparés par des virgules (cas d'un proxy qui réécrit Host). Cf.
+    # `backend.host_guard.origin_is_allowed`.
+    allowed_origins: str = ""
+
     # Documentation interactive de l'API (/docs, /redoc, /openapi.json) :
     # coupée par défaut, elle décrit toute la surface d'attaque sans token.
     # `FONTSYNC_API_DOCS=true` pour le développement (cf. DEVELOPMENT.md).
