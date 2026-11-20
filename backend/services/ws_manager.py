@@ -107,13 +107,21 @@ class WebSocketManager:
             full.append((websocket, client))
         if not full:
             return
-        results = await asyncio.gather(
-            *(
-                asyncio.wait_for(self._put_in_order(client, message), self.queue_wait)
-                for _, client in full
-            ),
-            return_exceptions=True,
-        )
+        try:
+            results = await asyncio.gather(
+                *(
+                    asyncio.wait_for(
+                        self._put_in_order(client, message), self.queue_wait
+                    )
+                    for _, client in full
+                ),
+                return_exceptions=True,
+            )
+        finally:
+            # Ici, et non dans _put_in_order : une diffusion annulée avant que
+            # ses attentes ne démarrent (flux SSE coupé…) ne les exécute jamais.
+            for _, client in full:
+                client.waiting -= 1
         for (websocket, _), result in zip(full, results, strict=True):
             if isinstance(result, BaseException):
                 logger.warning(
@@ -125,11 +133,8 @@ class WebSocketManager:
 
     @staticmethod
     async def _put_in_order(client: _Client, message: dict[str, Any]) -> None:
-        try:
-            async with client.put_lock:
-                await client.queue.put(message)
-        finally:
-            client.waiting -= 1
+        async with client.put_lock:
+            await client.queue.put(message)
 
     async def _send_loop(
         self, websocket: WebSocket, queue: "asyncio.Queue[dict[str, Any]]"

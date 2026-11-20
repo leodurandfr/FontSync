@@ -34,11 +34,14 @@ async def agent_events(device_id: str, request: Request) -> StreamingResponse:
         # connexion SSE d'un device et à la déconnexion de la dernière.
         was_online = device_id in ws_manager.connected_sse_devices
         queue = ws_manager.subscribe_agent_events(device_id)
-        if not was_online:
-            await ws_manager.broadcast_to_clients(
-                {"type": "device.connected", "data": {"deviceId": device_id}}
-            )
+        # `try` dès l'abonnement (M-11) : un flux annulé pendant la diffusion
+        # initiale (client qui coupe, arrêt du serveur) se désabonne quand même,
+        # sinon le device resterait « en ligne » à vie.
         try:
+            if not was_online:
+                await ws_manager.broadcast_to_clients(
+                    {"type": "device.connected", "data": {"deviceId": device_id}}
+                )
             # Signal initial : déclenche un premier sync au démarrage du `listen`.
             yield "event: sync\ndata: {}\n\n"
             while True:

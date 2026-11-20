@@ -314,3 +314,25 @@ async def test_concurrent_requests_keep_emission_order_on_a_full_queue() -> None
         assert ws.closed is None
     finally:
         await close_all(mgr, ws)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_broadcast_does_not_leave_the_client_waiting() -> None:
+    """Diffusion annulée avant que ses attentes ne démarrent (flux SSE coupé,
+    arrêt du serveur) : le compteur d'attente revient à zéro, sinon ce client
+    perdait pour toujours la voie rapide (relecture P1-7b)."""
+    mgr = manager(queue_size=1, queue_wait=5.0, send_timeout=5.0)
+    ws = GatedWS("gated")
+    await mgr.connect_client(ws)  # type: ignore[arg-type]
+    try:
+        await mgr.broadcast_to_clients({"type": "fill", "data": 0})
+        await asyncio.sleep(0)  # fill0 en cours d'envoi (portillon fermé)
+        await mgr.broadcast_to_clients({"type": "fill", "data": 1})  # file pleine
+        task = asyncio.create_task(mgr.broadcast_to_clients({"type": "late"}))
+        await asyncio.sleep(0)  # la diffusion atteint son gather…
+        task.cancel()  # …annulée avant que l'attente ne démarre
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert mgr._clients[ws].waiting == 0  # type: ignore[index]
+    finally:
+        await close_all(mgr, ws)

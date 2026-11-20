@@ -93,3 +93,39 @@ async def test_second_listen_does_not_rebroadcast_connected(
         {"type": "device.disconnected", "data": {"deviceId": "dev-1"}}
     ]
     assert "dev-1" not in manager.connected_sse_devices
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_initial_broadcast_unsubscribes(monkeypatch) -> None:
+    """M-11 : le flux annulé PENDANT la diffusion initiale (client qui coupe,
+    arrêt du serveur) se désabonne quand même — sinon le device reste « en
+    ligne » à vie (présence fantôme, signaux sync accumulés)."""
+    import asyncio
+
+    mgr = WebSocketManager()
+    entered = asyncio.Event()
+    sent: list[dict] = []
+
+    async def _slow_broadcast(message: dict) -> None:
+        sent.append(message)
+        if message["type"] == "device.connected":
+            entered.set()
+            await asyncio.Event().wait()  # diffusion qui ne rend jamais la main
+
+    monkeypatch.setattr(mgr, "broadcast_to_clients", _slow_broadcast)
+    monkeypatch.setattr(agent_events, "ws_manager", mgr)
+
+    response = await agent_events.agent_events("dev-1", _FakeRequest())
+    gen = response.body_iterator
+    first = asyncio.ensure_future(gen.__anext__())
+    await asyncio.wait_for(entered.wait(), 2)
+    assert "dev-1" in mgr.connected_sse_devices
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert "dev-1" not in mgr.connected_sse_devices
+    assert mgr._sse_subscribers == {}
+    # Un onglet a pu recevoir device.connected avant le blocage : il apprend aussi
+    # la déconnexion.
+    assert sent[-1] == {"type": "device.disconnected", "data": {"deviceId": "dev-1"}}
