@@ -82,6 +82,10 @@ SPARKLE_BIN="$(find macos-app/build/SourcePackages/artifacts -path '*/Sparkle/bi
 > Sauvegarder la clé privée (export Trousseau) : la **perdre** = impossible de
 > publier des mises à jour signées que les anciens clients accepteront.
 
+**Sauvegarde** : clé actuelle (`SUPublicEDKey` `Y2QX4ngX…`) exportée le
+2026-11-25 vers un gestionnaire de mots de passe, après contrôle (clé publique
+dérivée du fichier exporté = `SUPublicEDKey`) ; copie en clair effacée.
+
 ### 5. URL du flux Sparkle (`SUFeedURL`)
 
 `Info.plist` pointe (depuis la 0.1.2) sur le flux stable
