@@ -497,6 +497,59 @@ tailscale status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); \
 
 A node shows `no expiry` once expiry is disabled.
 
+#### Keep the API off the LAN (sidecar on a shared Docker network)
+
+With a Tailscale sidecar, the LAN does not need to reach FontSync at all. Put the
+sidecar and the server on a shared Docker network, proxy to a network alias of
+the server, and publish the host port on the loopback interface only (tools that run on the
+NAS itself, such as `curl http://127.0.0.1:8080/health`, keep working):
+
+```bash
+docker network create fontsync-edge
+```
+
+In the FontSync compose file (service `fontsync`):
+
+```yaml
+    ports:
+      - "127.0.0.1:8080:8000"
+    networks:
+      default: {}        # keep it: watchtower is reached on the default network
+      fontsync-edge:
+        aliases:
+          - fontsync-api # the name the sidecar proxies to
+# …and at the end of the file
+networks:
+  fontsync-edge:
+    external: true
+```
+
+In the sidecar's compose file (it can live in its own project):
+
+```yaml
+  ts-fontsync:
+    networks:
+      - default
+      - fontsync-edge
+# …and at the end of the file
+networks:
+  fontsync-edge:
+    external: true
+```
+
+In the sidecar's serve config (`TS_SERVE_CONFIG`), proxy to that alias, not to
+the NAS's LAN address: `"Proxy": "http://fontsync-api:8000"`. Do not proxy to the
+service name when the sidecar's `hostname:` is the same word (a sidecar named
+`fontsync` on the tailnet is the usual case): Docker writes a container's own
+hostname into its `/etc/hosts`, so the sidecar would resolve that name to itself.
+Then run
+`docker compose up -d` in both projects, keeping the sidecar's state directory so
+it does not register as a new node. Check that `http://<NAS LAN IP>:8080/health`
+is refused and that `https://<name>.<tailnet>.ts.net/health` answers 200.
+
+Any Mac whose agent still uses the LAN URL loses the server: switch it to the
+`*.ts.net` URL **first** (app settings, or `server.url` in `~/.fontsync/config.yaml`).
+
 ---
 
 ## 7. Rotate or revoke the instance token
