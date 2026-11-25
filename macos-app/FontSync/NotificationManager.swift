@@ -73,11 +73,11 @@ enum NotificationManager {
             identifier: "fontsync.error.offline")
     }
 
-    /// Notifie un rejet d'authentification (token d'instance invalide/révoqué).
+    /// Notifie un rejet d'authentification (session de ce Mac révoquée, compte désactivé, ou token d'instance retiré).
     static func notifySyncUnauthorized() {
         notify(
             title: "FontSync — synchronisation interrompue",
-            body: "Token d'instance invalide. Mettez-le à jour dans les préférences.",
+            body: "Ce Mac n'est plus autorisé (session révoquée ou compte désactivé). Reconnectez-vous dans les préférences.",
             identifier: "fontsync.error.unauthorized")
     }
 

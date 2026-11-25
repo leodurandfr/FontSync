@@ -4,7 +4,7 @@ App macOS native (Swift/SwiftUI) servant de **télécommande** au-dessus de l'ag
 FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 > L'app ne réécrit aucune logique de sync : l'agent Python (`../agent/`) reste le
-> moteur, le serveur reste la source de vérité. L'app lit l'URL serveur + le token
+> moteur, le serveur reste la source de vérité. L'app lit l'URL serveur + le jeton d'appareil
 > dans le **même** `~/.fontsync/config.yaml` que l'agent.
 
 ## État
@@ -14,7 +14,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
   (`com.fontsync.sync` / `com.fontsync.listen`).
 - **P3.2 — Fenêtre « nue »** ✅ « Ouvrir FontSync » → fenêtre `WKWebView` chargeant
   l'UI web servie par le serveur.
-- **P3.3 — Préférences** ✅ Fenêtre `Settings` (⌘,) : saisie URL + token, **écriture
+- **P3.3 — Préférences** ✅ Fenêtre `Settings` (⌘,) : saisie URL + email + mot de passe (échangés contre un jeton d'appareil), **écriture
   chirurgicale** dans `~/.fontsync/config.yaml` (préserve `device_id`/`scan`/`sync`),
   avec **test de connexion** (`GET /api/stats`).
 - **P3.4 — Cycle de vie de l'agent** ✅ `AgentController` résout le venv Python
@@ -37,9 +37,9 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 | `FontSync/AppModel.swift` | État observable (connexion, fonts, launchd), sonde périodique |
 | `FontSync/ServerClient.swift` | Client `GET /api/stats` avec `Authorization: Bearer` |
 | `FontSync/LaunchdStatus.swift` | État réel des LaunchAgents (`launchctl print`) + décision de réparation au lancement |
-| `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + token) |
+| `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + jeton d'appareil, token d'instance hérité) |
 | `FontSync/WebView.swift` | `WKWebView` (NSViewRepresentable) + contenu de la fenêtre |
-| `FontSync/PreferencesView.swift` | Préférences (URL/token + test de connexion, actions agent) |
+| `FontSync/PreferencesView.swift` | Préférences (URL + compte, connexion, actions agent) |
 | `FontSync/AgentController.swift` | Résolution du venv embarqué + `fontsync-agent setup/teardown/sync` |
 | `FontSync/NotificationManager.swift` | Notifications natives (`UNUserNotifications`, P3.6) |
 | `FontSync/Updater.swift` | Pont SwiftUI au-dessus de Sparkle (mises à jour, P3.7) |

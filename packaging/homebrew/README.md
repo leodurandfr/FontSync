@@ -16,7 +16,7 @@ brew install leodurandfr/tap/fontsync-agent
 fontsync-agent setup          # enregistre les LaunchAgents (sync + listen)
 ```
 
-Configurer ensuite `~/.fontsync/config.yaml` (`server.url` + `server.token`).
+Connecter ensuite ce Mac à un compte : `fontsync-agent login --server http://<nas>:8080` (email + mot de passe ; le jeton d'appareil obtenu est rangé dans `~/.fontsync/config.yaml`).
 Désinstaller les LaunchAgents : `fontsync-agent teardown`.
 
 ## Fichier canonique vs tap

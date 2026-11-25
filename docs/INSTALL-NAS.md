@@ -17,17 +17,18 @@ separately (see [`../README.md`](../README.md) → "Install the agent").
 - A NAS with Docker (Synology **Container Manager**, QNAP **Container Station**)
   or a host with `docker` + `docker compose`.
 - The `8080` port free on the NAS (adjustable).
-- Two secrets. Generate each with:
+- One secret, `WATCHTOWER_TOKEN`, used only by the **Update** button in the
+  interface (§4). It never leaves the NAS. If you would rather update by hand,
+  delete the `watchtower` service from the compose file and skip it. Generate
+  it with:
 
   ```bash
   openssl rand -base64 32
   # or: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
   ```
 
-  - `FONTSYNC_TOKEN` — the **instance token**, which protects the whole API.
-  - `WATCHTOWER_TOKEN` — used only by the **Update** button in the interface
-    (§4). Never leaves the NAS. If you would rather update by hand, delete the
-    `watchtower` service from the compose file and this one becomes pointless.
+  Access to the server itself goes through **accounts** (email + password):
+  you create the administrator on first launch (step 5).
 
 The image is published on **GitHub Container Registry**:
 `ghcr.io/leodurandfr/fontsync:latest` (or a version tag, e.g. `:1.0.0`).
@@ -49,20 +50,18 @@ This is the simplest and most reproducible method, including on Synology whose
    ```
 
 2. Drop the [`docker-compose.nas.yml`](../docker-compose.nas.yml) file from the repo into it.
-3. Next to it, create a **`.env`** file containing your two secrets — both are
-   required, the compose refuses to start without either. The command refuses
-   to overwrite an existing `.env`: if you are upgrading, **keep** your
-   `FONTSYNC_TOKEN` (every Mac uses it) and only add a `WATCHTOWER_TOKEN=` line.
+3. Next to it, create a **`.env`** file with the update secret. The command
+   refuses to overwrite an existing `.env`: if you are upgrading, **keep** your
+   `FONTSYNC_TOKEN` line as long as a Mac still uses it.
 
    ```bash
-   (set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
+   (set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
    ```
 
    or by hand:
 
    ```dotenv
-   FONTSYNC_TOKEN=paste-the-generated-token-here
-   WATCHTOWER_TOKEN=paste-the-second-one-here
+   WATCHTOWER_TOKEN=paste-the-generated-secret-here
    ```
 
 4. Start it:
@@ -75,9 +74,15 @@ This is the simplest and most reproducible method, including on Synology whose
    (`alembic upgrade head`) then starts the server. The SQLite database is created
    automatically in the `db` volume.
 
-5. Open `http://<nas-ip>:8080` and create the **administrator account** (email +
-   password). Then invite the other people from the interface. Until every Mac
-   has signed in with an account, keep `FONTSYNC_TOKEN`: the Macs still use it.
+5. Open `http://<nas-ip>:8080` **right away** and create the **administrator
+   account** (email + password): until then, whoever reaches the page first
+   could create it. To skip that window, set `FONTSYNC_ADMIN_EMAIL` and
+   `FONTSYNC_ADMIN_PASSWORD` in `.env` before starting. Then invite the other
+   people from the interface (Settings → Accounts), and connect each Mac with
+   its owner's email and password (FontSync app, or `fontsync-agent login`).
+   Upgrading an install that has a `FONTSYNC_TOKEN`: the first screen asks for
+   it to create the administrator; keep it in `.env` until every Mac has signed
+   in with an account, then remove it.
 
 ### On Synology Container Manager (graphical interface)
 
@@ -86,9 +91,8 @@ This is the simplest and most reproducible method, including on Synology whose
    above): the project does not start without it.
 2. Source: "Create a docker-compose.yml" (paste the content of
    `docker-compose.nas.yml`) or "Import" the file.
-3. Fill in the `FONTSYNC_TOKEN` **and** `WATCHTOWER_TOKEN` variables
-   (environment tab, or via the `.env` placed in the project folder): the
-   compose refuses to start without either.
+3. Fill in the `WATCHTOWER_TOKEN` variable (environment tab, or via the `.env`
+   placed in the project folder).
 4. Start the project. Container Manager creates the `db`, `fonts` and `backups` volumes.
 
 ---
@@ -97,7 +101,8 @@ This is the simplest and most reproducible method, including on Synology whose
 
 | Env variable        | Role                                              | Example value                                 |
 |---------------------|---------------------------------------------------|-----------------------------------------------|
-| `FONTSYNC_TOKEN`    | Secret protecting `/api/*`, SSE and WS (**required**) | output of `openssl rand -base64 32`           |
+| `FONTSYNC_TOKEN`    | **Legacy** instance token, from before accounts (admin rights). Leave empty on a new install; keep it during a migration, until every Mac has signed in | empty |
+| `FONTSYNC_ADMIN_EMAIL` / `FONTSYNC_ADMIN_PASSWORD` | Create the first administrator at startup, if no account exists yet | `you@example.com` / a long password |
 | `DATABASE_URL`      | SQLite URL (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
 | `STORAGE_BACKEND`   | Storage backend                                    | `filesystem`                                  |
 | `FONT_STORAGE_PATH` | Font files folder                                  | `/fonts`                                       |

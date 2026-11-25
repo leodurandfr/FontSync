@@ -8,15 +8,24 @@ import Foundation
 /// Configuration partagée avec l'agent Python (`~/.fontsync/config.yaml`).
 ///
 /// L'app n'est qu'une télécommande au-dessus de l'agent : elle lit *et écrit*
-/// l'URL du serveur et le token d'instance dans le **même** fichier que l'agent
+/// l'URL du serveur et le jeton d'appareil dans le **même** fichier que l'agent
 /// (cf. `agent/config.py`), au lieu de dupliquer un stockage de préférences.
-/// L'écriture (P3.3) est **chirurgicale** : seules les clés `server.url` et
-/// `server.token` sont touchées ; tout le reste du fichier (identité
-/// `device_id`/`device_token`, blocs `scan`/`sync`, commentaires) est préservé
-/// tel quel, car ce sont des états gérés par l'agent.
+/// L'écriture est **chirurgicale** : seules les clés `server.url`,
+/// `server.device_token`, `server.account_email` (et le retrait de l'ancien
+/// `server.token`) sont touchées ; tout le reste du fichier (`device_id`,
+/// blocs `scan`/`sync`, commentaires) est préservé tel quel.
 struct AppConfig {
     var serverURL: URL?
+    /// HÉRITÉ : token d'instance (`FONTSYNC_TOKEN`), d'avant les comptes.
     var token: String?
+    /// Jeton d'appareil, obtenu en se connectant avec email + mot de passe.
+    var deviceToken: String?
+    /// Compte du jeton d'appareil (affichage seulement).
+    var accountEmail: String?
+
+    /// Le secret envoyé en `Authorization: Bearer` : le jeton d'appareil
+    /// d'abord, le token d'instance hérité seulement à défaut (comme l'agent).
+    var authToken: String? { deviceToken ?? token }
 
     /// Chemin du fichier de config, en respectant `FONTSYNC_HOME` comme l'agent.
     static var configFileURL: URL {
@@ -61,6 +70,12 @@ struct AppConfig {
         }
         if let token = server["token"], !token.isEmpty {
             config.token = token
+        }
+        if let deviceToken = server["device_token"], !deviceToken.isEmpty {
+            config.deviceToken = deviceToken
+        }
+        if let email = server["account_email"], !email.isEmpty {
+            config.accountEmail = email
         }
         return config
     }
@@ -124,25 +139,35 @@ struct AppConfig {
             return out  // guillemet fermant manquant : on rend ce qu'on a lu
         }
         // Valeur nue : un `#` débute un commentaire de fin de ligne.
+        var bare = raw
         if let hash = raw.firstIndex(of: "#") {
-            return String(raw[..<hash]).trimmingCharacters(in: .whitespaces)
+            bare = String(raw[..<hash]).trimmingCharacters(in: .whitespaces)
         }
-        return raw
+        // `null`/`~` : l'agent (PyYAML) écrit ainsi une clé sans valeur.
+        if bare == "null" || bare == "~" { return "" }
+        return bare
     }
 
     // MARK: - Écriture (P3.3)
 
-    /// Écrit `server.url` et `server.token` dans `~/.fontsync/config.yaml`.
+    /// Enregistre la connexion à un compte dans `~/.fontsync/config.yaml` :
+    /// `server.url`, `server.device_token`, `server.account_email`, et retire
+    /// l'ancien `server.token` (le jeton d'appareil le remplace).
     ///
     /// L'écriture est chirurgicale : on relit le fichier existant et on remplace
-    /// (ou insère) uniquement ces deux clés dans le bloc `server:`, en
-    /// conservant le reste (identité du device, `scan`/`sync`, commentaires).
-    /// Si le fichier est absent ou vide, on crée un bloc `server:` minimal —
-    /// l'agent (`AgentConfig.load`) complétera les défauts manquants au runtime.
+    /// (ou insère) uniquement ces clés dans le bloc `server:`, en conservant le
+    /// reste (identité du device, `scan`/`sync`, commentaires). Si le fichier
+    /// est absent ou vide, on crée un bloc `server:` minimal — l'agent
+    /// (`AgentConfig.load`) complétera les défauts manquants au runtime.
     ///
-    /// Écriture atomique + permissions `0600` (le fichier porte un token), à
+    /// Écriture atomique + permissions `0600` (le fichier porte un jeton), à
     /// l'identique de `AgentConfig.save` côté Python.
-    static func save(serverURL: String, token: String) throws {
+    static func saveAccount(serverURL: String, deviceToken: String, accountEmail: String) throws {
+        let values: [(String, String)] = [
+            ("url", serverURL),
+            ("device_token", deviceToken),
+            ("account_email", accountEmail),
+        ]
         let fileURL = configFileURL
         let dir = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
@@ -151,14 +176,19 @@ struct AppConfig {
         let existing = try? String(contentsOf: fileURL, encoding: .utf8)
         let text: String
         if let existing, existing.contains(where: { !$0.isWhitespace }) {
-            text = mergeServerKeys(into: existing, url: serverURL, token: token)
+            text = mergeServerKeys(into: existing, values: values, removing: ["token"])
         } else {
-            text = "server:\n  url: \(yamlQuote(serverURL))\n  token: \(yamlQuote(token))\n"
+            text = serverBlock(values) + "\n"
         }
 
         try text.write(to: fileURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private static func serverBlock(_ values: [(String, String)]) -> String {
+        (["server:"] + values.map { "  \($0.0): \(yamlQuote($0.1))" })
+            .joined(separator: "\n")
     }
 
     /// Cite une valeur scalaire YAML en double-guillemets (échappe `\` et `"`).
@@ -170,10 +200,11 @@ struct AppConfig {
         return "\"\(escaped)\""
     }
 
-    /// Remplace/insère `url:` et `token:` dans le bloc `server:` d'un document
-    /// YAML existant, en préservant intégralement le reste des lignes.
+    /// Remplace/insère les clés `values` dans le bloc `server:` d'un document
+    /// YAML existant, retire les clés `removing`, et préserve intégralement le
+    /// reste des lignes.
     private static func mergeServerKeys(
-        into text: String, url: String, token: String
+        into text: String, values: [(String, String)], removing: Set<String>
     ) -> String {
         let lines = text.components(separatedBy: "\n")
 
@@ -184,6 +215,13 @@ struct AppConfig {
             guard let first = line.first, first != " ", first != "\t" else { return false }
             let leading = line.drop(while: { $0 == " " || $0 == "\t" })
             return !leading.isEmpty && !leading.hasPrefix("#")
+        }
+        /// Clé d'une ligne enfant (`  device_token: …` → `device_token`).
+        func key(of line: String) -> String? {
+            guard !isComment(line) else { return nil }
+            let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+            guard let colon = trimmed.firstIndex(of: ":") else { return nil }
+            return String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
         }
 
         // Localise le bloc `server:`.
@@ -196,8 +234,7 @@ struct AppConfig {
         }
         guard let start = serverStart else {
             // Aucun bloc server : on le préfixe au document.
-            let block = "server:\n  url: \(yamlQuote(url))\n  token: \(yamlQuote(token))"
-            return block + "\n" + text
+            return serverBlock(values) + "\n" + text
         }
 
         // Fin du bloc = prochaine clé de premier niveau (ou fin de fichier).
@@ -219,18 +256,16 @@ struct AppConfig {
             }
         }
 
+        let wanted = Dictionary(values, uniquingKeysWith: { _, last in last })
+        var done: Set<String> = []
         var result = Array(lines[0...start])  // jusqu'à la ligne `server:` incluse
-        var urlDone = false
-        var tokenDone = false
         for i in (start + 1)..<end {
             let line = lines[i]
-            let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
-            if !isComment(line), trimmed.hasPrefix("url:") {
-                result.append("\(indent)url: \(yamlQuote(url))")
-                urlDone = true
-            } else if !isComment(line), trimmed.hasPrefix("token:") {
-                result.append("\(indent)token: \(yamlQuote(token))")
-                tokenDone = true
+            if let k = key(of: line), let value = wanted[k] {
+                result.append("\(indent)\(k): \(yamlQuote(value))")
+                done.insert(k)
+            } else if let k = key(of: line), removing.contains(k) {
+                continue
             } else {
                 result.append(line)
             }
@@ -244,9 +279,9 @@ struct AppConfig {
         {
             insertAt -= 1
         }
-        var additions: [String] = []
-        if !urlDone { additions.append("\(indent)url: \(yamlQuote(url))") }
-        if !tokenDone { additions.append("\(indent)token: \(yamlQuote(token))") }
+        let additions = values
+            .filter { !done.contains($0.0) }
+            .map { "\(indent)\($0.0): \(yamlQuote($0.1))" }
         result.insert(contentsOf: additions, at: insertAt)
 
         if end < lines.count {

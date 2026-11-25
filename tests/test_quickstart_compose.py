@@ -1,8 +1,9 @@
 """Le démarrage rapide documenté produit un .env que le compose NAS accepte (P1-8c, M-13).
 
-`docker-compose.nas.yml` exige `WATCHTOWER_TOKEN` (`${WATCHTOWER_TOKEN:?…}`), mais
-le README, l'en-tête du compose et le pas-à-pas Synology n'écrivaient que
-`FONTSYNC_TOKEN` : `docker compose up` refusait de démarrer en suivant la doc.
+`docker-compose.nas.yml` exige `WATCHTOWER_TOKEN` (`${WATCHTOWER_TOKEN:?…}`) ;
+le README, l'en-tête du compose et le pas-à-pas Synology doivent l'écrire, sans
+quoi `docker compose up` refuse de démarrer en suivant la doc. `FONTSYNC_TOKEN`
+n'est plus demandé : une nouvelle installation s'ouvre par compte.
 On exécute la ligne du README dans un dossier jetable, puis `docker compose
 config` sur une copie du compose (ignoré sans CLI docker).
 """
@@ -84,12 +85,11 @@ def test_readme_quickstart_env_satisfies_the_nas_compose(tmp_path: Path) -> None
             ["bash", "-c", line], cwd=tmp_path, check=True, env={"PATH": SHELL_PATH}
         )
     written = (tmp_path / ".env").read_text().splitlines()
-    assert [ln.split("=", 1)[0] for ln in written] == [
-        "FONTSYNC_TOKEN",
-        "WATCHTOWER_TOKEN",
-    ]
+    # Depuis les comptes, une nouvelle installation n'a plus de token
+    # d'instance : l'API s'ouvre par compte, créé au premier accès.
+    assert [ln.split("=", 1)[0] for ln in written] == ["WATCHTOWER_TOKEN"]
     tokens = [ln.split("=", 1)[1] for ln in written]
-    assert all(len(t) >= 32 for t in tokens) and len(set(tokens)) == 2
+    assert all(len(t) >= 32 for t in tokens)
     result = subprocess.run(
         [*compose, "-f", COMPOSE.name, "config", "--quiet"],
         cwd=tmp_path,
@@ -100,8 +100,8 @@ def test_readme_quickstart_env_satisfies_the_nas_compose(tmp_path: Path) -> None
     )
     assert result.returncode == 0, result.stderr
 
-    # La doc affirme que le compose refuse de démarrer sans l'un des deux.
-    (tmp_path / ".env").write_text(written[0] + "\n")
+    # La doc affirme que le compose refuse de démarrer sans ce secret.
+    (tmp_path / ".env").write_text("")
     missing = subprocess.run(
         [*compose, "-f", COMPOSE.name, "config", "--quiet"],
         cwd=tmp_path,
@@ -114,9 +114,9 @@ def test_readme_quickstart_env_satisfies_the_nas_compose(tmp_path: Path) -> None
     assert "WATCHTOWER_TOKEN" in missing.stderr
 
 
-def test_every_quickstart_generates_both_tokens() -> None:
-    """README (deux endroits), en-tête du compose et INSTALL-NAS : les deux
-    secrets, et la même commande qui les écrit."""
+def test_every_quickstart_generates_the_update_secret() -> None:
+    """README (deux endroits), en-tête du compose et INSTALL-NAS : le secret
+    du bouton de mise à jour, et la même commande qui l'écrit."""
     readme = README.read_text()
     for section in ("### 1. Start the server", "single-container"):
         idx = readme.lower().index(section.lower())
@@ -125,7 +125,7 @@ def test_every_quickstart_generates_both_tokens() -> None:
     header = "\n".join(
         ln for ln in COMPOSE.read_text().splitlines()[:25] if ln.startswith("#")
     )
-    assert "FONTSYNC_TOKEN" in header and "WATCHTOWER_TOKEN" in header
+    assert "WATCHTOWER_TOKEN" in header
     install = INSTALL.read_text()
     synology = install[install.index("### On Synology Container Manager") :]
     synology = synology[: synology.index("\n---")]
@@ -135,7 +135,7 @@ def test_every_quickstart_generates_both_tokens() -> None:
 
 def test_all_quickstarts_use_the_same_env_command() -> None:
     """README (deux blocs), en-tête du compose, INSTALL-NAS : la même commande
-    exacte, qui écrit les deux secrets — la ligne du README est exécutée et
+    exacte, qui écrit le secret — la ligne du README est exécutée et
     vérifiée ci-dessus, les autres ne peuvent pas diverger."""
     readme = env_lines(README.read_text())
     header = env_lines(
@@ -154,8 +154,8 @@ def test_all_quickstarts_use_the_same_env_command() -> None:
 def test_quickstart_never_overwrites_an_existing_env(
     tmp_path: Path, shell: str
 ) -> None:
-    """Relancer la commande sur une installation existante régénérerait le
-    FONTSYNC_TOKEN et mettrait tous les Mac en 401 : elle doit refuser."""
+    """Relancer la commande sur une installation existante écraserait le
+    FONTSYNC_TOKEN que des Mac utilisent peut-être encore : elle doit refuser."""
     if shutil.which(shell, path=SHELL_PATH) is None:
         pytest.skip(f"{shell} absent")
     if shutil.which("openssl", path=SHELL_PATH) is None:

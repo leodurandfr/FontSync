@@ -10,9 +10,11 @@ import SwiftUI
 /// Au tout premier démarrage de l'app (ou sur demande depuis le menu), un
 /// assistant guide l'utilisateur à travers les quatre gestes indispensables :
 ///
-///  1. **Serveur** — saisie URL + token, avec un **test de connexion** qui doit
-///     réussir avant de continuer (`GET /api/stats`, cf. P1) ; les valeurs sont
-///     écrites dans le `~/.fontsync/config.yaml` partagé avec l'agent.
+///  1. **Serveur** — saisie URL + email + mot de passe : la connexion échange
+///     les identifiants contre un **jeton d'appareil** propre à ce Mac
+///     (`POST /api/auth/device-login`), vérifié par `GET /api/stats`, puis
+///     écrit dans le `~/.fontsync/config.yaml` partagé avec l'agent. Le mot de
+///     passe n'est jamais stocké.
 ///  2. **Agent** — installation des LaunchAgents launchd (`fontsync-agent setup`,
 ///     via le venv embarqué P0.3/P3.7).
 ///  3. **Première sync** — un `fontsync-agent sync` direct pour amorcer la
@@ -30,11 +32,12 @@ struct OnboardingView: View {
 
     /// Saisie serveur.
     @State private var urlString = ""
-    @State private var token = ""
+    @State private var email = ""
+    @State private var password = ""
     @State private var serverFeedback: Feedback?
     @State private var testing = false
-    /// La connexion a été testée **avec succès** sur les valeurs courantes : gate
-    /// du passage à l'étape suivante. Remis à `false` dès que l'URL/token change.
+    /// La connexion a réussi **sur les valeurs courantes** : gate du passage à
+    /// l'étape suivante. Remis à `false` dès que l'URL ou l'email change.
     @State private var connectionVerified = false
 
     /// Étape agent.
@@ -106,9 +109,9 @@ struct OnboardingView: View {
                     + "  • lancer une première synchronisation.")
                 .foregroundStyle(.secondary)
             Text(
-                "Gardez à portée l'URL de votre serveur et son token d'instance "
-                    + "(visibles dans les journaux du conteneur, ou définis via "
-                    + "FONTSYNC_TOKEN).")
+                "Gardez à portée l'adresse de votre serveur, et l'email et le mot "
+                    + "de passe de votre compte FontSync (créé sur la page web du "
+                    + "serveur, ou par l'invitation de votre administrateur).")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -116,21 +119,26 @@ struct OnboardingView: View {
 
     private var serverStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Indiquez l'adresse de votre serveur et son token d'instance.")
+            Text("Indiquez l'adresse de votre serveur et connectez-vous à votre compte.")
                 .foregroundStyle(.secondary)
             Form {
                 TextField("URL", text: $urlString, prompt: Text("http://nas.local:8080"))
                     .textContentType(.URL)
                     .disableAutocorrection(true)
                     .onChange(of: urlString) { connectionVerified = false; serverFeedback = nil }
-                SecureField("Token d'instance", text: $token)
-                    .onChange(of: token) { connectionVerified = false; serverFeedback = nil }
+                TextField("Email", text: $email)
+                    .textContentType(.username)
+                    .disableAutocorrection(true)
+                    .onChange(of: email) { connectionVerified = false; serverFeedback = nil }
+                SecureField("Mot de passe", text: $password)
+                    .textContentType(.password)
+                    .onSubmit { testConnection() }
             }
             .formStyle(.columns)
 
             HStack {
-                Button("Tester la connexion") { testConnection() }
-                    .disabled(testing || trimmedURL.isEmpty)
+                Button("Se connecter") { testConnection() }
+                    .disabled(testing || trimmedURL.isEmpty || trimmedEmail.isEmpty)
                 if testing { ProgressView().controlSize(.small) }
             }
             if let serverFeedback { serverFeedback.view }
@@ -272,41 +280,37 @@ struct OnboardingView: View {
         urlString.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Pré-remplit depuis la config existante (utile si l'assistant est relancé).
     private func prefill() {
         let config = AppConfig.load()
         if urlString.isEmpty { urlString = config.serverURL?.absoluteString ?? "" }
-        if token.isEmpty { token = config.token ?? "" }
+        if email.isEmpty { email = config.accountEmail ?? "" }
     }
 
-    /// Teste la connexion **et**, en cas de succès, enregistre la config tout de
-    /// suite : l'étape suivante (agent) en a besoin, et le modèle se rafraîchit.
+    /// Se connecte **et**, en cas de succès, enregistre la config tout de suite :
+    /// l'étape suivante (agent) en a besoin, et le modèle se rafraîchit. Sans
+    /// mot de passe, vérifie seulement le jeton déjà enregistré (assistant relancé).
     private func testConnection() {
-        guard let baseURL = URL(string: trimmedURL) else {
-            serverFeedback = .failure("URL invalide.")
-            return
-        }
         testing = true
         serverFeedback = nil
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        let client = ServerClient(baseURL: baseURL, token: trimmedToken)
+        let url = trimmedURL
+        let address = trimmedEmail
+        let secret = password
         Task {
             defer { testing = false }
             do {
-                let count = try await client.fetchTotalFonts()
-                do {
-                    try AppConfig.save(serverURL: trimmedURL, token: trimmedToken)
-                    connectionVerified = true
-                    model.refresh()
-                    serverFeedback = .success("Connecté — \(count) font(s). Configuration enregistrée.")
-                } catch {
-                    serverFeedback = .failure(
-                        "Connecté, mais échec de l'enregistrement : \(error.localizedDescription)")
-                }
-            } catch ServerError.unauthorized {
-                serverFeedback = .failure("Token invalide (401/403).")
+                let count = try await AccountConnection.connect(
+                    urlString: url, email: address, password: secret)
+                password = ""
+                connectionVerified = true
+                model.refresh()
+                serverFeedback = .success("Connecté — \(count) police(s). Configuration enregistrée.")
             } catch {
-                serverFeedback = .failure("Serveur injoignable.")
+                serverFeedback = .failure(AccountConnection.message(for: error))
             }
         }
     }

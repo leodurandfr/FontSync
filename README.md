@@ -47,18 +47,19 @@ The goal: one server, two Macs, fonts synchronized between them.
 On the NAS (or any Docker host):
 
 ```bash
-# Generate the two secrets (instance token + Update button) into a new .env.
-# It refuses to overwrite an existing .env: already installed? Keep your
-# FONTSYNC_TOKEN (every Mac uses it) and only add a WATCHTOWER_TOKEN= line.
-(set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
+# Generate the Update-button secret into a new .env. It refuses to overwrite
+# an existing .env: already installed? Keep your FONTSYNC_TOKEN line as long
+# as a Mac still uses it.
+(set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
 
 # Fetch the example compose file and start
 curl -O https://raw.githubusercontent.com/leodurandfr/FontSync/main/docker-compose.nas.yml
 docker compose -f docker-compose.nas.yml up -d
 ```
 
-The server listens on `http://<host>:8080`. Note its URL and the token: these are the
-**only two pieces of information** to enter on each Mac. Detailed NAS guide (Synology,
+The server listens on `http://<host>:8080`. Open it **right away** and create the
+**administrator account** (email + password); invite other people from Settings →
+Accounts. Each Mac then needs only the server URL and its owner's email and password. Detailed NAS guide (Synology,
 volumes, backup): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
 ### 2. Configure the **first** Mac
@@ -71,8 +72,9 @@ volumes, backup): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
    open it, and drag **FontSync** into `Applications`.
 2. Launch the app: the icon appears in the menu bar and the **first-launch
    assistant** opens. It guides you through four steps:
-   - **Server**: paste the URL (`http://<host>:8080`) and the token, then
-     “Test the connection”;
+   - **Server**: paste the URL (`http://<host>:8080`), your email and
+     password, then “Se connecter” (the Mac gets its own device token; the
+     password is never stored);
    - **Agent**: “Install the agent” (sets up the launchd jobs that
      watch `~/Library/Fonts`);
    - **First synchronization**: fetches the library from the server;
@@ -82,7 +84,8 @@ volumes, backup): [`docs/INSTALL-NAS.md`](docs/INSTALL-NAS.md).
 
 ### 3. Configure the **second** Mac
 
-Repeat step 2 on the second Mac (same URL, same token). On the first sync,
+Repeat step 2 on the second Mac (same URL, same account — or another person's
+account). On the first sync,
 it **fetches** all the fonts already present on the server and installs them.
 
 ### 4. Verify real-time synchronization
@@ -99,9 +102,9 @@ The server image is **multi-arch** (amd64 + arm64), published on
 `ghcr.io/leodurandfr/fontsync`. Single-container deployment:
 
 ```bash
-# 1. Generate the instance token and the Update-button secret into a .env
-(set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
-# 2. Start (provided NAS example)
+# 1. Generate the Update-button secret into a .env
+(set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
+# 2. Start (provided NAS example), then open it and create the admin account
 docker compose -f docker-compose.nas.yml up -d
 ```
 
@@ -118,7 +121,7 @@ later) and macOS 14+ required.
 1. Download the `.dmg` from the
    [GitHub Releases](https://github.com/leodurandfr/FontSync/releases/latest).
 2. Drag **FontSync** into `Applications` and launch it.
-3. The **first-launch assistant** (URL + token → test → agent
+3. The **first-launch assistant** (URL + email + password → agent
    installation → first sync) does the rest. You can re-run it at any time
    from the menu (“Setup assistant…”).
 
@@ -138,9 +141,9 @@ FontSync listens over **plain HTTP** (the container exposes port `8000`, mapped 
 local network** (home LAN, a NAS VLAN): simple, with no certificate to
 manage.
 
-Access is protected by a **shared instance token** (`FONTSYNC_TOKEN`, see
-below), but this token travels **in the clear** over an HTTP connection — readable
-by anyone on the network path.
+Access is protected by **accounts** (passwords, session cookies and device
+tokens), but over plain HTTP they travel **in the clear** — readable by anyone
+on the network path.
 
 > ⚠️ **Never expose FontSync directly on the Internet over HTTP.** On an untrusted
 > network, **always** place a TLS reverse proxy in front of the server: the
@@ -224,7 +227,7 @@ an IP, `localhost`, `*.local`, `*.ts.net` or a listed name are refused with HTTP
 
 | Symptom | Likely cause / solution |
 |---|---|
-| **“Invalid token” in the app** | Incorrect URL or token. Re-test the connection in Preferences; compare with `FONTSYNC_TOKEN` (or the token logged at container startup). |
+| **“Connexion refusée” in the app** | The Mac's session was revoked or its account disabled, or the email/password is wrong. Sign in again in Preferences. |
 | **“Server unreachable”** | Wrong URL/port, container stopped, or firewall. Check `docker compose ps` and that `http://<host>:8080/health` responds. |
 | **Fonts don’t sync** | The agent isn’t loaded. Menu → “Setup assistant…” → reinstall the agent, or “Sync now”. Logs: menu → “Open logs” (`~/Library/Logs/FontSync/`). |
 | **A font doesn’t appear on the other Mac** | Wait for the next sync (`StartInterval` safety net) or force it via “Sync now”. `.woff`/`.woff2` files are stored and previewable but **never installed** at the system level. |
