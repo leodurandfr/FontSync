@@ -164,8 +164,7 @@
 /*
  * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des paires
  * de complémentaires franches. La sidebar prend la couleur principale, l'accent
- * (élément actif, bouton de vue, boutons principaux) sa complémentaire, et le
- * contenu une teinte claire de la principale. Sans `data-palette` sur <html> :
+ * (élément actif, bouton de vue, boutons principaux) sa complémentaire. Sans `data-palette` sur <html> :
  * interface neutre d'origine.
  */
 [data-palette="red"] {
@@ -204,101 +203,42 @@
   --p-accent: #22449a;
   --p-accent-fg: #ffffff;
 }
-[data-palette] {
-  --p-bg: color-mix(in oklab, #ffffff, var(--p-sidebar) 16%);
-  --p-card: color-mix(in oklab, #ffffff, var(--p-sidebar) 7%);
-  --p-text: color-mix(in oklab, #111111, var(--p-sidebar) 22%);
-}
-
-:root[data-palette] {
-  --background: var(--p-bg);
-  --foreground: var(--p-text);
-  --card: var(--p-card);
-  --card-foreground: var(--p-text);
-  --popover: var(--p-card);
-  --popover-foreground: var(--p-text);
-  --primary: var(--p-accent);
-  --primary-foreground: var(--p-accent-fg);
-  --secondary: color-mix(in oklab, var(--p-text), var(--p-bg) 92%);
-  --secondary-foreground: var(--p-text);
-  --muted: color-mix(in oklab, var(--p-text), var(--p-bg) 95%);
-  --muted-foreground: color-mix(in oklab, var(--p-text), var(--p-bg) 40%);
-  --accent: color-mix(in oklab, var(--p-accent), var(--p-bg) 80%);
-  --accent-foreground: var(--p-text);
-  --border: color-mix(in oklab, var(--p-text), var(--p-bg) 85%);
-  --input: var(--border);
-  --ring: var(--p-accent);
-  --brand: var(--p-accent);
-  --foreground-subtle: color-mix(in oklab, var(--p-text), var(--p-bg) 60%);
-  --separator: color-mix(in oklab, var(--p-text), var(--p-bg) 85%);
-  --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, var(--p-text), var(--p-bg) 94%);
-  --segment-track: color-mix(in oklab, var(--p-text), var(--p-bg) 90%);
-  --segment-thumb: var(--p-card);
-}
-
-/* Sombre : fonds profonds tirés de la couleur de sidebar, texte clair. */
-:root.dark[data-palette] {
-  --p-sidebar-dark: color-mix(in oklab, var(--p-sidebar), #000000 15%);
-  --background: color-mix(in oklab, var(--p-sidebar), #000000 70%);
-  --foreground: var(--p-bg);
-  --card: color-mix(in oklab, var(--p-sidebar), #000000 62%);
-  --card-foreground: var(--p-bg);
-  --popover: color-mix(in oklab, var(--p-sidebar), #000000 65%);
-  --popover-foreground: var(--p-bg);
-  --secondary: color-mix(in oklab, var(--p-sidebar), #000000 62%);
-  --secondary-foreground: var(--p-bg);
-  --muted: color-mix(in oklab, var(--p-sidebar), #000000 66%);
-  --muted-foreground: color-mix(in oklab, var(--p-bg), #000000 40%);
-  --accent: color-mix(in oklab, var(--p-accent), #000000 65%);
-  --accent-foreground: var(--p-bg);
-  --border: color-mix(in oklab, var(--p-sidebar), #000000 55%);
-  --input: var(--border);
-  --foreground-subtle: color-mix(in oklab, var(--p-bg), #000000 62%);
-  --separator: color-mix(in oklab, var(--p-sidebar), #000000 55%);
-  --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, var(--p-sidebar), #000000 76%);
-  --segment-track: color-mix(in oklab, var(--p-sidebar), #000000 55%);
-  --segment-thumb: color-mix(in oklab, var(--p-sidebar), #000000 25%);
-}
-
 /*
- * La sidebar porte la couleur forte de la palette : on redéfinit les tokens
- * dans son sous-arbre (les utilitaires Tailwind lisent les variables à
- * l'endroit où elles s'appliquent).
+ * Deux couleurs, rien d'autre : toutes les surfaces (fond, cartes, sidebar,
+ * menus) prennent la couleur principale pure, et tout ce qui est actif ou
+ * tracé (sélection, boutons, filets, focus) sa complémentaire pure. Le texte
+ * est blanc ou noir selon le fond. Aucune teinte intermédiaire, et le rendu
+ * est le même en clair et en sombre.
  */
-[data-palette] [data-surface="sidebar"] {
+:root[data-palette],
+:root.dark[data-palette],
+[data-palette] [data-surface="sidebar"],
+.dark[data-palette] [data-surface="sidebar"] {
+  --background: var(--p-sidebar);
+  --foreground: var(--p-sidebar-fg);
   --card: var(--p-sidebar);
   --card-foreground: var(--p-sidebar-fg);
-  --foreground: var(--p-sidebar-fg);
-  --muted-foreground: color-mix(
-    in oklab,
-    var(--p-sidebar-fg),
-    var(--p-sidebar) 35%
-  );
-  --foreground-subtle: color-mix(
-    in oklab,
-    var(--p-sidebar-fg),
-    var(--p-sidebar) 55%
-  );
+  --popover: var(--p-sidebar);
+  --popover-foreground: var(--p-sidebar-fg);
+  --primary: var(--p-accent);
+  --primary-foreground: var(--p-accent-fg);
+  --secondary: var(--p-sidebar);
+  --secondary-foreground: var(--p-sidebar-fg);
+  --muted: var(--p-sidebar);
+  --muted-foreground: var(--p-sidebar-fg);
+  --foreground-subtle: var(--p-sidebar-fg);
   --accent: var(--p-accent);
   --accent-foreground: var(--p-accent-fg);
-  --separator: color-mix(in oklab, var(--p-sidebar-fg), var(--p-sidebar) 84%);
-  --panel-border: color-mix(in oklab, var(--p-sidebar), #000000 15%);
-  --border: var(--separator);
-}
-.dark[data-palette] [data-surface="sidebar"] {
-  --card: var(--p-sidebar-dark);
-  --separator: color-mix(
-    in oklab,
-    var(--p-sidebar-fg),
-    var(--p-sidebar-dark) 88%
-  );
-  --muted-foreground: color-mix(
-    in oklab,
-    var(--p-sidebar-fg),
-    var(--p-sidebar-dark) 40%
-  );
+  --border: var(--p-accent);
+  --input: var(--p-accent);
+  --ring: var(--p-accent);
+  --brand: var(--p-accent);
+  --separator: var(--p-accent);
+  --panel-border: var(--p-accent);
+  --font-preview: var(--p-sidebar);
+  --segment-track: var(--p-accent);
+  --segment-thumb: var(--p-sidebar);
+  --destructive: var(--p-accent);
 }
 
 @layer base {
