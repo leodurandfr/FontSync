@@ -429,3 +429,54 @@ async def test_bootstrap_admin_from_env(
         json={"email": "boot@example.org", "password": "from the env file"},
     )
     assert login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_creates_an_account_directly(client: AsyncClient) -> None:
+    await _setup(client)
+    resp = await client.post(
+        "/api/users",
+        json={"email": "Direct@Example.org", "password": "given by admin"},
+        headers=ORIGIN,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["role"] == "member"
+    dup = await client.post(
+        "/api/users",
+        json={"email": "direct@example.org", "password": "given by admin"},
+        headers=ORIGIN,
+    )
+    assert dup.status_code == 409
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "direct@example.org", "password": "given by admin"},
+    )
+    assert login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_only_the_admin_trashes_and_restores(
+    client: AsyncClient, font_factory
+) -> None:
+    await _setup(client)
+    upload = await client.post(
+        "/api/fonts/upload",
+        files={"files": ("Shared.ttf", font_factory(family="Shared"), "font/ttf")},
+        headers=ORIGIN,
+    )
+    assert upload.status_code == 200, upload.text
+    font_id = upload.json()["imported"][0]["id"]
+
+    async with aclosing(await _invite_member(client, "m@example.org")) as member:
+        trash = await member.delete(f"/api/fonts/{font_id}", headers=ORIGIN)
+        assert trash.status_code == 403
+        dupes = await member.post(
+            "/api/fonts/duplicates/resolve", json={"groups": []}, headers=ORIGIN
+        )
+        assert dupes.status_code == 403
+
+    assert (
+        await client.delete(f"/api/fonts/{font_id}", headers=ORIGIN)
+    ).status_code == 204
+    restore = await client.post(f"/api/fonts/{font_id}/restore", headers=ORIGIN)
+    assert restore.status_code == 200

@@ -321,6 +321,7 @@ def _to_group_schema(group: DuplicateGroup) -> DuplicateFaceGroup:
 async def resolve_duplicate_faces_endpoint(
     body: ResolveDuplicatesRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> ResolveDuplicatesResponse:
     """Envoie à la corbeille les fichiers en trop. Un seul « oui » pour tout.
 
@@ -841,6 +842,7 @@ async def deactivate_font_on_device(
 async def delete_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> None:
     """Soft delete d'une font — une **intention**, pas une absence constatée.
 
@@ -910,6 +912,7 @@ async def purge_font_file(
 async def restore_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> FontResponse:
     """Restaure une font supprimée (soft delete).
 

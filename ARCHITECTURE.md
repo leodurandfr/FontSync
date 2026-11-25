@@ -510,10 +510,13 @@ who may come in and who owns a device, not who owns a font. Tables
   rights, even for an admin's account.
 - **One account, several Macs**: each `device-login` opens its own session, so
   each Mac is revoked on its own (Settings → My sessions).
-- **Roles**: members browse, upload, install and trash (recoverable); they see
-  and manage only their own devices. Admins also manage accounts and
-  invitations, empty the trash, confirm held deletions, purge, merge devices
-  and trigger the server update.
+- **Roles**: members browse, upload and install; they see and manage only
+  their own devices. Only admins send fonts to the trash (one by one or by
+  resolving duplicates), restore, empty it, confirm held deletions, purge,
+  merge devices, manage accounts and trigger the server update.
+- **Adding people**: an admin either creates the account directly
+  (`POST /api/users`, email + a password they pass on) or sends an invitation
+  link (`POST /api/invitations`).
 - **First launch**: `GET /api/auth/status` says `setupRequired` while no account
   exists; `POST /api/auth/setup` creates the first admin. On a server that
   already has a `FONTSYNC_TOKEN`, setup requires that token (`legacyToken`), so

@@ -23,12 +23,14 @@ from backend.schemas.auth import (
     InvitationCreated,
     InvitationResponse,
     PasswordReset,
+    UserCreate,
     UserResponse,
     UserUpdate,
 )
 from backend.services.accounts import (
     _aware,
     count_active_admins,
+    create_user,
     get_user_by_email,
     hash_password,
     hash_token,
@@ -75,6 +77,26 @@ async def list_users(
         user_response(u, devices=devices.get(u.id, 0), sessions=sessions.get(u.id, 0))
         for u in users
     ]
+
+
+@users_router.post("", response_model=UserResponse, status_code=201)
+async def add_user(
+    body: UserCreate,
+    _admin: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Crée un compte directement, sans invitation. L'admin transmet lui-même le
+    mot de passe ; la personne pourra le changer depuis son compte."""
+    if await get_user_by_email(db, body.email) is not None:
+        raise HTTPException(
+            status_code=409, detail="Un compte existe déjà pour cet email."
+        )
+    user = await create_user(
+        db, email=body.email, password=body.password, role=body.role
+    )
+    await db.commit()
+    await db.refresh(user)
+    return user_response(user)
 
 
 @users_router.patch("/{user_id}", response_model=UserResponse)

@@ -59,6 +59,15 @@ class InvitationCreate(CamelModel):
     role: Role = "member"
 
 
+class UserCreate(CamelModel):
+    """Compte créé directement par l'admin, avec un mot de passe qu'il transmet
+    lui-même (l'autre voie est l'invitation par lien)."""
+
+    email: str = _EMAIL
+    password: str = _NEW_PASSWORD
+    role: Role = "member"
+
+
 class UserUpdate(CamelModel):
     role: Role | None = None
     disabled: bool | None = None
