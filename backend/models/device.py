@@ -30,10 +30,20 @@ class Device(UUIDPrimaryKey, Base):
     # (convention `CLAUDE.md`). `register_device` le ranime.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     font_directories: Mapped[dict | None] = mapped_column(JSON)
-    # Capacités annoncées par l'agent à chaque register (B-32) : stockées et
-    # exposées, rien n'en dépend encore. Un agent qui ne les envoie pas (≤ 0.1.2)
-    # les remet à NULL — une capacité ne survit pas au retour d'un ancien agent.
+    # Capacités annoncées par l'agent à chaque register (B-32). Un agent qui ne
+    # les envoie pas (≤ 0.1.2) les remet à NULL — une capacité ne survit pas au
+    # retour d'un ancien agent. Elles décident de ce que le serveur peut déduire
+    # d'un delta (`full-declaration`, cf. `routers/sync.py`) et des réglages
+    # qu'il accepte (`deactivate`, `uninstall`, cf. `services/capabilities.py`).
     capabilities: Mapped[list | None] = mapped_column(JSON)
+    # Ligne de base des déclarations complètes (M-32) : depuis quand chaque delta
+    # de cet appareil liste toute sa bibliothèque. NULL tant qu'aucun delta
+    # capable n'a été réconcilié — le premier sert de référence, sans détection ;
+    # remis à NULL quand l'agent perd la capacité ou qu'une fusion lui apporte
+    # le registre d'un autre appareil.
+    full_declaration_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     auto_pull: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_push: Mapped[bool] = mapped_column(Boolean, default=True)
     # Participation de cet appareil à la **propagation des suppressions**, dans

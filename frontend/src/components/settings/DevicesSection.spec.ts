@@ -321,3 +321,50 @@ describe("DevicesSection : retrait d'un appareil (P1-6e)", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("DevicesSection : agent sans capacités (P1-6c, P1-6d)", () => {
+  const CAPS = ["full-declaration", "deactivate", "uninstall"];
+
+  function card(root: HTMLElement, name: string): HTMLElement {
+    return statusLine(root, name).closest(".rounded-lg") as HTMLElement;
+  }
+
+  function propagateSwitch(root: HTMLElement, name: string): HTMLButtonElement {
+    const switches = card(root, name).querySelectorAll('button[role="switch"]');
+    return switches[switches.length - 1] as HTMLButtonElement;
+  }
+
+  it("agent ancien : bandeau, et propagation impossible à activer", async () => {
+    const root = await render([
+      device({ name: "Vieux Mac", agentVersion: "0.1.2", capabilities: null }),
+    ]);
+
+    expect(card(root, "Vieux Mac").textContent).toContain(
+      "Agent trop ancien : les suppressions faites sur ce Mac ne sont pas suivies.",
+    );
+    expect(propagateSwitch(root, "Vieux Mac").disabled).toBe(true);
+  });
+
+  it("agent ancien déjà en propagation : on peut toujours la couper", async () => {
+    const root = await render([
+      device({
+        name: "Vieux Mac",
+        capabilities: null,
+        propagateDeletions: true,
+      }),
+    ]);
+
+    expect(propagateSwitch(root, "Vieux Mac").disabled).toBe(false);
+  });
+
+  it("agent à jour : ni bandeau ni réglage grisé", async () => {
+    const root = await render([
+      device({ name: "MacBook", capabilities: CAPS }),
+    ]);
+
+    expect(card(root, "MacBook").textContent).not.toContain(
+      "Agent trop ancien",
+    );
+    expect(propagateSwitch(root, "MacBook").disabled).toBe(false);
+  });
+});

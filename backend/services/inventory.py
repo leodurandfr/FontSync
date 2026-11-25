@@ -68,6 +68,8 @@ async def reconcile_inventory(
     device_id: uuid.UUID,
     entries: list[DeviceFontEntry],
     db: AsyncSession,
+    *,
+    baseline: bool = False,
 ) -> ReconcileStats:
     """`device_fonts` devient le MIROIR de ce que la machine déclare.
 
@@ -82,6 +84,13 @@ async def reconcile_inventory(
             tous les utilisateurs (Office, Adobe) produit deux entrées du même
             fichier, `ingestible=True` puis `False`.
         db: session de base de données.
+        baseline: première déclaration complète de l'appareil (M-32,
+            `devices.full_declaration_since`). Le registre hérité d'un agent
+            qui ne garantissait pas une déclaration complète n'est pas une
+            référence : ses associations gérées non déclarées partent aussi,
+            sans retrait ni notification. Au pire, une police réellement
+            supprimée avant la mise à jour de l'agent sera reproposée — jamais
+            l'inverse.
 
     Returns:
         Le décompte d'arrivées, de départs et de mises à jour.
@@ -176,7 +185,9 @@ async def reconcile_inventory(
             # Une association GÉRÉE d'une police active non déclarée n'est
             # jamais touchée ici : domaine exclusif de `detect_local_deletions`,
             # avec son seuil et sa quarantaine.
-            if deleted_at is not None or not device_font.ingestible:
+            # Exception : la ligne de base (`baseline`), où il n'y a rien à
+            # détecter.
+            if baseline or deleted_at is not None or not device_font.ingestible:
                 depart_font_ids.append(device_font.font_id)
             continue
         new_local_path = entry.local_path or entry.filename

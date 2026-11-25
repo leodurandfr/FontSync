@@ -28,7 +28,7 @@ from backend.services.duplicate_faces import (
     face_key,
     group_by_face,
 )
-from tests.backend.conftest import AUTH_HEADERS
+from tests.backend.conftest import AGENT_CAPABILITIES, AUTH_HEADERS
 
 # ---------- Helpers ----------
 
@@ -377,7 +377,12 @@ async def test_a_resolved_duplicate_does_not_come_back_on_the_next_sync(
     device = await api_client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac", "hostname": "mac-dup", "os": "macos"},
+        json={
+            "name": "Mac",
+            "hostname": "mac-dup",
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     device_id = device.json()["id"]
     data = font_factory(family="Tenace", subfamily="Bold")
@@ -718,7 +723,12 @@ async def test_dry_run_reports_protected(api_client: AsyncClient, font_factory) 
     resp = await api_client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac-X", "hostname": "mac-x", "os": "macos"},
+        json={
+            "name": "Mac-X",
+            "hostname": "mac-x",
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     device = resp.json()["id"]
     await api_client.patch(
@@ -1033,7 +1043,12 @@ async def test_resolve_response_counts_protected(
     resp = await api_client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac-X", "hostname": "mac-x", "os": "macos"},
+        json={
+            "name": "Mac-X",
+            "hostname": "mac-x",
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     device = resp.json()["id"]
     await api_client.patch(

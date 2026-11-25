@@ -28,6 +28,12 @@ from backend.schemas.device import (
     DeviceResponse,
     DeviceUpdate,
 )
+from backend.services.capabilities import (
+    FULL_DECLARATION,
+    UNINSTALL,
+    require_capability,
+    supports,
+)
 from backend.services.device_activity import sync_overdue
 from backend.services.ws_manager import ws_manager
 
@@ -153,6 +159,11 @@ async def register_device(
         device.font_directories = body.font_directories
         # Remplacée à chaque register, y compris par None (agent antérieur).
         device.capabilities = body.capabilities
+        # Perte de la capacité (retour à un agent antérieur) : ses deltas ne
+        # garantissent plus une bibliothèque complète. La ligne de base repart
+        # de zéro et sera reprise au premier delta d'un agent capable (M-32).
+        if not supports(device, FULL_DECLARATION):
+            device.full_declaration_since = None
         # Pas de `last_seen_at` ici : le register précède le delta, qui peut
         # échouer à chaque sync — l'appareil paraîtrait à jour sans qu'aucun
         # sync n'aboutisse (cf. `services/device_activity.py`).
@@ -170,6 +181,11 @@ async def register_device(
             last_seen_at=datetime.now(timezone.utc),
             owner_user_id=principal.user_id,
         )
+        # Un appareil neuf n'a pas de registre hérité : tout ce qu'il contiendra
+        # viendra de cet agent. S'il déclare toute sa bibliothèque, la ligne de
+        # base est posée dès maintenant (M-32).
+        if supports(device, FULL_DECLARATION):
+            device.full_declaration_since = datetime.now(timezone.utc)
         db.add(device)
 
     if device.owner_user_id is None and principal.user_id is not None:
@@ -220,6 +236,11 @@ async def update_device(
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="Aucun champ à modifier.")
+    # Activer la propagation promet des désinstallations que seul un agent
+    # capable applique (B-32) : la refuser plutôt que la laisser sans effet.
+    # La couper reste toujours possible.
+    if update_data.get("propagate_deletions") is True:
+        require_capability(device, UNINSTALL)
     for field, value in update_data.items():
         setattr(device, field, value)
     await db.commit()
@@ -285,6 +306,12 @@ async def merge_devices(
         # Soft delete : la source sort de l'UI, sa ligne reste — ranimable par
         # `register_device` si l'agent se réenregistre par erreur après coup.
         source.deleted_at = datetime.now(timezone.utc)
+
+    # Le registre de la cible contient désormais des polices que sa machine n'a
+    # peut-être jamais eues : son prochain delta ne doit pas les lire comme des
+    # suppressions. Il resservira de ligne de base (M-32).
+    if moved:
+        target.full_declaration_since = None
 
     await db.commit()
     await db.refresh(target)

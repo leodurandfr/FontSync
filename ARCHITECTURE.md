@@ -171,7 +171,6 @@ Each record = a unique physical font file, identified by its SHA-256 hash.
 | `original_filename` | VARCHAR(500) | Original filename |
 | `file_size` | INTEGER | Size in bytes |
 | `file_format` | VARCHAR(10) | `ttf`, `otf`, `woff`, `woff2`, `ttc` |
-| `storage_path` | VARCHAR(500) | Relative path in storage |
 | `family_name` | VARCHAR(500) | nameID 16 or fallback nameID 1 |
 | `subfamily_name` | VARCHAR(200) | nameID 17 or fallback nameID 2 (Regular, Bold...) |
 | `full_name` | VARCHAR(500) | nameID 4 |
@@ -199,10 +198,12 @@ Each record = a unique physical font file, identified by its SHA-256 hash.
 | `created_at` | DateTime (tz) | |
 | `updated_at` | DateTime (tz) | |
 | `deleted_at` | DateTime (tz), nullable | Soft delete |
-| `deleted_reason` | VARCHAR(30), nullable | `manual`, `quarantine`, `quarantine_pending` — cf. §4.4 |
+| `deletion_confirmed` | BOOLEAN, NOT NULL | Only meaningful with `deleted_at`: `true` = the deletion may become irreversible (purge, harvest); `false` (default) = held, nothing irreversible happens — cf. §4.4 |
 | `purged_at` | DateTime (tz), nullable | File removed from storage; the row is kept until the harvest, the fingerprint for good (`harvested_fingerprints`, §4.4) |
+| `harvest_candidate_since` | DateTime (tz), nullable | Start of the harvest grace period for this tombstone; reset when a device declares it again (§4.4) |
 
 Indexes: `family_name`, `classification`, `file_hash`, `source`, `deleted_at`.
+The file's location in storage is derived from `file_hash` (§4.3), not stored.
 
 #### `devices`
 
@@ -217,13 +218,16 @@ Machines registered with the server.
 | `os_version` | VARCHAR(100) | |
 | `agent_version` | VARCHAR(20) | |
 | `last_seen_at` | DateTime (tz) | Last agent sync activity (delta, push, pull) — basis of `syncOverdue` |
+| `last_declaration_at` | DateTime (tz), nullable | Last **credible** delta reconciled (non-empty, not suspect, from an agent with `full-declaration`) — bound of the harvest |
 | `font_directories` | JSON | Watched directories |
-| `capabilities` | JSON | Capabilities announced by the agent at each `register` (`full-declaration`, `deactivate`, `uninstall`); `NULL` for an agent that announces none. Informational: nothing is gated on it yet |
+| `capabilities` | JSON | Capabilities announced by the agent at each `register` (`full-declaration`, `deactivate`, `uninstall`); `NULL` for an agent that announces none (≤ 0.1.2). Without `full-declaration` no deletion is inferred from its deltas; without `deactivate` / `uninstall`, deactivating a font or turning `propagate_deletions` on answers `409` (§4.4) |
+| `full_declaration_since` | DateTime (tz), nullable | Baseline of full declarations: set by the first delta of a capable agent (or at creation for a new capable device); reset when the capability is lost or a merge brings another device's registry |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
 | `propagate_deletions` | BOOLEAN | Uninstall here the fonts the **same account** deleted on its other devices (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded, and never applies another account's deletions or the library trash |
 | `created_at` | DateTime (tz) | |
 | `deleted_at` | DateTime (tz) | Soft delete: hidden from the list; its `device_fonts` rows are kept; `register` revives it |
+| `owner_user_id` | UUID (FK → users, SET NULL), nullable | Owning account (§4.6); `NULL` for a device known before accounts, until the first admin adopts it |
 
 #### `device_fonts`
 
@@ -238,6 +242,8 @@ Fonts known to be present on a device.
 | `active` | BOOLEAN | Desired state, set only by `POST /{font_id}/activate\|deactivate/{device_id}` (default `true`) — read on the next delta sync as `to_deactivate` |
 | `installed_at` | DateTime (tz) | |
 | PK | (device_id, font_id) | |
+
+Index: `font_id` (who holds this font?).
 
 > **Note**: the former `sync_queue` table was removed during the overhaul —
 > the agent is **stateless** (each `sync` recomputes the delta from the real disk
@@ -354,20 +360,24 @@ machine that still held the file saw it as *unknown to the server*, pushed it
 back, and the import pipeline revived it. Three links, any one of which was
 enough to undo the gesture.
 
-**The tombstone.** `deleted_reason` records *why* a font fell. It is what keeps
-`deleted_at` from being ambiguous between "deleted" and "merely absent":
+**The tombstone.** `deleted_at` alone would be ambiguous between "deleted"
+and "merely absent"; `deletion_confirmed` says whether the deletion is an
+arbitrated intention. It is the one propagation lock since migration M3 (it
+replaced the three-value `deleted_reason` whitelist). Its default, `false`, is
+fail-safe: a font that fell without an explicit decision never becomes
+irreversible. The predicate and its SQL clauses (`backend/models/font.py`)
+carry `deleted_at IS NOT NULL` themselves, since the live library shares the
+default.
 
-| Reason | Set by | Uninstalls on devices? |
+| Origin | `deletion_confirmed` | Uninstalls on devices? |
 |---|---|---|
-| `manual` | `DELETE /api/fonts/{id}` (admin, web UI) | **never** |
-| `quarantine`, `quarantine_pending` | a device that stopped declaring the font — **before personal removals** (migration `f3b8d2e5a714`); existing rows stay in the trash | **never** |
+| `DELETE /api/fonts/{id}` (admin, web UI), duplicate resolution | `true` | **never** |
+| a device that stopped declaring the font — **before personal removals** (migration `f3b8d2e5a714`); existing rows stay in the trash | `true`, or `false` beyond the threshold | **never** |
 
 > Since accounts, **nobody decides what leaves someone else's Mac — not even
 > the admin**. The library trash takes a font out of the shared library (no
 > longer offered for install, refused at push) but never uninstalls it
 > anywhere. A deletion on a Mac is a *personal removal* of its owner (below).
-> Today the column is `deletion_confirmed` (the former `deleted_reason`
-> whitelist was folded into it).
 
 Consequences, all deliberate:
 
@@ -417,8 +427,8 @@ Two consequences of that design are load-bearing enough to name:
   back by the threshold keeps its file: `POST /api/fonts/trash/empty` skips it
   (and reports the count as `retained`), `POST /api/fonts/{id}/purge` answers
   `409`, and automatic purge ignores it whatever its age — time passing is not a
-  user's arbitration. The predicate is a **whitelist** (`backend/models/font.py`):
-  an absent or unexpected reason counts as unconfirmed, hence inert.
+  user's arbitration. Unconfirmed is the default (`deletion_confirmed = false`),
+  hence inert.
 
 **Personal removals** ([`backend/services/deletion_propagation.py`](backend/services/deletion_propagation.py))
 turn a device's disappearances into `font_removals` rows for **its owner** —
@@ -435,8 +445,15 @@ an owner (known before accounts, until the first admin adopts them) share one
 `user_id = NULL` group.
 
 The detection itself is unchanged from the former quarantine. It lives in the sync **router**,
-not in `compute_delta`, because it writes — the delta stays a pure read. Three
-guardrails, in order:
+not in `compute_delta`, because it writes — the delta stays a pure read. It only
+runs for an agent that guarantees to declare its whole library
+(`full-declaration`, M-32): an older agent omits, for instance, deactivated
+fonts, so its deltas only get the delta back — no detection, no registry
+reconciliation, no `last_declaration_at`, no harvest. The first delta of a
+capable agent on a device with an inherited registry is a **baseline**
+(`devices.full_declaration_since`): the registry is replaced by what it
+declares, without detection; later deltas detect. Then three guardrails, in
+order:
 
 1. **A device declaring nothing has not emptied its library.** An unmounted
    folder or a failed scan is far likelier. Nothing is concluded.

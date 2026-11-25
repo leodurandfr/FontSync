@@ -266,6 +266,11 @@ export default {
     deleteConfirm:
       "The device leaves this list. Nothing is erased: your fonts stay on the server and on the machine. If its agent is still running, it will reappear at its next sync — to remove it for good, uninstall the agent on that machine first.",
     watchedFolders: "Watched folders",
+    // Agent ≤ 0.1.2: it does not announce its capabilities (B-32, M-32).
+    agentTooOld:
+      "Agent too old: deletions made on this Mac are not tracked. Update the FontSync app on this Mac.",
+    agentTooOldAction:
+      "This Mac's agent is too old for this action. Update the FontSync app.",
   },
   duplicates: {
     title: "Duplicates",

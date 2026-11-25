@@ -273,6 +273,11 @@ const fr: typeof en = {
     deleteConfirm:
       "L'appareil sort de cette liste. Rien n'est effacé : vos polices restent sur le serveur et sur la machine. Si son agent tourne encore, il réapparaîtra à son prochain sync — pour le retirer pour de bon, désinstallez d'abord l'agent sur cette machine.",
     watchedFolders: "Dossiers surveillés",
+    // Agent ≤ 0.1.2 : il n'annonce pas ses capacités (B-32, M-32).
+    agentTooOld:
+      "Agent trop ancien : les suppressions faites sur ce Mac ne sont pas suivies. Mettez à jour l'app FontSync sur ce Mac.",
+    agentTooOldAction:
+      "L'agent de ce Mac est trop ancien pour cette action. Mettez à jour l'app FontSync.",
   },
   duplicates: {
     title: "Doublons",

@@ -20,6 +20,7 @@ from backend.main import app
 from backend.models.device import Device
 from backend.services import accounts
 from backend.services.accounts import login_rate_limiter
+from tests.backend.conftest import AGENT_CAPABILITIES
 
 ADMIN = {"email": "Admin@Example.org", "password": "correct horse battery"}
 MEMBER_PASSWORD = "member password 1"
@@ -59,7 +60,13 @@ async def _register(client: AsyncClient, token: str, hostname: str, **extra) -> 
     resp = await client.post(
         "/api/devices/register",
         headers=_bearer(token),
-        json={"name": hostname, "hostname": hostname, "os": "macos", **extra},
+        json={
+            "name": hostname,
+            "hostname": hostname,
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+            **extra,
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
