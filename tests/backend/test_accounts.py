@@ -69,18 +69,17 @@ async def _register(client: AsyncClient, token: str, hostname: str, **extra) -> 
 
 
 async def _invite_member(client: AsyncClient, email: str) -> AsyncClient:
-    """Invite `email` (session admin du `client`), et l'accepte dans un client neuf."""
-    resp = await client.post(
-        "/api/invitations", json={"email": email, "role": "member"}, headers=ORIGIN
-    )
+    """Crée un lien (session admin du `client`) ; l'invité l'ouvre dans un client
+    neuf et y saisit `email`."""
+    resp = await client.post("/api/invitations", json={}, headers=ORIGIN)
     assert resp.status_code == 201, resp.text
     token = resp.json()["token"]
     member = AsyncClient(transport=client._transport, base_url="http://test")
     info = await member.post("/api/auth/invitations/lookup", json={"token": token})
-    assert info.json() == {"email": email.lower(), "role": "member"}
+    assert info.json() == {"email": None, "role": "member"}
     resp = await member.post(
         "/api/auth/invitations/accept",
-        json={"token": token, "password": MEMBER_PASSWORD},
+        json={"token": token, "email": email, "password": MEMBER_PASSWORD},
     )
     assert resp.status_code == 201, resp.text
     return member
@@ -212,13 +211,11 @@ async def test_cookie_write_from_a_foreign_origin_is_refused(
     await _setup(client)
     resp = await client.post(
         "/api/invitations",
-        json={"email": "m@x.y"},
+        json={},
         headers={"Origin": "http://evil.example"},
     )
     assert resp.status_code == 403
-    same = await client.post(
-        "/api/invitations", json={"email": "m@x.y"}, headers=ORIGIN
-    )
+    same = await client.post("/api/invitations", json={}, headers=ORIGIN)
     assert same.status_code == 201
 
 
@@ -376,20 +373,43 @@ async def test_admin_resets_member_password(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_invitation_is_single_use(client: AsyncClient) -> None:
     await _setup(client)
-    resp = await client.post(
-        "/api/invitations", json={"email": "m@x.y"}, headers=ORIGIN
-    )
+    resp = await client.post("/api/invitations", json={}, headers=ORIGIN)
     token = resp.json()["token"]
     first = await client.post(
         "/api/auth/invitations/accept",
-        json={"token": token, "password": MEMBER_PASSWORD},
+        json={"token": token, "email": "m@x.y", "password": MEMBER_PASSWORD},
     )
     assert first.status_code == 201
     again = await client.post(
         "/api/auth/invitations/accept",
-        json={"token": token, "password": MEMBER_PASSWORD},
+        json={"token": token, "email": "n@x.y", "password": MEMBER_PASSWORD},
     )
     assert again.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_invitation_needs_a_free_email(client: AsyncClient) -> None:
+    """Le lien ne fixe pas l'adresse : l'invité la saisit, et elle doit être libre."""
+    await _setup(client)
+    token = (await client.post("/api/invitations", json={}, headers=ORIGIN)).json()[
+        "token"
+    ]
+    missing = await client.post(
+        "/api/auth/invitations/accept",
+        json={"token": token, "password": MEMBER_PASSWORD},
+    )
+    assert missing.status_code == 422
+    taken = await client.post(
+        "/api/auth/invitations/accept",
+        json={"token": token, "email": ADMIN["email"], "password": MEMBER_PASSWORD},
+    )
+    assert taken.status_code == 409
+    ok = await client.post(
+        "/api/auth/invitations/accept",
+        json={"token": token, "email": "M@X.y", "password": MEMBER_PASSWORD},
+    )
+    assert ok.status_code == 201
+    assert ok.json()["user"]["email"] == "m@x.y"
 
 
 # ---------- WebSocket et démarrage ----------

@@ -113,7 +113,8 @@ const fr: typeof en = {
     setupSubtitle: "Créez le compte administrateur de ce serveur.",
     loginSubtitle: "Connectez-vous pour continuer.",
     tokenSubtitle: "Connexion avec le token d'instance (ancienne méthode).",
-    inviteSubtitle: "Choisissez le mot de passe du compte {email}.",
+    inviteSubtitle: "Créez votre compte : votre email et un mot de passe.",
+    inviteSubtitleFixed: "Choisissez le mot de passe du compte {email}.",
     email: "Email",
     password: "Mot de passe",
     newPassword: "Mot de passe",
@@ -182,7 +183,6 @@ const fr: typeof en = {
   users: {
     title: "Comptes",
     desc: "Tous les comptes partagent la même bibliothèque. Chacun gère ses propres Mac.",
-    add: "Ajouter quelqu'un",
     you: "vous",
     disabled: "Désactivé",
     devices: "{n} Mac | {n} Mac | {n} Mac",
@@ -193,17 +193,11 @@ const fr: typeof en = {
     resetPassword: "Réinitialiser le mot de passe",
     resetPasswordDesc:
       "Toutes les sessions de {email} seront déconnectées. Transmettez-lui le nouveau mot de passe.",
-    addTitle: "Ajouter quelqu'un",
-    modeInvite: "Envoyer un lien",
-    modeCreate: "Créer le compte",
     inviteDesc:
-      "La personne choisira son mot de passe en ouvrant le lien (valable 7 jours).",
-    createDesc:
-      "Vous choisissez le mot de passe et le transmettez à la personne. Elle pourra le changer ensuite.",
-    role: "Rôle",
-    createInvite: "Créer le lien",
-    createAccount: "Créer le compte",
+      "La personne y saisit son email et choisit son mot de passe. Le lien sert une seule fois et reste valable 7 jours.",
+    createInvite: "Créer un lien d'invitation",
     inviteLink: "Lien d'invitation, à copier et envoyer :",
+    linkCreated: "Lien créé le {date}",
     copy: "Copier",
     copied: "Copié",
     pending: "Invitations en attente",

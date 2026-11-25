@@ -51,11 +51,18 @@ class InvitationLookup(CamelModel):
 
 
 class InvitationAccept(InvitationLookup):
+    email: str | None = Field(
+        None, min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$"
+    )
+    """L'email du compte, choisi par l'invité. Ignoré pour une ancienne
+    invitation qui fixait déjà l'adresse."""
     password: str = _NEW_PASSWORD
 
 
 class InvitationCreate(CamelModel):
-    email: str = _EMAIL
+    """Un lien à partager, rien d'autre : l'invité saisit son email. Le rôle se
+    change ensuite dans la liste des comptes."""
+
     role: Role = "member"
 
 
@@ -123,7 +130,7 @@ class SessionResponse(CamelModel):
 
 class InvitationResponse(CamelModel):
     id: uuid.UUID
-    email: str
+    email: str | None = None
     role: str
     created_at: datetime
     expires_at: datetime
@@ -138,5 +145,6 @@ class InvitationCreated(CamelModel):
 
 
 class InvitationInfo(CamelModel):
-    email: str
+    email: str | None = None
+    """Fixé seulement par une ancienne invitation ; sinon l'invité le saisit."""
     role: str

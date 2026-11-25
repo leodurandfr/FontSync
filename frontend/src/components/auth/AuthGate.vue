@@ -25,7 +25,7 @@ const legacyToken = ref("");
 const useToken = ref(false);
 const busy = ref(false);
 const errorMsg = ref<string | null>(null);
-const invitation = ref<{ email: string; role: string } | null>(null);
+const invitation = ref<{ email: string | null; role: string } | null>(null);
 
 const MIN_PASSWORD = 10;
 
@@ -39,7 +39,9 @@ const mode = computed<"invite" | "setup" | "token" | "login">(() => {
 const subtitle = computed(() => {
   switch (mode.value) {
     case "invite":
-      return t("auth.inviteSubtitle", { email: invitation.value?.email ?? "" });
+      return invitation.value?.email
+        ? t("auth.inviteSubtitleFixed", { email: invitation.value.email })
+        : t("auth.inviteSubtitle");
     case "setup":
       return t("auth.setupSubtitle");
     case "token":
@@ -98,7 +100,11 @@ async function submit() {
   busy.value = true;
   try {
     if (mode.value === "invite" && props.invitationToken) {
-      await auth.acceptInvitation(props.invitationToken, password.value);
+      await auth.acceptInvitation(
+        props.invitationToken,
+        invitation.value?.email ? "" : email.value.trim(),
+        password.value,
+      );
       emit("invitationDone");
     } else if (mode.value === "setup") {
       await auth.setup(email.value.trim(), password.value, legacyToken.value);
@@ -133,7 +139,14 @@ async function submit() {
       </div>
 
       <form class="space-y-3" @submit.prevent="submit">
-        <div v-if="mode === 'setup' || mode === 'login'" class="space-y-1.5">
+        <div
+          v-if="
+            mode === 'setup' ||
+            mode === 'login' ||
+            (mode === 'invite' && invitation && !invitation.email)
+          "
+          class="space-y-1.5"
+        >
           <Label for="email">{{ t("auth.email") }}</Label>
           <Input
             id="email"

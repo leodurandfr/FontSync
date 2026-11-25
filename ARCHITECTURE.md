@@ -533,7 +533,7 @@ who may come in and who owns a device, not who owns a font. Tables
 |-------|--------------|------|
 | `users` | `email` (unique, lower-case), `password_hash` (argon2id), `role` (`admin`/`member`), `disabled_at` | Accounts |
 | `auth_sessions` | `user_id`, `token_hash` (SHA-256), `kind` (`web`/`device`), `device_id`, `label`, `last_used_at`, `expires_at`, `revoked_at` | One row per live connection |
-| `invitations` | `email`, `role`, `token_hash`, `expires_at`, `used_at`, `revoked_at` | Single-use invitation link |
+| `invitations` | `email` (nullable: set only by older links), `role`, `token_hash`, `expires_at`, `used_at`, `revoked_at` | Single-use invitation link |
 | `devices` | + `owner_user_id` | Every Mac belongs to an account |
 
 - **Tokens** are 32 random bytes shown once and stored as SHA-256. A web session
@@ -548,9 +548,12 @@ who may come in and who owns a device, not who owns a font. Tables
   can remove a font from someone else's Mac. Only admins send fonts to the trash (one by one or by
   resolving duplicates), restore, empty it, confirm held deletions, purge,
   merge devices, manage accounts and trigger the server update.
-- **Adding people**: an admin either creates the account directly
-  (`POST /api/users`, email + a password they pass on) or sends an invitation
-  link (`POST /api/invitations`).
+- **Adding people**: the admin creates an invitation link
+  (`POST /api/invitations`) and shares it, nothing else. Whoever opens it
+  enters their own email and password (`POST /api/auth/invitations/accept`).
+  The link works once, expires after `invitation_days`, and creates a member;
+  the role is changed afterwards in the account list. `POST /api/users`
+  (direct creation) remains in the API but is no longer offered by the web UI.
 - **First launch**: `GET /api/auth/status` says `setupRequired` while no account
   exists; `POST /api/auth/setup` creates the first admin. On a server that
   already has a `FONTSYNC_TOKEN`, setup requires that token (`legacyToken`), so

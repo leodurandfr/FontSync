@@ -127,9 +127,14 @@ export const useAuthStore = defineStore("auth", () => {
     await onSignedIn();
   }
 
-  async function acceptInvitation(invitationToken: string, password: string) {
+  async function acceptInvitation(
+    invitationToken: string,
+    email: string,
+    password: string,
+  ) {
     await post("/api/auth/invitations/accept", {
       token: invitationToken,
+      email: email || undefined,
       password,
     });
     await onSignedIn();
@@ -137,7 +142,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function lookupInvitation(
     invitationToken: string,
-  ): Promise<{ email: string; role: string }> {
+  ): Promise<{ email: string | null; role: string }> {
     const res = await post("/api/auth/invitations/lookup", {
       token: invitationToken,
     });

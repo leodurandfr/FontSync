@@ -35,7 +35,6 @@ from backend.services.accounts import (
     hash_password,
     hash_token,
     new_token,
-    normalize_email,
     revoke_user_sessions,
     utcnow,
 )
@@ -181,14 +180,8 @@ async def create_invitation(
     admin: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> InvitationCreated:
-    email = normalize_email(body.email)
-    if await get_user_by_email(db, email) is not None:
-        raise HTTPException(
-            status_code=409, detail="Un compte existe déjà pour cet email."
-        )
     token = new_token()
     invitation = Invitation(
-        email=email,
         role=body.role,
         token_hash=hash_token(token),
         created_by=admin.user_id,

@@ -69,11 +69,15 @@ class AuthSession(UUIDPrimaryKey, Base):
 
 
 class Invitation(UUIDPrimaryKey, Base):
-    """Lien d'invitation à usage unique, copié par l'admin (pas d'email sortant)."""
+    """Lien d'invitation à usage unique, copié par l'admin (pas d'email sortant).
+
+    L'invité choisit lui-même son email en ouvrant le lien. `email` n'est
+    renseigné que pour les invitations créées avant ce choix : le compte
+    créé reprend alors cette adresse."""
 
     __tablename__ = "invitations"
 
-    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320))
     role: Mapped[str] = mapped_column(String(20), nullable=False, default=ROLE_MEMBER)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
