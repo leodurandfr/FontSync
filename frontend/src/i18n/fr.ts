@@ -50,11 +50,12 @@ const fr: typeof en = {
     palette: "Couleurs",
     palettes: {
       neutral: "Neutre",
-      navy: "Marine & corail",
-      forest: "Forêt & ocre",
-      plum: "Prune & citron",
-      cobalt: "Cobalt & orange",
-      flamingo: "Flamant & émeraude",
+      red: "Rouge & vert",
+      green: "Vert & rouge",
+      purple: "Violet & jaune",
+      yellow: "Jaune & bleu",
+      blue: "Bleu & orange",
+      orange: "Orange & bleu",
     },
   },
   toolbar: {

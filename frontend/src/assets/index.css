@@ -162,58 +162,54 @@
 }
 
 /*
- * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des duos
- * contrastés. Chaque palette fixe une couleur de sidebar, un fond et un accent
- * complémentaire ; les tokens de l'interface en dérivent ci-dessous, en clair
- * comme en sombre. Sans `data-palette` sur <html> : interface neutre d'origine.
+ * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des paires
+ * de complémentaires franches. La sidebar prend la couleur principale, l'accent
+ * (élément actif, bouton de vue, boutons principaux) sa complémentaire, et le
+ * contenu une teinte claire de la principale. Sans `data-palette` sur <html> :
+ * interface neutre d'origine.
  */
-[data-palette="navy"] {
-  --p-sidebar: #1b2a4a;
-  --p-sidebar-fg: #f4efe6;
-  --p-bg: #f4efe6;
-  --p-card: #fbf8f2;
-  --p-accent: #ff6b4a;
-  --p-accent-fg: #ffffff;
-  --p-text: #1b2a4a;
-}
-[data-palette="forest"] {
-  --p-sidebar: #1f3d2b;
-  --p-sidebar-fg: #f2e8d5;
-  --p-bg: #f2e8d5;
-  --p-card: #faf5ea;
-  --p-accent: #e0a020;
-  --p-accent-fg: #1f3d2b;
-  --p-text: #1f3d2b;
-}
-[data-palette="plum"] {
-  --p-sidebar: #3b1f4a;
-  --p-sidebar-fg: #f3eefa;
-  --p-bg: #efe8f5;
-  --p-card: #faf7fc;
-  --p-accent: #b8d430;
-  --p-accent-fg: #24112e;
-  --p-text: #2a1636;
-}
-[data-palette="cobalt"] {
-  --p-sidebar: #1f4fd8;
+[data-palette="red"] {
+  --p-sidebar: #d42434;
   --p-sidebar-fg: #ffffff;
-  --p-bg: #fff1e3;
-  --p-card: #fff9f2;
-  --p-accent: #ff7a1a;
+  --p-accent: #00a04a;
   --p-accent-fg: #ffffff;
-  --p-text: #14224d;
 }
-[data-palette="flamingo"] {
-  --p-sidebar: #e23d7a;
+[data-palette="green"] {
+  --p-sidebar: #00a04a;
   --p-sidebar-fg: #ffffff;
-  --p-bg: #e6f5ec;
-  --p-card: #f5fbf7;
-  --p-accent: #0f9d63;
+  --p-accent: #d42434;
   --p-accent-fg: #ffffff;
-  --p-text: #23152a;
+}
+[data-palette="purple"] {
+  --p-sidebar: #8e2a8a;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #ffda1a;
+  --p-accent-fg: #1a1a1a;
+}
+[data-palette="yellow"] {
+  --p-sidebar: #ffda1a;
+  --p-sidebar-fg: #1a1a1a;
+  --p-accent: #22449a;
+  --p-accent-fg: #ffffff;
+}
+[data-palette="blue"] {
+  --p-sidebar: #22449a;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #f06424;
+  --p-accent-fg: #ffffff;
+}
+[data-palette="orange"] {
+  --p-sidebar: #f06424;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #22449a;
+  --p-accent-fg: #ffffff;
+}
+[data-palette] {
+  --p-bg: color-mix(in oklab, #ffffff, var(--p-sidebar) 16%);
+  --p-card: color-mix(in oklab, #ffffff, var(--p-sidebar) 7%);
+  --p-text: color-mix(in oklab, #111111, var(--p-sidebar) 22%);
 }
 
-/* Clair : fond et cartes de la couleur claire, accent complémentaire. */
 :root[data-palette] {
   --background: var(--p-bg);
   --foreground: var(--p-text);
@@ -243,7 +239,7 @@
 
 /* Sombre : fonds profonds tirés de la couleur de sidebar, texte clair. */
 :root.dark[data-palette] {
-  --p-sidebar-dark: color-mix(in oklab, var(--p-sidebar), #000000 40%);
+  --p-sidebar-dark: color-mix(in oklab, var(--p-sidebar), #000000 15%);
   --background: color-mix(in oklab, var(--p-sidebar), #000000 70%);
   --foreground: var(--p-bg);
   --card: color-mix(in oklab, var(--p-sidebar), #000000 62%);
@@ -285,7 +281,7 @@
     var(--p-sidebar-fg),
     var(--p-sidebar) 55%
   );
-  --accent: color-mix(in oklab, var(--p-accent), var(--p-sidebar) 25%);
+  --accent: var(--p-accent);
   --accent-foreground: var(--p-accent-fg);
   --separator: color-mix(in oklab, var(--p-sidebar-fg), var(--p-sidebar) 84%);
   --panel-border: color-mix(in oklab, var(--p-sidebar), #000000 15%);
