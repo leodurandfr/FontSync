@@ -11,7 +11,8 @@ collection.
 - 🍎 **Native Mac app** — signed Swift menu bar app, embedded agent, guided first
   launch, notifications, and automatic updates.
 - 🌐 **Web UI** — browse, preview, import, and manage the library.
-- 🔒 **Instance token** — all of `/api/*` protected by a shared secret.
+- 🔒 **Accounts** — an admin and members share one library; each person decides
+  only for their own Macs (nobody, admin included, removes a font from yours).
 
 > For the complete architecture, the data model, and the API, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 > Long-term vision: [`ROADMAP.md`](ROADMAP.md).

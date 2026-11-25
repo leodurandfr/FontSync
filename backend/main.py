@@ -30,6 +30,7 @@ from backend.routers import (
     devices,
     font_families,
     fonts,
+    removals,
     stats,
     sync,
     system,
@@ -138,6 +139,7 @@ app.include_router(stats.router, dependencies=[Depends(require_auth)])
 app.include_router(system.router, dependencies=[Depends(require_auth)])
 app.include_router(agent_events.router, dependencies=[Depends(require_auth)])
 app.include_router(auth.router)
+app.include_router(removals.router, dependencies=[Depends(require_auth)])
 app.include_router(users.users_router, dependencies=[Depends(require_auth)])
 app.include_router(users.invitations_router, dependencies=[Depends(require_auth)])
 app.include_router(ws.router)

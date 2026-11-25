@@ -480,3 +480,84 @@ async def test_only_the_admin_trashes_and_restores(
     ).status_code == 204
     restore = await client.post(f"/api/fonts/{font_id}/restore", headers=ORIGIN)
     assert restore.status_code == 200
+
+
+async def _push_as(client: AsyncClient, token: str, device: str, data: bytes) -> dict:
+    resp = await client.post(
+        "/api/sync/push",
+        headers=_bearer(token),
+        files={"file": ("f.ttf", data, "font/ttf")},
+        data={"device_id": device, "local_path": "/Users/x/Library/Fonts/f.ttf"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _delta_as(
+    client: AsyncClient, token: str, device: str, hashes: list[str]
+) -> dict:
+    resp = await client.post(
+        "/api/sync/delta",
+        headers=_bearer(token),
+        json={
+            "deviceId": device,
+            "fonts": [{"hash": h, "filename": f"{h[:8]}.ttf"} for h in hashes],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_a_deletion_on_my_mac_never_reaches_someone_else(
+    client: AsyncClient, font_factory
+) -> None:
+    """Le membre supprime une police chez lui : seuls ses Mac sont concernés.
+
+    Le Mac de l'admin, qui accepte pourtant les suppressions, la garde ; la
+    bibliothèque partagée aussi. Et l'admin ne voit ni ne gère ce retrait.
+    """
+    await _setup(client)
+    admin_token = await _device_token(client, ADMIN["email"], ADMIN["password"])
+    admin_mac = await _register(client, admin_token, "admin-mac")
+    async with aclosing(await _invite_member(client, "m@example.org")) as member:
+        # Un jeton par Mac : un jeton d'appareil est lié à un seul appareil.
+        member_token = await _device_token(client, "m@example.org", MEMBER_PASSWORD)
+        mini_token = await _device_token(client, "m@example.org", MEMBER_PASSWORD)
+        member_mac = await _register(client, member_token, "member-mac")
+        member_mini = await _register(client, mini_token, "member-mini")
+        for token, device in ((mini_token, member_mini), (admin_token, admin_mac)):
+            resp = await client.patch(
+                f"/api/devices/{device}",
+                headers=_bearer(token),
+                json={"propagateDeletions": True},
+            )
+            assert resp.status_code == 200, resp.text
+
+        gone = await _push_as(
+            client, member_token, member_mac, font_factory(family="Gone")
+        )
+        kept = await _push_as(
+            client, member_token, member_mac, font_factory(family="Kept")
+        )
+        both = [gone["fileHash"], kept["fileHash"]]
+        await _delta_as(client, admin_token, admin_mac, both)
+        await _delta_as(client, mini_token, member_mini, both)
+
+        # Le membre la supprime sur son Mac.
+        await _delta_as(client, member_token, member_mac, [kept["fileHash"]])
+
+        mini = await _delta_as(client, mini_token, member_mini, both)
+        assert [r["fileHash"] for r in mini["toUninstall"]] == [gone["fileHash"]]
+        admin = await _delta_as(client, admin_token, admin_mac, both)
+        assert admin["toUninstall"] == []
+
+        mine = (await member.get("/api/me/removals")).json()
+        assert [r["fontId"] for r in mine] == [gone["fontId"]]
+
+    assert (await client.get("/api/me/removals")).json() == []
+    assert (
+        await client.delete(f"/api/me/removals/{gone['fontId']}", headers=ORIGIN)
+    ).status_code == 404
+    library = (await client.get("/api/fonts")).json()
+    assert library["total"] == 2

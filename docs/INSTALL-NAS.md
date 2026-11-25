@@ -396,18 +396,17 @@ Macs reconnect before you have looked.
 Then turn auto-pull and propagation back on device by device (Settings →
 Devices), after each Mac has synced once and you have looked at the trash.
 
-**What to expect** (measured on a rehearsal, 2026-11-13). Fonts deleted
-**after** the snapshot are active again. Those the Macs had removed — deleted
-on a Mac, or in the web interface with *Propagate deletions* on — go back to
-the trash at each Mac's first sync (to quarantine, waiting for your
-confirmation, when many are missing at once); they are **not** reinstalled. A
-font deleted in the web interface *without* propagation stays active, since the
-Macs still have it — trash it again if needed. Fonts uploaded after the
-snapshot are no longer in the library (their files stay in `/fonts`; a Mac
-that has them sends them again). After a **mistaken mass deletion**: let each
-Mac sync once, restore the fonts from the trash, and only then turn auto-pull
-back on to reinstall them — and keep *Propagate deletions* off until the trash
-holds only what you mean to delete.
+**What to expect** (measured on a rehearsal, 2026-11-13, before accounts;
+updated for personal removals). Fonts trashed **after** the snapshot are active
+again — trash them again if needed. Fonts deleted on a Mac after the snapshot
+become that account's removals again at the Mac's first sync (unconfirmed when
+many are missing at once); they are **not** reinstalled. Removals recorded
+after the snapshot are lost: check Settings → *Fonts removed from my Macs* and
+delete again what should go. Fonts uploaded after the snapshot are no longer in
+the library (their files stay in `/fonts`; a Mac that has them sends them
+again). After a **mistaken mass deletion** on a Mac: its removals wait for your
+confirmation, so nothing is uninstalled elsewhere — use *Put back* on each one
+(or reinstall the files on that Mac), then turn auto-pull back on.
 
 **By hand** — the same steps: `docker compose down`; in the `db` volume,
 **move** `fontsync.db`, `fontsync.db-wal` and `fontsync.db-shm` into a

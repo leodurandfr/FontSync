@@ -220,7 +220,7 @@ Machines registered with the server.
 | `font_directories` | JSON | Watched directories |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
-| `propagate_deletions` | BOOLEAN | Apply *other* devices' deletions here, i.e. uninstall (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded |
+| `propagate_deletions` | BOOLEAN | Uninstall here the fonts the **same account** deleted on its other devices (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded, and never applies another account's deletions or the library trash |
 | `created_at` | DateTime (tz) | |
 | `deleted_at` | DateTime (tz) | Soft delete: hidden from the list; its `device_fonts` rows are kept; `register` revives it |
 
@@ -241,6 +241,19 @@ Fonts known to be present on a device.
 > **Note**: the former `sync_queue` table was removed during the overhaul —
 > the agent is **stateless** (each `sync` recomputes the delta from the real disk
 > state), so there is no longer a queue on the server side.
+
+#### `font_removals`
+
+A font an account deleted on one of its Macs (§4.4 "Personal removals").
+
+| Column | Type | Description |
+|---------|------|-------------|
+| `id` | UUID | PK |
+| `user_id` | UUID (FK → users, CASCADE), nullable | The account; `NULL` groups the devices that have no owner |
+| `font_id` | UUID (FK → fonts, CASCADE) | |
+| `source_device_id` | UUID (FK → devices, SET NULL), nullable | The Mac it disappeared from (display only) |
+| `removed_at` | DateTime (tz) | |
+| `confirmed` | BOOLEAN | `false` beyond the safety threshold: nothing is uninstalled elsewhere until the user confirms |
 
 #### `harvested_fingerprints`
 
@@ -343,11 +356,17 @@ enough to undo the gesture.
 **The tombstone.** `deleted_reason` records *why* a font fell. It is what keeps
 `deleted_at` from being ambiguous between "deleted" and "merely absent":
 
-| Reason | Set by | Propagates to devices? |
+| Reason | Set by | Uninstalls on devices? |
 |---|---|---|
-| `manual` | `DELETE /api/fonts/{id}` (web UI) | yes |
-| `quarantine` | a device that stopped declaring the font | yes |
-| `quarantine_pending` | same, but **beyond the safety threshold** | **no**, until confirmed |
+| `manual` | `DELETE /api/fonts/{id}` (admin, web UI) | **never** |
+| `quarantine`, `quarantine_pending` | a device that stopped declaring the font — **before personal removals** (migration `f3b8d2e5a714`); existing rows stay in the trash | **never** |
+
+> Since accounts, **nobody decides what leaves someone else's Mac — not even
+> the admin**. The library trash takes a font out of the shared library (no
+> longer offered for install, refused at push) but never uninstalls it
+> anywhere. A deletion on a Mac is a *personal removal* of its owner (below).
+> Today the column is `deletion_confirmed` (the former `deleted_reason`
+> whitelist was folded into it).
 
 Consequences, all deliberate:
 
@@ -400,8 +419,20 @@ Two consequences of that design are load-bearing enough to name:
   user's arbitration. The predicate is a **whitelist** (`backend/models/font.py`):
   an absent or unexpected reason counts as unconfirmed, hence inert.
 
-**Quarantine** ([`backend/services/deletion_propagation.py`](backend/services/deletion_propagation.py))
-turns a device's disappearances into deletions. It lives in the sync **router**,
+**Personal removals** ([`backend/services/deletion_propagation.py`](backend/services/deletion_propagation.py))
+turn a device's disappearances into `font_removals` rows for **its owner** —
+never into a library deletion. The shared library keeps the font for everyone
+else. For that account only: `compute_delta` stops offering the font in
+`missing_on_device` (no reinstall), and once the removal is confirmed, its other
+devices with `propagate_deletions` get it in `to_uninstall`. Another account's
+devices are never told anything, the admin's included. The owner sees and
+manages their removals in Settings (`GET /api/me/removals`, `POST
+/api/me/removals/confirm`, `DELETE /api/me/removals/{font_id}` to put a font
+back). Reinstalling the file by hand on one of their Macs (declared, managed
+layer, by a device that did not hold it) cancels the removal. Devices without
+an owner (legacy token) share one `user_id = NULL` group.
+
+The detection itself is unchanged from the former quarantine. It lives in the sync **router**,
 not in `compute_delta`, because it writes — the delta stays a pure read. Three
 guardrails, in order:
 
@@ -417,8 +448,9 @@ guardrails, in order:
 3. **Thresholds.** `DELETION_PROPAGATION_MAX_FONTS` (25) and
    `_MAX_RATIO` (5 %) apply together — the stricter one decides — lifted by
    `_MIN_FONTS` (3) so that small deletions always go through. Beyond them the
-   fonts still leave the library (recoverable in one click) but **nothing is
-   propagated** until the user confirms via `POST /api/fonts/trash/confirm`.
+   removal is recorded unconfirmed (not reinstalled, undoable in one click) but
+   **nothing is uninstalled** on the owner's other Macs until they confirm via
+   `POST /api/me/removals/confirm`.
    The case this exists for: 625 files vanished at once from `~/Library/Fonts`
    during a manual de-duplication; without a threshold another Mac would have
    lost 225 of them automatically.
@@ -511,7 +543,8 @@ who may come in and who owns a device, not who owns a font. Tables
 - **One account, several Macs**: each `device-login` opens its own session, so
   each Mac is revoked on its own (Settings → My sessions).
 - **Roles**: members browse, upload and install; they see and manage only
-  their own devices. Only admins send fonts to the trash (one by one or by
+  their own devices and their own removals (§4.4). Nobody, admin included,
+  can remove a font from someone else's Mac. Only admins send fonts to the trash (one by one or by
   resolving duplicates), restore, empty it, confirm held deletions, purge,
   merge devices, manage accounts and trigger the server update.
 - **Adding people**: an admin either creates the account directly
@@ -568,7 +601,10 @@ who may come in and who owns a device, not who owns a font. Tables
 | `GET` | `/api/fonts/trash` | Deleted, still-restorable fonts (`purged_at IS NULL`) + count awaiting review |
 | `POST` | `/api/fonts/{id}/purge` | Remove the file from storage, keep the row — `409` if the deletion is unconfirmed |
 | `POST` | `/api/fonts/trash/empty` | Same, for the whole trash; unconfirmed deletions are spared and returned as `retained` |
-| `POST` | `/api/fonts/trash/confirm` | Confirm the quarantines held back by the threshold |
+| `POST` | `/api/fonts/trash/confirm` | Confirm the held-back quarantines left by versions before personal removals (lets the trash be emptied; uninstalls nothing) |
+| `GET` | `/api/me/removals` | My personal removals (fonts I deleted on one of my Macs) |
+| `POST` | `/api/me/removals/confirm` | Confirm my removals held back by the threshold |
+| `DELETE` | `/api/me/removals/{font_id}` | Put a font back: my Macs may install it again |
 | `GET` | `/api/fonts/duplicates` | Faces held by several files, with the keeper picked and the protected files (`protected`, `totalProtected`, `protectedDevices`) — cf. §4.5 |
 | `POST` | `/api/fonts/duplicates/resolve` | Move the redundant files to the trash (`dryRun` to count first); reports `protected` |
 | `GET` | `/api/fonts/{id}/devices` | On which devices the font is installed |
@@ -841,18 +877,19 @@ After installation, the agent can display a system notification: "Inter font ins
 ### 6.6 Deletion behavior
 
 **Nothing is deleted on a device unless `propagate_deletions` is on for it**
-(default `false`). That setting is deliberately separate from `auto_push` /
+(default `false`), and even then only fonts **its own account** deleted on
+another of its Macs — never the library trash, never another account. That setting is deliberately separate from `auto_push` /
 `auto_pull`: those two words promise only *to send* and *to install*, and turning
 them on must not become destructive. Server-side rules and thresholds: §4.4.
 
 The setting gates **one direction only: uninstalling here**. A device's own
 disappearances are always interpreted (§4.4), whatever its setting. Gating that
 half too made local deletion impossible, and the failure was silent: the server
-concluded nothing, the font stayed in the library, `missing_on_device` offered
-it back, and `auto_pull` reinstalled it — measured at 31 s between the gesture
-and its undoing, with an empty trash to show for it. Recording a disappearance
-destroys nothing: the font moves to the trash, recoverable in one click, and
-only devices that opted in ever lose a file.
+concluded nothing, `missing_on_device` offered the font back, and `auto_pull`
+reinstalled it — measured at 31 s between the gesture and its undoing.
+Recording a disappearance destroys nothing: it is a personal removal, undoable
+in one click, and only the same account's devices that opted in ever lose a
+file.
 
 With the setting off, this device therefore keeps every file it has; what it
 stops doing is *taking orders* — a font deleted elsewhere is never uninstalled

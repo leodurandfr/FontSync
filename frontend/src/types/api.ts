@@ -344,6 +344,17 @@ export interface Invitation {
   usedAt: string | null;
 }
 
+/** Police que j'ai supprimée d'un de mes Mac (cf. `/api/me/removals`). */
+export interface FontRemoval {
+  fontId: string;
+  familyName: string | null;
+  fullName: string | null;
+  originalFilename: string;
+  removedAt: string;
+  confirmed: boolean;
+  sourceDeviceName: string | null;
+}
+
 export interface InvitationCreated {
   invitation: Invitation;
   token: string;

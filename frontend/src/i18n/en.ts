@@ -161,6 +161,20 @@ export default {
     legacyTokenActive:
       "The instance token (FONTSYNC_TOKEN) is still active. Remove it from the .env file once every Mac is signed in with an account.",
   },
+  removals: {
+    title: "Fonts removed from my Macs",
+    desc: "Fonts you deleted on one of your Macs. They stay in the shared library, but your Macs no longer reinstall them. Those with “Follow my deletions” turned on uninstall them.",
+    empty: "No removed fonts.",
+    removedFrom: "Removed from {device} on {date}",
+    removedOn: "Removed on {date}",
+    pendingTitle:
+      "{n} removal awaiting confirmation | {n} removals awaiting confirmation",
+    pendingDesc:
+      "One of your Macs lost many fonts at once. To be safe, your other Macs only uninstall them once you confirm.",
+    confirm: "Confirm",
+    pending: "Pending",
+    undo: "Put back",
+  },
   users: {
     title: "Accounts",
     desc: "Every account shares the same library. Each one manages its own Macs.",
@@ -261,9 +275,9 @@ export default {
     autoPullDesc: "Installs server fonts on this device",
     // Deliberately worded as a two-way exchange, and kept apart from push/pull:
     // this is the only setting that can make a file disappear.
-    propagateDeletions: "Propagate deletions",
+    propagateDeletions: "Follow my deletions",
     propagateDeletionsDesc:
-      "Uninstalls from this device the fonts deleted on the server. Off by default: without it, no file is ever erased here. Deletions made on this device are recorded by the server either way — this setting only governs what gets erased.",
+      "Uninstalls from this Mac the fonts you delete on your other Macs. Off by default: without it, no file is ever erased here. Neither the library trash nor another account, admin included, ever removes a font from this Mac.",
     delete: "Remove device",
     deleteTitle: "Remove “{name}”?",
     deleteConfirm:
@@ -323,8 +337,8 @@ export default {
     pendingTitle:
       "{n} deletion awaiting review | {n} deletions awaiting review",
     pendingDesc:
-      "A device reported more disappearances at once than the safety threshold allows. They are out of the library and recoverable, but no other machine will uninstall them until you confirm.",
-    confirmPending: "Confirm and propagate",
+      "A previous version of FontSync took these fonts out of the library after a device lost many of them at once. Confirm to be able to empty the trash, or restore them. No Mac will uninstall them.",
+    confirmPending: "Confirm",
     awaitingArbitration: "Awaiting review",
   },
   upload: {

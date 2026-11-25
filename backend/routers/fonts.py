@@ -844,12 +844,13 @@ async def delete_font(
     db: AsyncSession = Depends(get_db),
     _admin: Principal = Depends(require_admin),
 ) -> None:
-    """Soft delete d'une font — une **intention**, pas une absence constatée.
+    """Met une police à la corbeille de la bibliothèque (admin seulement).
 
-    Le motif `manual` est ce qui rend la suppression durable : sans lui,
-    `deleted_at` seul ne dit pas si la police a été supprimée ou si elle est
-    simplement absente, et la première machine qui détient encore le fichier la
-    ressuscite au push suivant.
+    Une **intention**, pas une absence constatée : la ligne reste, pour que la
+    première machine qui détient encore le fichier ne la ressuscite pas au push
+    suivant. La police n'est plus proposée à l'installation, mais elle n'est
+    **désinstallée de personne** : seul le propriétaire d'un Mac décide de ce
+    qui le quitte (cf. `services/deletion_propagation.py`).
     """
     font = await _get_font_or_404(font_id, db)
     font.deleted_at = datetime.now(timezone.utc)
@@ -869,8 +870,7 @@ async def delete_font(
             "data": {"id": str(font_id)},
         }
     )
-    # Les appareils qui propagent les suppressions doivent la désinstaller : ils
-    # l'apprendront à leur prochain delta, qu'on déclenche tout de suite.
+    # Le delta suivant cesse de la proposer au pull ; il ne la désinstalle pas.
     await ws_manager.broadcast_sync()
 
 

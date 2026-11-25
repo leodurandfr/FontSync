@@ -165,6 +165,20 @@ const fr: typeof en = {
     legacyTokenActive:
       "Le token d'instance (FONTSYNC_TOKEN) est encore actif. Retirez-le du fichier .env une fois tous vos Mac connectés avec un compte.",
   },
+  removals: {
+    title: "Polices retirées de mes Mac",
+    desc: "Les polices que vous avez supprimées sur un de vos Mac. Elles restent dans la bibliothèque partagée, mais vos Mac ne les réinstallent plus. Ceux où « Suivre mes suppressions » est activé les désinstallent.",
+    empty: "Aucune police retirée.",
+    removedFrom: "Retirée de {device} le {date}",
+    removedOn: "Retirée le {date}",
+    pendingTitle:
+      "{n} retrait en attente de confirmation | {n} retraits en attente de confirmation",
+    pendingDesc:
+      "Un de vos Mac a perdu beaucoup de polices d'un coup. Par sécurité, vos autres Mac ne les désinstalleront qu'après votre confirmation.",
+    confirm: "Confirmer",
+    pending: "En attente",
+    undo: "Remettre",
+  },
   users: {
     title: "Comptes",
     desc: "Tous les comptes partagent la même bibliothèque. Chacun gère ses propres Mac.",
@@ -268,9 +282,9 @@ const fr: typeof en = {
     autoPullDesc: "Installe les polices du serveur sur cet appareil",
     // Formulé comme un échange dans les deux sens, et gardé à part de
     // push/pull : c'est le seul réglage qui puisse faire disparaître un fichier.
-    propagateDeletions: "Propager les suppressions",
+    propagateDeletions: "Suivre mes suppressions",
     propagateDeletionsDesc:
-      "Désinstalle de cet appareil les polices supprimées du serveur. Désactivé par défaut : sans ça, aucun fichier n'est jamais effacé ici. Les suppressions faites sur cet appareil, elles, sont enregistrées par le serveur dans tous les cas — ce réglage ne commande que ce qui s'efface.",
+      "Désinstalle de ce Mac les polices que vous supprimez sur vos autres Mac. Désactivé par défaut : sans ça, aucun fichier n'est jamais effacé ici. Ni la corbeille de la bibliothèque ni un autre compte, admin compris, ne retirent jamais une police de ce Mac.",
     delete: "Retirer l'appareil",
     deleteTitle: "Retirer « {name} » ?",
     deleteConfirm:
@@ -332,8 +346,8 @@ const fr: typeof en = {
     pendingTitle:
       "{n} suppression en attente d'arbitrage | {n} suppressions en attente d'arbitrage",
     pendingDesc:
-      "Un appareil a signalé d'un coup plus de disparitions que le seuil de sécurité n'en autorise. Elles sont hors de la bibliothèque et récupérables, mais aucune autre machine ne les désinstallera tant que vous n'aurez pas confirmé.",
-    confirmPending: "Confirmer et propager",
+      "Une version précédente de FontSync a sorti ces polices de la bibliothèque après une disparition massive sur un appareil. Confirmez pour pouvoir vider la corbeille, ou restaurez-les. Aucun Mac ne les désinstallera.",
+    confirmPending: "Confirmer",
     awaitingArbitration: "En attente d'arbitrage",
   },
   upload: {

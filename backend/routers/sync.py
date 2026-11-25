@@ -18,6 +18,7 @@ from backend.schemas.font import FontResponse
 from backend.schemas.sync import DeltaSyncRequest, DeltaSyncResponse, PushResponse
 from backend.services.deletion_propagation import (
     DeletionDetection,
+    clear_reinstalled_removals,
     detect_local_deletions,
 )
 from backend.services.device_activity import (
@@ -90,19 +91,20 @@ async def delta_sync(
        crédible (ni vide, ni suspecte) : `device_fonts` devient le miroir de ce
        que la machine déclare, et `last_declaration_at` avance. La récolte
        livrée ici ne fait que compter et journaliser (cf. `services/harvest.py`).
-    3. **Commit unique**, puis notification des quarantaines.
-    4. **Delta** — lecture pure, voit ses propres quarantaines et sa propre
+    3. **Commit unique**, puis signal de re-sync des retraits confirmés.
+    4. **Delta** — lecture pure, voit ses propres retraits et sa propre
        réconciliation.
 
     La détection tourne pour **tout** appareil, quel que soit
     `propagate_deletions`. Conditionner l'écoute à ce réglage rendait toute
-    suppression locale impossible : le serveur ne concluait rien, la police
-    restait dans la bibliothèque, et `auto_pull` la réinstallait au sync suivant
-    — mesuré, 31 s entre le geste et son annulation. Or enregistrer une
-    disparition n'efface aucun fichier : la police part en corbeille,
-    récupérable d'un clic. `propagate_deletions` garde la moitié qui, elle,
-    détruit — la désinstallation sur les *autres* machines, arbitrée plus bas
-    par `compute_delta`.
+    suppression locale impossible : le serveur ne concluait rien, et
+    `auto_pull` réinstallait la police au sync suivant — mesuré, 31 s entre le
+    geste et son annulation. Or enregistrer une disparition n'efface aucun
+    fichier : c'est un retrait **personnel** du propriétaire (la bibliothèque
+    partagée n'y perd rien, les autres comptes non plus), annulable d'un clic.
+    `propagate_deletions` garde la moitié qui, elle, détruit — la
+    désinstallation sur les *autres* Mac du même compte, arbitrée plus bas par
+    `compute_delta`.
     """
     device = await _get_device_or_404(body.device_id, db)
     assert_device_access(principal, device)
@@ -110,6 +112,7 @@ async def delta_sync(
     # Le delta est le sync lui-même : l'agent est passé (cf. `sync_overdue`).
     note_sync_activity(device)
 
+    await clear_reinstalled_removals(device.id, body.fonts, db)
     detection = await detect_local_deletions(device.id, declared, db)
 
     # Écritures d'inventaire : uniquement sur une déclaration CRÉDIBLE. Une
@@ -133,31 +136,22 @@ async def delta_sync(
         db,
         device_id=device.id,
         propagate_deletions=device.propagate_deletions,
+        owner_user_id=device.owner_user_id,
     )
 
 
 async def _notify_quarantined(
     detection: DeletionDetection, *, source_device_id: str
 ) -> None:
-    """Signale les quarantaines au frontend, et le re-sync aux autres appareils.
+    """Signale le re-sync aux autres appareils après un retrait confirmé.
 
-    Le device source n'est pas re-signalé : il vient de nous dire qu'il n'a plus
-    ces polices, la réponse au delta en cours lui suffit. Une quarantaine en
-    attente de confirmation ne déclenche aucun re-sync — c'est tout l'objet du
-    seuil : personne d'autre ne touche à ses fichiers avant un oui.
+    La bibliothèque partagée ne change pas (un retrait est personnel) : rien à
+    diffuser au frontend. Les autres Mac du compte qui acceptent les
+    suppressions désinstallent au delta suivant ; les autres appareils
+    re-synchronisent pour rien, ce qui ne coûte qu'un delta. Le device source
+    n'est pas re-signalé, et un retrait en attente de confirmation ne
+    déclenche aucun re-sync — c'est tout l'objet du seuil.
     """
-    # Un seul message pour toute la quarantaine (B-44) : 625 polices disparues
-    # d'un coup faisaient 625 diffusions, et autant de passes côté frontend.
-    await ws_manager.broadcast_to_clients(
-        {
-            "type": "fonts.deleted",
-            "data": {
-                "ids": [
-                    str(font.id) for font in detection.quarantined + detection.pending
-                ]
-            },
-        }
-    )
     if detection.quarantined:
         await ws_manager.broadcast_sync(exclude_device_id=source_device_id)
 
