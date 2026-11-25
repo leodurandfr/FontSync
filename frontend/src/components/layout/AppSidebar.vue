@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
   Copy,
@@ -38,18 +38,47 @@ const CATEGORIES = [
   "symbol",
 ] as const;
 
+const router = useRouter();
 const onSettings = computed(() => route.path.startsWith("/settings"));
+const onFonts = computed(() => route.name === "fonts");
+
+// Compteur « Toutes les fontes » : le total renvoyé par l'API suit les filtres
+// actifs (catégorie, recherche). On ne l'affiche donc que sans filtre, sinon
+// « Toutes les fontes » afficherait le nombre de fontes serif, par exemple.
+const allFontsCount = computed(() =>
+  familiesStore.initialized &&
+  !filtersStore.classification &&
+  !filtersStore.search
+    ? familiesStore.total
+    : undefined,
+);
+
+// Ouverte directement sur une autre page (réglages, corbeille…), la liste n'a
+// pas encore été chargée : on la charge pour que le compteur soit juste.
+onMounted(() => {
+  if (!familiesStore.initialized && !familiesStore.loading) {
+    familiesStore.fetchFamilies(filtersStore.toFilters());
+  }
+});
+
+// Depuis une autre page, choisir une catégorie ramène à la liste des fontes
+// (sinon le filtre change en silence, sans effet visible).
+function showFonts() {
+  if (!onFonts.value) router.push({ name: "fonts" });
+}
 const auth = useAuthStore();
 const onTrash = computed(() => route.path.startsWith("/trash"));
 const onDuplicates = computed(() => route.path.startsWith("/duplicates"));
 
 function selectAll() {
   filtersStore.classification = undefined;
+  showFonts();
 }
 
 function selectCategory(value: string) {
   filtersStore.classification =
-    filtersStore.classification === value ? undefined : value;
+    onFonts.value && filtersStore.classification === value ? undefined : value;
+  showFonts();
 }
 
 // ── Resize ────────────────────────────────────────────────────
@@ -126,15 +155,13 @@ function startResize(e: PointerEvent) {
     >
       <!-- Header -->
       <!--
-        Le panneau part du haut de la fenêtre (y = 0) alors que la barre
-        flottante de droite (toolbar `h-12`) occupe y = 8 → 56. Hauteur 56px
-        avec `pt-2` : la rangée de contenu occupe le même 8 → 56 que la
-        toolbar (feux, label et bouton restent alignés sur elle) et le filet
-        du bas tombe pile sous la toolbar. `pl-7` (28px) garde les feux à leur
-        position fixe (cf. AppShell : left 28px, top 26px).
+        Même hauteur (56px) que la barre d'outils de droite, collée elle aussi
+        en haut : les deux filets du bas sont alignés. `px-5` (20px) place
+        l'espaceur des feux exactement sous les feux fixes (cf. AppShell :
+        left 20px, top 22px).
       -->
       <div
-        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator pl-7 pr-5 pt-2"
+        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator px-5"
         data-window-drag
       >
         <div class="flex min-w-0 items-center gap-3">
@@ -157,7 +184,7 @@ function startResize(e: PointerEvent) {
             d'être déjà à pleine opacité bien avant d'y arriver.
           -->
           <span
-            class="truncate text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity duration-100 ease-in-out"
+            class="truncate pt-px text-[13px] font-semibold leading-none transition-opacity duration-100 ease-in-out"
             :class="
               layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'
             "
@@ -176,14 +203,14 @@ function startResize(e: PointerEvent) {
       </div>
 
       <!-- Nav -->
-      <nav class="scrollbar-thin flex-1 overflow-y-auto px-5 py-3">
+      <nav class="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
         <SectionLabel class="px-2 pb-1.5">{{
           t("sidebar.library")
         }}</SectionLabel>
         <SidebarNavButton
           :label="t('sidebar.allFonts')"
-          :count="familiesStore.total"
-          :active="!filtersStore.classification"
+          :count="allFontsCount"
+          :active="onFonts && !filtersStore.classification"
           @click="selectAll"
         />
 
@@ -194,7 +221,7 @@ function startResize(e: PointerEvent) {
           v-for="cat in CATEGORIES"
           :key="cat"
           :label="t(`categories.${cat}`)"
-          :active="filtersStore.classification === cat"
+          :active="onFonts && filtersStore.classification === cat"
           @click="selectCategory(cat)"
         />
 
@@ -204,59 +231,67 @@ function startResize(e: PointerEvent) {
           }}</SectionLabel>
           <RouterLink
             :to="onDuplicates ? { name: 'fonts' } : { name: 'duplicates' }"
-            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onDuplicates
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-accent font-medium text-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
             <Copy class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[11px]">{{
+            <span class="truncate text-[12px]">{{
               t("sidebar.duplicates")
             }}</span>
           </RouterLink>
           <RouterLink
             :to="onTrash ? { name: 'fonts' } : { name: 'trash' }"
-            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onTrash
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-accent font-medium text-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
             <Trash2 class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[11px]">{{ t("sidebar.trash") }}</span>
+            <span class="truncate text-[12px]">{{ t("sidebar.trash") }}</span>
           </RouterLink>
         </template>
       </nav>
 
       <!-- Footer -->
+      <!--
+        Une seule rangée d'icônes (libellé en infobulle + aria-label) : le bas
+        du panneau prend le moins de hauteur possible.
+      -->
       <div
-        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-5 py-3"
+        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-2"
       >
         <UploadDialog>
           <button
             type="button"
-            class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent"
+            class="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            :title="t('sidebar.upload')"
+            :aria-label="t('sidebar.upload')"
           >
             <Upload class="size-3.5" :stroke-width="1.5" />
-            <span class="text-[11px]">{{ t("sidebar.upload") }}</span>
           </button>
         </UploadDialog>
 
         <RouterLink
           :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
-          class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+          class="flex size-8 items-center justify-center rounded-md transition-colors"
           :class="
             onSettings
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:bg-accent'
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
           "
+          :title="t('sidebar.settings')"
+          :aria-label="t('sidebar.settings')"
         >
           <Settings class="size-3.5" :stroke-width="1.5" />
-          <span class="text-[11px]">{{ t("sidebar.settings") }}</span>
         </RouterLink>
+
+        <div class="flex-1" />
 
         <ThemeToggle />
       </div>

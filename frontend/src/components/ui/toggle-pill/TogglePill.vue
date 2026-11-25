@@ -23,7 +23,7 @@ defineEmits<{ click: [MouseEvent] }>();
     :aria-pressed="pressed"
     :class="
       cn(
-        'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-[10px] transition-all',
+        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-all',
         pressed
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border text-muted-foreground hover:text-foreground',

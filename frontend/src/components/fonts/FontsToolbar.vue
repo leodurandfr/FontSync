@@ -14,7 +14,6 @@ import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
 import { showWindowControls } from "@/composables/useWindowControls";
 import WindowControls from "@/components/layout/WindowControls.vue";
-import { Panel } from "@/components/ui/panel";
 import { TypoInput } from "@/components/ui/typo-input";
 import {
   SegmentedControl,
@@ -47,8 +46,8 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
     (voir `EditablePreview.vue`). Mobile (max-sm) : les réglages typo fins sont
     masqués, il reste [toggle | layout | search] sur une seule rangée.
   -->
-  <Panel
-    class="flex flex-wrap items-stretch overflow-hidden p-0 sm:h-12 sm:flex-nowrap sm:items-center"
+  <div
+    class="flex flex-wrap items-stretch overflow-hidden border-b border-separator bg-card p-0 sm:h-14 sm:flex-nowrap sm:items-center"
     data-window-drag
   >
     <!-- 0 — Feux de fenêtre + réouverture sidebar (visibles quand repliée) -->
@@ -82,9 +81,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
           suivre un fondu continu).
         -->
         <div class="min-w-0 overflow-hidden">
-          <div
-            class="flex h-12 items-center gap-3 border-r border-separator pl-5 pr-3 sm:h-full"
-          >
+          <div class="flex h-12 items-center gap-3 pl-5 pr-3 sm:h-full">
             <!--
               Espace réservé, invisible : les vrais feux (interactifs) vivent
               en un seul exemplaire à position fixe dans AppShell — ce sont des
@@ -113,7 +110,7 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
       éditable (elle pilote la taille du nom).
     -->
     <div
-      class="order-2 hidden h-full flex-shrink-0 items-center gap-5 border-r border-separator px-6 sm:order-3 sm:flex"
+      class="order-2 hidden h-full flex-shrink-0 items-center gap-5 px-6 sm:order-3 sm:flex"
     >
       <TypoInput
         :icon="Type"
@@ -152,24 +149,24 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
 
     <!-- 1 — Search (ancré à gauche) -->
     <div
-      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:flex-1 sm:basis-0 sm:border-r sm:border-separator sm:px-6"
+      class="order-2 flex h-12 min-w-0 flex-1 items-center gap-2 px-4 sm:order-2 sm:h-full sm:flex-1 sm:basis-0 sm:px-6"
     >
       <Search
-        class="size-3 flex-shrink-0 text-foreground-subtle"
-        :stroke-width="2"
+        class="size-3.5 flex-shrink-0 text-muted-foreground"
+        :stroke-width="1.75"
       />
       <input
         v-model="search"
         type="search"
         :placeholder="t('toolbar.search')"
-        class="w-full bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
+        class="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-foreground-subtle"
       />
     </div>
 
     <!-- 4 — Compteur de familles (desktop uniquement, ancré à droite) -->
     <div
       v-if="familiesStore.initialized"
-      class="order-5 hidden h-full items-center justify-end whitespace-nowrap border-l border-separator px-6 font-mono text-[10px] tabular-nums text-foreground-subtle sm:flex sm:flex-1 sm:basis-0"
+      class="order-5 hidden h-full items-center justify-end whitespace-nowrap px-6 text-[12px] tabular-nums text-muted-foreground sm:flex sm:flex-1 sm:basis-0"
     >
       {{
         t("toolbar.familyCount", familiesStore.total, {
@@ -177,5 +174,5 @@ const layoutOptions = computed<SegmentedOption<FontLayout>[]>(() => [
         })
       }}
     </div>
-  </Panel>
+  </div>
 </template>

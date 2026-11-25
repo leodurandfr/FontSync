@@ -10,9 +10,8 @@ const filtersStore = useFamilyFiltersStore();
 
 // Réglages d'affichage persistés dans un store : ils survivent à l'aller-retour
 // vers le détail d'une fonte (sinon le layout retomberait sur « specimen »).
-const { layout, fontSize, lineHeight, letterSpacing } = storeToRefs(
-  useFontsViewStore(),
-);
+const { layout, fontSize, lineHeight, letterSpacing } =
+  storeToRefs(useFontsViewStore());
 
 const typo = computed(() => ({
   fontSize: fontSize.value,
@@ -36,8 +35,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative h-full">
-    <!-- Toolbar flottante -->
-    <div class="absolute left-2 right-2 top-2 z-20">
+    <!-- Barre d'outils collée en haut -->
+    <div class="absolute inset-x-0 top-0 z-20">
       <FontsToolbar
         v-model:font-size="fontSize"
         v-model:line-height="lineHeight"
@@ -47,14 +46,11 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Fade sous la toolbar -->
-    <div
-      class="pointer-events-none absolute left-0 right-2 top-[56px] z-10 h-10 bg-gradient-to-b from-background/75 to-transparent"
-    />
-
     <!-- Liste -->
-    <div class="scrollbar-thin absolute inset-x-0 bottom-0 top-[56px] overflow-y-auto">
-      <div class="pb-16 pt-3">
+    <div
+      class="scrollbar-thin absolute inset-x-0 bottom-0 top-[56px] overflow-y-auto"
+    >
+      <div class="pb-16">
         <FontFamilyList :typo="typo" :layout="layout" />
       </div>
     </div>

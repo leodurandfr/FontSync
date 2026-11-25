@@ -27,9 +27,9 @@ const model = defineModel<T>({ required: true });
       :aria-pressed="model === opt.value"
       :class="
         cn(
-          'flex size-8 items-center justify-center rounded-lg transition-all',
+          'flex size-7 items-center justify-center rounded-md transition-all',
           model === opt.value
-            ? 'bg-primary text-primary-foreground'
+            ? 'bg-accent text-foreground'
             : 'text-foreground-subtle hover:bg-accent hover:text-muted-foreground',
         )
       "

@@ -97,7 +97,7 @@ const previewStyle = computed(() => ({
           : 'translate-y-[calc(var(--word-shift)_*_-1)]',
       ]"
     >
-      <div class="mb-1 flex items-center gap-3 font-mono">
+      <div class="mb-1 flex items-center gap-3">
         <span class="text-[11px] font-medium text-muted-foreground">{{
           styleName
         }}</span>
@@ -108,10 +108,11 @@ const previewStyle = computed(() => ({
           <Button
             variant="ghost"
             size="icon-sm"
+            class="size-7 text-muted-foreground hover:text-foreground"
             :aria-label="t('common.download')"
             @click="handleDownload"
           >
-            <Download class="h-3.5 w-3.5" />
+            <Download class="size-3.5" :stroke-width="1.5" />
           </Button>
           <DeviceInstallSheet
             :font-ids="[member.fontId]"
@@ -122,7 +123,7 @@ const previewStyle = computed(() => ({
               :to="{ name: 'font-detail', params: { id: member.fontId } }"
               :aria-label="t('fontDetail.openDetails')"
             >
-              <ArrowUpRight class="h-3.5 w-3.5" />
+              <ArrowUpRight class="size-3.5" :stroke-width="1.5" />
             </RouterLink>
           </Button>
         </div>

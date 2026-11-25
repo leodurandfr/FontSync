@@ -30,7 +30,7 @@ const currentIcon = computed(
 <template>
   <DropdownMenu>
     <DropdownMenuTrigger
-      class="flex size-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent data-[state=open]:bg-accent"
+      class="flex size-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent data-[state=open]:bg-accent"
       :aria-label="t('theme.aria')"
     >
       <component :is="currentIcon" class="size-3.5" :stroke-width="1.5" />
@@ -39,7 +39,7 @@ const currentIcon = computed(
       <DropdownMenuItem
         v-for="opt in OPTIONS"
         :key="opt.value"
-        class="font-mono text-[11px]"
+        class="text-[13px]"
         @select="setTheme(opt.value)"
       >
         <component :is="opt.icon" class="size-3.5" :stroke-width="1.5" />

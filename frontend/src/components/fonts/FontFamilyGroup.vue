@@ -326,16 +326,16 @@ onBeforeUnmount(() => {
         {{ family.name }}
       </span>
       <span
-        class="hidden min-w-[80px] flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
+        class="hidden min-w-[80px] flex-shrink-0 text-[12px] text-muted-foreground sm:inline"
         >{{ category }}</span
       >
       <span
-        class="hidden flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
+        class="hidden flex-shrink-0 text-[12px] text-muted-foreground sm:inline"
         >{{ stylesLabel }}</span
       >
       <span
         v-if="format"
-        class="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle sm:inline"
+        class="hidden rounded bg-muted px-1.5 py-0.5 text-[11px] uppercase text-muted-foreground sm:inline"
         >{{ format }}</span
       >
       <div
@@ -346,10 +346,11 @@ onBeforeUnmount(() => {
           v-if="familyFontIds.length > 0"
           variant="ghost"
           size="icon-sm"
+          class="size-7 text-muted-foreground hover:text-foreground"
           :aria-label="t('common.download')"
           @click="handleDownloadFamily"
         >
-          <Download class="h-3.5 w-3.5" />
+          <Download class="size-3.5" :stroke-width="1.5" />
         </Button>
         <DeviceInstallSheet
           v-if="familyFontIds.length > 0"
@@ -368,53 +369,55 @@ onBeforeUnmount(() => {
     >
       <!-- En-tête : nom · styles · auteur (toujours visible). -->
       <div class="px-4 pt-7 sm:px-8">
-        <div class="flex items-center gap-3 font-mono">
+        <!-- Ligne de base commune : nom, styles et auteur au même corps (12px). -->
+        <div class="flex items-baseline gap-3">
           <button
             v-if="isMultiStyle"
             type="button"
-            class="group/toggle flex items-center gap-2"
+            class="group/toggle flex items-baseline gap-2"
             @click="toggle"
             @pointerenter="onPointerEnter"
             @pointerleave="onPointerLeave"
           >
             <ChevronUp
               v-if="open"
-              class="size-3 flex-shrink-0 text-foreground transition-colors group-hover/toggle:text-brand"
+              class="size-3 flex-shrink-0 self-center text-foreground transition-colors group-hover/toggle:text-brand"
               :stroke-width="2"
             />
             <ChevronDown
               v-else
-              class="size-3 flex-shrink-0 text-muted-foreground transition-colors group-hover/toggle:text-brand"
+              class="size-3 flex-shrink-0 self-center text-muted-foreground transition-colors group-hover/toggle:text-brand"
               :stroke-width="2"
             />
             <span
-              class="text-[11px] font-medium transition-colors group-hover/toggle:text-brand"
+              class="text-[12px] font-medium transition-colors group-hover/toggle:text-brand"
               >{{ family.name }}</span
             >
-            <span class="text-foreground-subtle">·</span>
-            <span class="text-[10px] text-muted-foreground">{{
+            <span class="text-[12px] text-foreground-subtle">·</span>
+            <span class="text-[12px] text-muted-foreground">{{
               stylesLabel
             }}</span>
           </button>
-          <span v-else class="text-[11px] font-medium">
+          <span v-else class="text-[12px] font-medium">
             {{ family.name }}
           </span>
 
-          <span v-if="foundry" class="text-[10px] text-foreground-subtle">{{
+          <span v-if="foundry" class="text-[12px] text-foreground-subtle">{{
             foundry
           }}</span>
           <div class="flex-1" />
           <div
-            class="flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+            class="flex items-center gap-1 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
           >
             <Button
               v-if="familyFontIds.length > 0"
               variant="ghost"
               size="icon-sm"
+              class="size-7 text-muted-foreground hover:text-foreground"
               :aria-label="t('common.download')"
               @click="handleDownloadFamily"
             >
-              <Download class="h-3.5 w-3.5" />
+              <Download class="size-3.5" :stroke-width="1.5" />
             </Button>
             <DeviceInstallSheet
               v-if="familyFontIds.length > 0"
@@ -426,6 +429,7 @@ onBeforeUnmount(() => {
               as-child
               variant="ghost"
               size="icon-sm"
+              class="size-7 text-muted-foreground hover:text-foreground"
             >
               <RouterLink
                 :to="{
@@ -434,7 +438,7 @@ onBeforeUnmount(() => {
                 }"
                 :aria-label="t('fontDetail.openDetails')"
               >
-                <ArrowUpRight class="h-3.5 w-3.5" />
+                <ArrowUpRight class="size-3.5" :stroke-width="1.5" />
               </RouterLink>
             </Button>
           </div>

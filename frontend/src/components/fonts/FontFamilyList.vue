@@ -60,7 +60,7 @@ watch(sentinelRef, (el) => {
   <!-- Loading skeleton -->
   <div
     v-if="familiesStore.loading && familiesStore.families.length === 0"
-    class="divide-y divide-separator border-y border-separator"
+    class="divide-y divide-separator border-b border-separator"
   >
     <div v-for="i in 6" :key="i" class="px-8 py-7">
       <Skeleton class="mb-4 h-3 w-40" />
@@ -83,7 +83,7 @@ watch(sentinelRef, (el) => {
 
   <!-- Family list -->
   <template v-else>
-    <ul class="divide-y divide-separator border-y border-separator">
+    <ul class="divide-y divide-separator border-b border-separator">
       <FontFamilyGroup
         v-for="family in familiesStore.families"
         :key="family.id"

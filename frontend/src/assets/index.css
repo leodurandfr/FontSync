@@ -9,14 +9,16 @@
  * de couleur en dur, uniquement ces variables via les utilitaires Tailwind.
  */
 @theme inline {
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "Menlo", monospace;
+  /* Police système (SF Pro sur Mac) : rendu natif, aucune police chargée du web. */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-panel: 16px;
+  --radius-panel: 10px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -56,7 +58,7 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.375rem;
 
   /* ── Light ──────────────────────────────────────────────── */
   --background: #f8f9fa; /* appBg — gris discret qui fait flotter les panneaux blancs (design-ctt) */
@@ -86,11 +88,16 @@
   --ring: #cccccc;
 
   --brand: #f5500a; /* couleur identitaire — orange vif/tech (accent au survol) */
-  --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
+  --foreground-subtle: #b0b0b0; /* fgSubtle — texte/icônes les plus discrets (assombri depuis #ccc, presque illisible sur fond clair) */
   --separator: #e4e4e4; /* séparateurs internes des panneaux (assombri vs #f2f2f2 pour rester visible sur fond clair) */
   --font-preview: #f0f0f3; /* fond des styles dépliés d'une famille — un cran sous le fond de page #f8f9fa */
-  --panel-border: rgba(0, 0, 0, 0.12); /* bordure externe des panneaux flottants (design-ctt) */
-  --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --panel-border: rgba(
+    0,
+    0,
+    0,
+    0.12
+  ); /* bordure externe des panneaux flottants (design-ctt) */
+  --panel-shadow: none;
 
   --sidebar: #ffffff;
   --sidebar-foreground: #111111;
@@ -131,11 +138,11 @@
   --ring: #333333;
 
   --brand: #ff6a33; /* couleur identitaire — orange vif/tech (accent au survol) */
-  --foreground-subtle: #333333; /* fgSubtle */
+  --foreground-subtle: #4d4d4d; /* fgSubtle */
   --separator: #1e1e1e;
   --font-preview: #080808; /* fond des styles dépliés d'une famille — creux le plus sombre, sous le fond de page #0c0c0c */
   --panel-border: rgba(255, 255, 255, 0.08);
-  --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --panel-shadow: none;
 
   --sidebar: #141414;
   --sidebar-foreground: #e8e8e8;

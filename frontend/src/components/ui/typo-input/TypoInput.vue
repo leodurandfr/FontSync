@@ -84,7 +84,7 @@ function commit(raw: string) {
         type="number"
         :step="step"
         :value="display"
-        class="w-9 appearance-none bg-transparent text-right font-mono text-[10px] tabular-nums text-foreground outline-none"
+        class="w-9 appearance-none bg-transparent text-right text-[12px] tabular-nums text-foreground outline-none"
         @blur="commit(($event.target as HTMLInputElement).value)"
         @keydown.enter="commit(($event.target as HTMLInputElement).value)"
         @keydown.escape="editing = false"
@@ -93,7 +93,7 @@ function commit(raw: string) {
         v-else
         type="button"
         :disabled="disabled"
-        class="w-9 text-right font-mono text-[10px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+        class="w-9 text-right text-[12px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
         @click="startEdit"
       >
         {{ display }}{{ suffix }}
@@ -109,7 +109,7 @@ function commit(raw: string) {
         class="z-50 origin-(--reka-hover-card-content-transform-origin) rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
       >
         <div class="flex w-44 items-center gap-2 px-3 py-2.5">
-          <span class="font-mono text-[9px] text-foreground-subtle">
+          <span class="text-[11px] tabular-nums text-foreground-subtle">
             {{ fmt(min) }}
           </span>
           <Slider
@@ -119,7 +119,7 @@ function commit(raw: string) {
             :step="step"
             class="flex-1"
           />
-          <span class="font-mono text-[9px] text-foreground-subtle">
+          <span class="text-[11px] tabular-nums text-foreground-subtle">
             {{ fmt(max) }}
           </span>
         </div>
