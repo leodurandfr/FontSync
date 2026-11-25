@@ -3,8 +3,8 @@
 Le seul recours quand l'admin a perdu son mot de passe : il n'y a pas d'email
 sortant pour un « mot de passe oublié ».
 
-    docker exec -it fontsync python -m backend.cli reset-password admin@exemple.fr
-    docker exec -it fontsync python -m backend.cli create-admin moi@exemple.fr
+    docker exec -it fontsync python -m backend.cli reset-password <email>
+    docker exec -it fontsync python -m backend.cli create-admin <email>
     docker exec -it fontsync python -m backend.cli list-users
 
 Sans `--password`, le mot de passe est demandé deux fois sans écho (ou généré
