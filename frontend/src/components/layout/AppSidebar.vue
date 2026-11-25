@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
   Copy,
@@ -38,18 +38,47 @@ const CATEGORIES = [
   "symbol",
 ] as const;
 
+const router = useRouter();
 const onSettings = computed(() => route.path.startsWith("/settings"));
+const onFonts = computed(() => route.name === "fonts");
+
+// Compteur « Toutes les fontes » : le total renvoyé par l'API suit les filtres
+// actifs (catégorie, recherche). On ne l'affiche donc que sans filtre, sinon
+// « Toutes les fontes » afficherait le nombre de fontes serif, par exemple.
+const allFontsCount = computed(() =>
+  familiesStore.initialized &&
+  !filtersStore.classification &&
+  !filtersStore.search
+    ? familiesStore.total
+    : undefined,
+);
+
+// Ouverte directement sur une autre page (réglages, corbeille…), la liste n'a
+// pas encore été chargée : on la charge pour que le compteur soit juste.
+onMounted(() => {
+  if (!familiesStore.initialized && !familiesStore.loading) {
+    familiesStore.fetchFamilies(filtersStore.toFilters());
+  }
+});
+
+// Depuis une autre page, choisir une catégorie ramène à la liste des fontes
+// (sinon le filtre change en silence, sans effet visible).
+function showFonts() {
+  if (!onFonts.value) router.push({ name: "fonts" });
+}
 const auth = useAuthStore();
 const onTrash = computed(() => route.path.startsWith("/trash"));
 const onDuplicates = computed(() => route.path.startsWith("/duplicates"));
 
 function selectAll() {
   filtersStore.classification = undefined;
+  showFonts();
 }
 
 function selectCategory(value: string) {
   filtersStore.classification =
-    filtersStore.classification === value ? undefined : value;
+    onFonts.value && filtersStore.classification === value ? undefined : value;
+  showFonts();
 }
 
 // ── Resize ────────────────────────────────────────────────────
@@ -180,8 +209,8 @@ function startResize(e: PointerEvent) {
         }}</SectionLabel>
         <SidebarNavButton
           :label="t('sidebar.allFonts')"
-          :count="familiesStore.total"
-          :active="!filtersStore.classification"
+          :count="allFontsCount"
+          :active="onFonts && !filtersStore.classification"
           @click="selectAll"
         />
 
@@ -192,7 +221,7 @@ function startResize(e: PointerEvent) {
           v-for="cat in CATEGORIES"
           :key="cat"
           :label="t(`categories.${cat}`)"
-          :active="filtersStore.classification === cat"
+          :active="onFonts && filtersStore.classification === cat"
           @click="selectCategory(cat)"
         />
 

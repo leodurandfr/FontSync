@@ -88,7 +88,7 @@
   --ring: #cccccc;
 
   --brand: #f5500a; /* couleur identitaire — orange vif/tech (accent au survol) */
-  --foreground-subtle: #cccccc; /* fgSubtle — texte/icônes les plus discrets */
+  --foreground-subtle: #b0b0b0; /* fgSubtle — texte/icônes les plus discrets (assombri depuis #ccc, presque illisible sur fond clair) */
   --separator: #e4e4e4; /* séparateurs internes des panneaux (assombri vs #f2f2f2 pour rester visible sur fond clair) */
   --font-preview: #f0f0f3; /* fond des styles dépliés d'une famille — un cran sous le fond de page #f8f9fa */
   --panel-border: rgba(
@@ -138,7 +138,7 @@
   --ring: #333333;
 
   --brand: #ff6a33; /* couleur identitaire — orange vif/tech (accent au survol) */
-  --foreground-subtle: #333333; /* fgSubtle */
+  --foreground-subtle: #4d4d4d; /* fgSubtle */
   --separator: #1e1e1e;
   --font-preview: #080808; /* fond des styles dépliés d'une famille — creux le plus sombre, sous le fond de page #0c0c0c */
   --panel-border: rgba(255, 255, 255, 0.08);
