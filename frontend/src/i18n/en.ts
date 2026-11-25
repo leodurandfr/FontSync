@@ -48,11 +48,12 @@ export default {
     palette: "Colors",
     palettes: {
       neutral: "Neutral",
-      amber: "Amber",
-      sage: "Green",
-      ocean: "Ocean",
-      lavender: "Violet",
-      rose: "Rose",
+      red: "Red & green",
+      green: "Green & red",
+      purple: "Purple & yellow",
+      yellow: "Yellow & blue",
+      blue: "Blue & orange",
+      orange: "Orange & blue",
     },
   },
   toolbar: {

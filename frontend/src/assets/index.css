@@ -162,100 +162,83 @@
 }
 
 /*
- * Palettes de couleurs (sélecteur en bas de la sidebar, réglages). Chaque
- * palette ne fixe qu'une teinte (`--tint`) ; les surfaces la reçoivent en
- * dosage léger via color-mix, l'accent (`--primary`) la porte pleinement.
- * Sans `data-palette` sur <html> : interface neutre d'origine (règles ci-dessus).
+ * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des paires
+ * de complémentaires franches. La sidebar prend la couleur principale, l'accent
+ * (élément actif, bouton de vue, boutons principaux) sa complémentaire. Sans `data-palette` sur <html> :
+ * interface neutre d'origine.
  */
-[data-palette="amber"] {
-  --tint: #f08c00;
-  --tint-on-dark: #ffa94d;
+[data-palette="red"] {
+  --p-sidebar: #d42434;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #00a04a;
+  --p-accent-fg: #ffffff;
 }
-[data-palette="sage"] {
-  --tint: #12a150;
-  --tint-on-dark: #4ade80;
+[data-palette="green"] {
+  --p-sidebar: #00a04a;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #d42434;
+  --p-accent-fg: #ffffff;
 }
-[data-palette="ocean"] {
-  --tint: #1f6feb;
-  --tint-on-dark: #60a5fa;
+[data-palette="purple"] {
+  --p-sidebar: #8e2a8a;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #ffda1a;
+  --p-accent-fg: #1a1a1a;
 }
-[data-palette="lavender"] {
-  --tint: #7c4dff;
-  --tint-on-dark: #a78bfa;
+[data-palette="yellow"] {
+  --p-sidebar: #ffda1a;
+  --p-sidebar-fg: #1a1a1a;
+  --p-accent: #22449a;
+  --p-accent-fg: #ffffff;
 }
-[data-palette="rose"] {
-  --tint: #e8467c;
-  --tint-on-dark: #f472b6;
+[data-palette="blue"] {
+  --p-sidebar: #22449a;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #f06424;
+  --p-accent-fg: #ffffff;
 }
-
-/* Clair : surfaces franchement colorées, texte foncé teinté. */
-:root[data-palette] {
-  --background: color-mix(in oklab, #ffffff, var(--tint) 30%);
-  --foreground: color-mix(in oklab, #111111, var(--tint) 30%);
-  --card: color-mix(in oklab, #ffffff, var(--tint) 18%);
-  --card-foreground: var(--foreground);
-  --popover: color-mix(in oklab, #ffffff, var(--tint) 12%);
-  --popover-foreground: var(--foreground);
-  --sidebar: color-mix(in oklab, #ffffff, var(--tint) 26%);
-  --sidebar-foreground: var(--foreground);
-  --primary: color-mix(in oklab, var(--tint), #000000 15%);
-  --primary-foreground: #ffffff;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: #ffffff;
-  --secondary: color-mix(in oklab, #ffffff, var(--tint) 24%);
-  --secondary-foreground: var(--foreground);
-  --muted: color-mix(in oklab, #ffffff, var(--tint) 22%);
-  --muted-foreground: color-mix(in oklab, #555555, var(--tint) 45%);
-  --accent: color-mix(in oklab, #ffffff, var(--tint) 42%);
-  --accent-foreground: color-mix(in oklab, #000000, var(--tint) 35%);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --border: color-mix(in oklab, #ffffff, var(--tint) 38%);
-  --input: var(--border);
-  --ring: var(--tint);
-  --brand: var(--tint);
-  --foreground-subtle: color-mix(in oklab, #777777, var(--tint) 40%);
-  --separator: color-mix(in oklab, #ffffff, var(--tint) 45%);
-  --sidebar-border: var(--separator);
-  --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, #ffffff, var(--tint) 36%);
-  --segment-track: color-mix(in oklab, #ffffff, var(--tint) 40%);
-  --segment-thumb: #ffffff;
+[data-palette="orange"] {
+  --p-sidebar: #f06424;
+  --p-sidebar-fg: #ffffff;
+  --p-accent: #22449a;
+  --p-accent-fg: #ffffff;
 }
-
-/* Sombre : fonds profonds de la couleur, texte clair teinté. */
-:root.dark[data-palette] {
-  --background: color-mix(in oklab, #000000, var(--tint) 22%);
-  --foreground: color-mix(in oklab, #ffffff, var(--tint-on-dark) 18%);
-  --card: color-mix(in oklab, #000000, var(--tint) 28%);
-  --card-foreground: var(--foreground);
-  --popover: color-mix(in oklab, #000000, var(--tint) 34%);
-  --popover-foreground: var(--foreground);
-  --sidebar: color-mix(in oklab, #000000, var(--tint) 32%);
-  --sidebar-foreground: var(--foreground);
-  --primary: var(--tint-on-dark);
-  --primary-foreground: #111111;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: #111111;
-  --secondary: color-mix(in oklab, #000000, var(--tint) 38%);
-  --secondary-foreground: var(--foreground);
-  --muted: color-mix(in oklab, #000000, var(--tint) 26%);
-  --muted-foreground: color-mix(in oklab, #9a9a9a, var(--tint-on-dark) 45%);
-  --accent: color-mix(in oklab, #000000, var(--tint) 48%);
-  --accent-foreground: color-mix(in oklab, #ffffff, var(--tint-on-dark) 25%);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --border: color-mix(in oklab, #000000, var(--tint) 42%);
-  --input: var(--border);
-  --ring: var(--tint-on-dark);
-  --brand: var(--tint-on-dark);
-  --foreground-subtle: color-mix(in oklab, #000000, var(--tint-on-dark) 55%);
-  --separator: color-mix(in oklab, #000000, var(--tint) 44%);
-  --sidebar-border: var(--separator);
-  --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, #000000, var(--tint) 16%);
-  --segment-track: color-mix(in oklab, #000000, var(--tint) 42%);
-  --segment-thumb: color-mix(in oklab, #000000, var(--tint) 70%);
+/*
+ * Deux couleurs, rien d'autre : toutes les surfaces (fond, cartes, sidebar,
+ * menus) prennent la couleur principale pure, et tout ce qui est actif ou
+ * tracé (sélection, boutons, filets, focus) sa complémentaire pure. Le texte
+ * est blanc ou noir selon le fond. Aucune teinte intermédiaire, et le rendu
+ * est le même en clair et en sombre.
+ */
+:root[data-palette],
+:root.dark[data-palette],
+[data-palette] [data-surface="sidebar"],
+.dark[data-palette] [data-surface="sidebar"] {
+  --background: var(--p-sidebar);
+  --foreground: var(--p-sidebar-fg);
+  --card: var(--p-sidebar);
+  --card-foreground: var(--p-sidebar-fg);
+  --popover: var(--p-sidebar);
+  --popover-foreground: var(--p-sidebar-fg);
+  --primary: var(--p-accent);
+  --primary-foreground: var(--p-accent-fg);
+  --secondary: var(--p-sidebar);
+  --secondary-foreground: var(--p-sidebar-fg);
+  --muted: var(--p-sidebar);
+  --muted-foreground: var(--p-sidebar-fg);
+  --foreground-subtle: var(--p-sidebar-fg);
+  --accent: var(--p-accent);
+  --accent-foreground: var(--p-accent-fg);
+  --border: var(--p-accent);
+  --input: var(--p-accent);
+  --ring: var(--p-accent);
+  --brand: var(--p-accent);
+  --separator: var(--p-accent);
+  --panel-border: var(--p-accent);
+  --font-preview: var(--p-sidebar);
+  --segment-track: var(--p-accent);
+  --segment-thumb: var(--p-sidebar);
+  --destructive: var(--p-accent);
 }
 
 @layer base {
