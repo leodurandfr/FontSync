@@ -11,6 +11,7 @@ struct MenuContent: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updater: UpdaterViewModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         // En-tête : état de connexion.
@@ -47,10 +48,16 @@ struct MenuContent: View {
 
         Divider()
 
-        SettingsLink {
-            Text("Préférences…")
+        // Jeton refusé : se reconnecter se fait dans les Préférences, le dire
+        // ici plutôt que de laisser l'utilisateur deviner.
+        if model.connection == .unauthorized {
+            Button("Se connecter…") { showSettings() }
         }
-        .keyboardShortcut(",")
+
+        // Pas `SettingsLink` : dans une app de barre de menus (LSUIElement),
+        // elle ouvre la fenêtre sans activer l'app, donc derrière les autres.
+        Button("Préférences…") { showSettings() }
+            .keyboardShortcut(",")
 
         Button("Ouvrir les journaux") {
             openLogs()
@@ -72,6 +79,20 @@ struct MenuContent: View {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// Ouvre les Préférences au premier plan. L'app n'a pas de Dock : sans
+    /// activation explicite, la fenêtre s'ouvre sous celle de l'app active.
+    /// La fenêtre n'existe qu'après `openSettings()`, d'où le second passage.
+    private func showSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows
+                .first { $0.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" }?
+                .makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Ouvre `~/Library/Logs/FontSync/` dans le Finder (P3.5). Crée le dossier
