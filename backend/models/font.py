@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    and_,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -119,25 +120,30 @@ class Font(UUIDPrimaryKey, Base):
 # directement `Font.deletion_confirmed`, pas ces helpers.)
 #
 # La lecture porte sur `Font.deletion_confirmed` (`NOT NULL`) — plus de liste
-# blanche à traduire, plus de logique ternaire à éviter. **Chaque appel doit
-# rester combiné à `deleted_at IS NOT NULL`** : le défaut `False` de
+# blanche à traduire, plus de logique ternaire à éviter. Le défaut `False` de
 # `deletion_confirmed` est partagé par toute la bibliothèque vivante, pas
-# seulement par les suppressions en attente.
+# seulement par les suppressions en attente : **le prédicat et les clauses
+# portent donc eux-mêmes `deleted_at IS NOT NULL`** (M-12). Un appelant qui
+# garde son propre filtre `deleted_at` reste correct (condition redondante).
 
 
 def is_deletion_confirmed(font: Font) -> bool:
     """Cette suppression peut-elle produire un effet irréversible ?"""
-    return font.deletion_confirmed
+    return font.deleted_at is not None and font.deletion_confirmed
 
 
 def deletion_confirmed_clause():
     """Version SQL de `is_deletion_confirmed`, pour un `WHERE`."""
-    return Font.deletion_confirmed.is_(True)
+    return and_(Font.deleted_at.is_not(None), Font.deletion_confirmed.is_(True))
 
 
 def deletion_unconfirmed_clause():
-    """Le complément explicite de `deletion_confirmed_clause`."""
-    return Font.deletion_confirmed.is_(False)
+    """Suppression en attente de confirmation : supprimée, pas encore confirmée.
+
+    Ce n'est pas le complément logique de `deletion_confirmed_clause` : une
+    police vivante ne vérifie ni l'une ni l'autre.
+    """
+    return and_(Font.deleted_at.is_not(None), Font.deletion_confirmed.is_(False))
 
 
 from backend.models.device_font import DeviceFont  # noqa: E402

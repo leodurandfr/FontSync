@@ -487,10 +487,10 @@ async def confirm_pending_deletions(
     suspension — c'est la seule action de tout ce module qui peut faire
     disparaître un fichier ailleurs, d'où le geste explicite.
     """
-    # `deleted_at IS NOT NULL` n'est pas redondant : `deletion_confirmed` vaut
-    # `False` par défaut sur toute la bibliothèque vivante, pas seulement sur
-    # les suppressions en attente. Sans cette clause, un clic sur « Confirmer et
-    # propager » porterait sur la bibliothèque entière.
+    # `deletion_confirmed` vaut `False` par défaut sur toute la bibliothèque
+    # vivante : sans `deleted_at IS NOT NULL`, un clic sur « Confirmer et
+    # propager » porterait sur la bibliothèque entière. La clause le porte
+    # elle-même depuis M-12 ; le filtre explicite est gardé en double sécurité.
     result = await db.execute(
         select(Font).where(
             Font.deleted_at.is_not(None),

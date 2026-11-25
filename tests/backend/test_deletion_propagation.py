@@ -24,7 +24,12 @@ from sqlalchemy import func, select
 from backend.config import settings
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
-from backend.models.font import Font
+from backend.models.font import (
+    Font,
+    deletion_confirmed_clause,
+    deletion_unconfirmed_clause,
+    is_deletion_confirmed,
+)
 from backend.routers.fonts import delete_font, restore_font
 from backend.routers.sync import delta_sync
 from backend.schemas.sync import DeltaSyncRequest, DeviceFontEntry
@@ -1623,3 +1628,55 @@ async def test_no_quarantine_no_message(
     monkeypatch.setattr(sync_router, "ws_manager", _CapturingManager(events))
     await _delta(api_client, laptop, [kept["fileHash"]])
     assert [k for k, _ in events if k == "ws"] == []
+
+
+# =====================================================================
+# M-12 — les clauses de suppression portent elles-mêmes deleted_at
+# =====================================================================
+
+
+async def _ids_matching(db, clause) -> set:
+    result = await db.execute(select(Font.id).where(clause))
+    return set(result.scalars().all())
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_clause_excludes_live_fonts(
+    db, storage, font_factory
+) -> None:
+    """Une police vivante n'est pas « une suppression non confirmée ».
+
+    `deletion_confirmed` vaut `False` par défaut pour toute la bibliothèque
+    vivante : sans `deleted_at IS NOT NULL` dans la clause, un appelant qui
+    oublie le filtre séparé traiterait la bibliothèque entière comme une
+    suppression en attente.
+    """
+    live = await _make_font(db, storage, font_factory, "Alive")
+    pending = await _make_font(db, storage, font_factory, "Pending")
+    pending.deleted_at = datetime.now(timezone.utc)
+    pending.deletion_confirmed = False
+    await db.commit()
+
+    assert await _ids_matching(db, deletion_unconfirmed_clause()) == {pending.id}
+    assert live.id not in await _ids_matching(db, deletion_unconfirmed_clause())
+
+
+@pytest.mark.asyncio
+async def test_confirmed_clause_excludes_live_fonts(db, storage, font_factory) -> None:
+    """Un drapeau `deletion_confirmed` vrai sur une police vivante ne la rend
+    jamais éligible à un effet irréversible : la clause et le prédicat exigent
+    aussi `deleted_at IS NOT NULL`.
+
+    Aucun chemin applicatif ne produit cet état aujourd'hui (la restauration
+    et la renaissance remettent le drapeau à `False`) : c'est une défense en
+    profondeur contre une écriture à la main ou un futur chemin oublieux."""
+    flagged = await _make_font(db, storage, font_factory, "Flagged")
+    flagged.deletion_confirmed = True  # deleted_at reste NULL
+    gone = await _make_font(db, storage, font_factory, "Gone")
+    gone.deleted_at = datetime.now(timezone.utc)
+    gone.deletion_confirmed = True
+    await db.commit()
+
+    assert await _ids_matching(db, deletion_confirmed_clause()) == {gone.id}
+    assert is_deletion_confirmed(gone) is True
+    assert is_deletion_confirmed(flagged) is False

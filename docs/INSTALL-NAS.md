@@ -39,7 +39,15 @@ The image is published on **GitHub Container Registry**:
 This is the simplest and most reproducible method, including on Synology whose
 **Container Manager** can import a compose file ("Project").
 
-1. Create a folder on the NAS, e.g. `docker/fontsync/`.
+1. Create a folder on the NAS, e.g. `docker/fontsync/`, and in it the
+   backup folder (§5) — Synology's Docker refuses to start a container whose
+   bind-mount folder does not exist, and `700` keeps the database copies
+   private:
+
+   ```bash
+   mkdir -m 700 auto-backups   # or the FONTSYNC_BACKUP_DIR you set in .env
+   ```
+
 2. Drop the [`docker-compose.nas.yml`](../docker-compose.nas.yml) file from the repo into it.
 3. Next to it, create a **`.env`** file containing your two secrets — both are
    required, the compose refuses to start without either. The command refuses
@@ -71,7 +79,9 @@ This is the simplest and most reproducible method, including on Synology whose
 
 ### On Synology Container Manager (graphical interface)
 
-1. **Container Manager → Project → Create**.
+1. **Container Manager → Project → Create** — after creating the
+   `auto-backups` folder in the project folder (File Station, or step 1
+   above): the project does not start without it.
 2. Source: "Create a docker-compose.yml" (paste the content of
    `docker-compose.nas.yml`) or "Import" the file.
 3. Fill in the `FONTSYNC_TOKEN` **and** `WATCHTOWER_TOKEN` variables
@@ -98,6 +108,7 @@ This is the simplest and most reproducible method, including on Synology whose
 | `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |
 | `ALLOWED_HOSTS`     | Extra host names accepted in the `Host` header (comma-separated, `*.suffix` allowed). `*` disables the check | `nas.home.lan,*.example.com` |
 | `DEVICE_OVERDUE_MINUTES` | A device whose agent has not synced for this long is flagged "overdue" in Settings → Devices, even when connected. Default `30` (3 × the agent's 600 s interval) | `30` |
+| `FONTSYNC_BACKUP_DIR` | **Host** folder mounted on `/backups` (read by the compose file, not by the server). Default `./auto-backups`, next to the compose file | `/volume2/fontsync-backups` |
 
 > If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
 > startup and **logs** it (never an open server by default). The example
@@ -133,10 +144,21 @@ This is the simplest and most reproducible method, including on Synology whose
 |---------|-----------|-------------------------------------------------|
 | `db`    | `/data`   | SQLite database: `fontsync.db` (+ `-wal`, `-shm`)  |
 | `fonts` | `/fonts`  | Font files (organized by hash prefix) |
-| `backups` | `/backups` | Automatic backups (§5) — only used if `BACKUP_DIR` is set |
+
+| Host folder | Mounted on | Content |
+|-------------|-----------|---------|
+| `FONTSYNC_BACKUP_DIR` (default `./auto-backups`) | `/backups` | Automatic backups (§5) — only used if `BACKUP_DIR` is set |
 
 The **`db`** and **`fonts`** volumes make up the entire state of the server:
-backing them up means backing up FontSync (see §5, and `backups` if enabled).
+backing them up means backing up FontSync (see §5).
+
+The backups are deliberately **not** a named volume: named volumes belong to
+the compose project, and `docker compose down -v` deletes them all at once —
+the backups together with the data they exist to restore. A host folder
+survives that. Put it on another volume or a USB disk if the NAS has one —
+but not in the `backups/` folder that `scripts/backup-prod.sh` writes to by
+default: both rotate `fontsync-*.db` down to 14 files, so a shared folder
+would quietly halve the retention.
 
 ---
 
@@ -207,9 +229,10 @@ files). The database is in **WAL** mode: writes may reside in the
 
 ### Automatic (built in, on by default in the example compose)
 
-`docker-compose.nas.yml` sets `BACKUP_DIR=/backups`, mounted on a third
-volume (`backups`). With it set, the server itself takes care of backups —
-no cron job, no NAS Task Scheduler, no `docker exec` from the host:
+`docker-compose.nas.yml` sets `BACKUP_DIR=/backups`, mounted from a host
+folder (`FONTSYNC_BACKUP_DIR` in `.env`, `./auto-backups` by default — see §3 for
+why it is not a named volume). With it set, the server itself takes care of
+backups — no cron job, no NAS Task Scheduler, no `docker exec` from the host:
 
 - a **daily** consistent snapshot of the database (same `sqlite3.backup()`
   API as below, run from inside the process — nothing to merge, nothing to
@@ -218,7 +241,7 @@ no cron job, no NAS Task Scheduler, no `docker exec` from the host:
   copies only what's new after the first pass).
 
 Leave `BACKUP_DIR` empty to disable it — a snapshot written without a
-mounted volume would just vanish on the next container recreation, silently.
+mounted folder would just vanish on the next container recreation, silently.
 **Settings → Server** shows the latest snapshot and the last mirror pass, and
 warns when no snapshot is younger than 36 h, when the last backup failed, or
 when fonts could not be mirrored (same data: `GET /api/system/backups`).
@@ -226,9 +249,38 @@ Inspect what's there with `docker compose -f docker-compose.nas.yml exec
 fontsync ls -la /backups /backups/fonts`.
 
 It protects against a bad migration, a mistaken trash emptying or a damaged
-database — **not against losing the NAS**: `/backups` sits on the same disks
-as the data. Copy it elsewhere as well (Hyper Backup, `rclone`, an external
-drive). The two methods below are for a **one-off** manual copy (e.g. right
+database — **not against losing the NAS**: the backup folder sits in the same
+box as the data (a disk failure, a theft, a fire or ransomware takes both).
+**An off-NAS copy is required**: a scheduled, encrypted Hyper Backup or
+`rclone` task that copies the backup folder — and the compose folder, whose
+`.env` holds the tokens, hence the encryption — to a USB disk kept elsewhere,
+another NAS or a cloud (on Synology, Hyper Backup only offers shared folders
+as sources: put `FONTSYNC_BACKUP_DIR` in one). Test a restore from that copy
+once.
+
+> **Upgrading from a compose that used a `backups` named volume.** The new
+> folder starts empty and the old volume is left as it is (`up -d` never
+> deletes it). The **Update** button does not apply a new compose file:
+> Watchtower recreates the container with its old mounts, so replace the
+> compose file yourself, then copy the old backups **before** `docker compose
+> up -d` (on DSM, prefix each command with `sudo`). `B` is your
+> `FONTSYNC_BACKUP_DIR`, or `auto-backups` in the compose folder by default:
+>
+> ```bash
+> docker volume ls | grep _backups      # the exact name, e.g. fontsync_backups
+> B=/volume1/docker/fontsync/auto-backups
+> mkdir -m 700 -p "$B"
+> docker run --rm -v fontsync_backups:/from:ro -v "$B":/to alpine cp -a /from/. /to/
+> ls "$B"                                 # the old fontsync-*.db and pre-migrate-*.db
+> ```
+>
+> A wrong volume name does not fail: Docker creates an empty volume and
+> nothing is copied. So check that `$B` holds the old `fontsync-*.db` /
+> `pre-migrate-*.db` files and a `fonts/` folder before anything else, and
+> keep the old volume until you have — a fresh snapshot in Settings → Server
+> proves the new mount works, not that the old backups made it across.
+
+The two methods below are for a **one-off** manual copy (e.g. right
 before a risky operation, or to export a copy to external storage) —
 `scripts/backup-prod.sh` in the repo does the same thing as Method B, callable
 straight from the NAS shell.
@@ -444,6 +496,59 @@ tailscale status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); \
 ```
 
 A node shows `no expiry` once expiry is disabled.
+
+#### Keep the API off the LAN (sidecar on a shared Docker network)
+
+With a Tailscale sidecar, the LAN does not need to reach FontSync at all. Put the
+sidecar and the server on a shared Docker network, proxy to a network alias of
+the server, and publish the host port on the loopback interface only (tools that run on the
+NAS itself, such as `curl http://127.0.0.1:8080/health`, keep working):
+
+```bash
+docker network create fontsync-edge
+```
+
+In the FontSync compose file (service `fontsync`):
+
+```yaml
+    ports:
+      - "127.0.0.1:8080:8000"
+    networks:
+      default: {}        # keep it: watchtower is reached on the default network
+      fontsync-edge:
+        aliases:
+          - fontsync-api # the name the sidecar proxies to
+# …and at the end of the file
+networks:
+  fontsync-edge:
+    external: true
+```
+
+In the sidecar's compose file (it can live in its own project):
+
+```yaml
+  ts-fontsync:
+    networks:
+      - default
+      - fontsync-edge
+# …and at the end of the file
+networks:
+  fontsync-edge:
+    external: true
+```
+
+In the sidecar's serve config (`TS_SERVE_CONFIG`), proxy to that alias, not to
+the NAS's LAN address: `"Proxy": "http://fontsync-api:8000"`. Do not proxy to the
+service name when the sidecar's `hostname:` is the same word (a sidecar named
+`fontsync` on the tailnet is the usual case): Docker writes a container's own
+hostname into its `/etc/hosts`, so the sidecar would resolve that name to itself.
+Then run
+`docker compose up -d` in both projects, keeping the sidecar's state directory so
+it does not register as a new node. Check that `http://<NAS LAN IP>:8080/health`
+is refused and that `https://<name>.<tailnet>.ts.net/health` answers 200.
+
+Any Mac whose agent still uses the LAN URL loses the server: switch it to the
+`*.ts.net` URL **first** (app settings, or `server.url` in `~/.fontsync/config.yaml`).
 
 ---
 

@@ -40,9 +40,9 @@ services:
       WATCHTOWER_URL: http://watchtower:8080
       WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN:-}
       # Sauvegarde automatique : instantané quotidien de la base + miroir
-      # hebdomadaire des polices, écrits dans le volume `backups` ci-dessous.
-      # Vide → désactivée ; ce compose l'active par défaut. Détail : §5 de
-      # docs/INSTALL-NAS.md.
+      # hebdomadaire des polices, écrits dans le dossier hôte monté sur
+      # /backups ci-dessous. Vide → désactivée ; ce compose l'active par
+      # défaut. Détail : §5 de docs/INSTALL-NAS.md.
       BACKUP_DIR: /backups
       # Noms d'hôte acceptés en plus des défauts (IP, localhost, *.local,
       # *.ts.net) : nom de domaine perso, reverse proxy, nas.home.arpa…
@@ -61,7 +61,16 @@ services:
     volumes:
       - db:/data             # base SQLite : fontsync.db (+ -wal, -shm)
       - fonts:/fonts         # fichiers de polices stockés
-      - backups:/backups     # sauvegarde automatique (instantanés + miroir)
+      # Sauvegarde automatique (instantanés + miroir) : un dossier de l'hôte,
+      # pas un volume nommé — `docker compose down -v` efface les volumes du
+      # projet, donc les sauvegardes avec les données qu'elles protègent.
+      # Choisissez-le dans .env (FONTSYNC_BACKUP_DIR=/volume2/fontsync-backups,
+      # idéalement un autre volume ou un disque USB) ; à défaut, ./auto-backups
+      # à côté de ce fichier — pas ./backups, où écrit scripts/backup-prod.sh :
+      # les deux font tourner fontsync-*.db sur 14 fichiers, un dossier commun
+      # diviserait la rétention par deux. Il reste sur le NAS : une copie hors
+      # du NAS est nécessaire en plus (§5 de docs/INSTALL-NAS.md).
+      - ${FONTSYNC_BACKUP_DIR:-./auto-backups}:/backups
     healthcheck:
       test:
         - CMD
@@ -103,4 +112,3 @@ services:
 volumes:
   db:
   fonts:
-  backups:

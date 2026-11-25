@@ -79,8 +79,38 @@ SPARKLE_BIN="$(find macos-app/build/SourcePackages/artifacts -path '*/Sparkle/bi
 #     <key>SUPublicEDKey</key><string>…</string>   (remplace le placeholder)
 ```
 
-> Sauvegarder la clé privée (export Trousseau) : la **perdre** = impossible de
-> publier des mises à jour signées que les anciens clients accepteront.
+> Sauvegarder la clé privée (export Trousseau, `generate_keys -x <fichier>`)
+> hors de la machine. La perdre **seule** se rattrape : Sparkle 2 accepte une
+> mise à jour dont la signature EdDSA ne correspond pas tant que l'archive est
+> signée Developer ID par la **même équipe** (`SUUpdateValidator` :
+> `passedDSACheck || passedCodeSigning`) — c'est le chemin de la rotation
+> ci-dessous. Perdre **à la fois** la clé EdDSA et l'identité Developer ID
+> (Team ID) est fatal : plus aucune mise à jour automatique, réinstallation à la
+> main sur chaque Mac. Un renouvellement du certificat garde le Team ID.
+
+**Rotation de la clé EdDSA** (clé perdue ou compromise) :
+
+1. Générer une nouvelle paire (`generate_keys` sur un Mac sans clé Sparkle, ou
+   `generate_keys --account <nom>`, et le même `--account` pour
+   `generate_appcast` et `sign_update`), l'exporter aussitôt vers le coffre et
+   vérifier que la clé publique dérivée de l'export est celle qu'affiche
+   `generate_keys -p`.
+2. Mettre la nouvelle clé publique dans `SUPublicEDKey` (`Info.plist`),
+   incrémenter `BUILD`.
+3. Construire, signer **avec la même identité Developer ID**, publier. Les
+   clients existants (ancienne clé publique) acceptent la mise à jour par le
+   repli code signing ; la nouvelle app embarque la nouvelle clé, qui valide
+   l'archive. Seules des archives delta échoueraient (Sparkle repasse alors à
+   la mise à jour complète).
+4. Vérifier sur un Mac resté sur l'ancienne version que Sparkle propose et
+   installe la mise à jour.
+
+C'est ce qui s'est passé avec la 0.1.1 (clé régénérée en août 2026) : les
+installations 0.0.1/0.1.0 (ancienne clé `Xh/LjJL5…`) peuvent la recevoir.
+
+**Sauvegarde** : clé actuelle (`SUPublicEDKey` `Y2QX4ngX…`) exportée le
+2026-11-25 vers un gestionnaire de mots de passe, après contrôle (clé publique
+dérivée du fichier exporté = `SUPublicEDKey`) ; copie en clair effacée.
 
 ### 5. URL du flux Sparkle (`SUFeedURL`)
 
