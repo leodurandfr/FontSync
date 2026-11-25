@@ -25,6 +25,7 @@ from urllib.parse import unquote
 
 import httpx
 
+from agent.capabilities import CAPABILITIES
 from agent.config import AGENT_VERSION, AgentConfig
 from agent.scanner import ScannedFont
 
@@ -152,6 +153,8 @@ class SyncClient:
             "font_directories": self.config.directories,
             "auto_pull": self.config.auto_pull,
             "auto_push": self.config.auto_push,
+            # Annoncées, pas encore exploitées par le serveur (B-32).
+            "capabilities": list(CAPABILITIES),
         }
         if self.config.device_id:
             payload["device_id"] = self.config.device_id

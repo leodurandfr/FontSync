@@ -1,7 +1,7 @@
 """user accounts
 
 Revision ID: e4a7b2c91d35
-Revises: d81f3c2a6b94
+Revises: c4e7a92b5d18
 Create Date: 2026-11-25 12:00:00.000000
 
 Comptes utilisateurs : tables `users`, `auth_sessions`, `invitations`, et
@@ -22,7 +22,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "e4a7b2c91d35"
-down_revision: Union[str, None] = "d81f3c2a6b94"
+down_revision: Union[str, None] = "c4e7a92b5d18"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
