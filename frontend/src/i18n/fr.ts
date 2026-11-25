@@ -63,6 +63,11 @@ const fr: typeof en = {
     installedOnCount: "Installée sur {n} de vos {total} machines",
   },
   fontDetail: {
+    trash: "Mettre à la corbeille",
+    trashTitle: "Mettre « {name} » à la corbeille ?",
+    trashConfirm:
+      "La police sort de la bibliothèque mais reste dans la Corbeille, d'où vous pouvez la restaurer. Un Mac ne la désinstalle que si « Propager les suppressions » est activé pour cet appareil.",
+    trashFailed: "Impossible de mettre la police à la corbeille : {error}",
     openDetails: "Voir les détails",
     cannotLoad: "Impossible de charger la police.",
     fonts: "Polices",

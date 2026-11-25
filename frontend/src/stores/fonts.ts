@@ -114,6 +114,20 @@ export const useFontsStore = defineStore("fonts", () => {
     return (await res.json()) as FontUploadResponse;
   }
 
+  /**
+   * Met une police à la corbeille (`DELETE /api/fonts/{id}`). Côté serveur
+   * c'est une intention récupérable depuis la Corbeille, pas un effacement.
+   * Lève une `Error` portant le `detail` du serveur en cas de refus.
+   */
+  async function trashFont(fontId: string): Promise<void> {
+    const res = await apiFetch(`/api/fonts/${fontId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? `HTTP ${res.status}`);
+    }
+    removeFonts([fontId]);
+  }
+
   function addFont(font: Font) {
     const exists = fonts.value.find((f) => f.id === font.id);
     if (!exists) {
@@ -122,9 +136,11 @@ export const useFontsStore = defineStore("fonts", () => {
     }
   }
 
+  // Délègue à `removeFonts` (idempotent) : après `trashFont`, l'event WS
+  // `font.deleted` arrive pour une police déjà retirée — le total ne doit
+  // baisser qu'une fois.
   function removeFont(fontId: string) {
-    fonts.value = fonts.value.filter((f) => f.id !== fontId);
-    total.value = Math.max(0, total.value - 1);
+    removeFonts([fontId]);
   }
 
   /** Retire plusieurs polices en une passe (quarantaine : `fonts.deleted`). */
@@ -162,6 +178,7 @@ export const useFontsStore = defineStore("fonts", () => {
     fetchFonts,
     fetchMore,
     uploadFonts,
+    trashFont,
     addFont,
     removeFont,
     removeFonts,

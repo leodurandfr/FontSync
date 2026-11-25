@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
   ArrowLeft,
@@ -13,8 +13,17 @@ import {
   Type,
   ArrowLeftRight,
   UnfoldVertical,
+  Trash2,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Panel } from "@/components/ui/panel";
 import { SectionLabel } from "@/components/ui/section-label";
@@ -24,6 +33,7 @@ import { apiFetch } from "@/lib/api";
 import { downloadFromApi } from "@/lib/download";
 import { useLocale } from "@/composables/useLocale";
 import { useDevicesStore } from "@/stores/devices";
+import { useFontsStore } from "@/stores/fonts";
 import type { Font, FamilyMember, FontFamilyDetail } from "@/types/api";
 
 const props = defineProps<{ id: string }>();
@@ -31,6 +41,8 @@ const props = defineProps<{ id: string }>();
 const { t, te } = useI18n();
 const { dateLocale } = useLocale();
 const devicesStore = useDevicesStore();
+const fontsStore = useFontsStore();
+const router = useRouter();
 
 onMounted(() => {
   devicesStore.fetchDevices();
@@ -214,6 +226,51 @@ async function handleDownload() {
   }
 }
 
+// Mise à la corbeille : une intention côté serveur, récupérable depuis la
+// Corbeille ; un Mac ne désinstalle que si « Propager les suppressions » est
+// activé pour lui. Confirmation par un Dialog de l'app, jamais `window.confirm`
+// (muet dans la WebView de l'app Mac, M-38). La cible survit à la fermeture :
+// le titre ne se vide pas pendant l'animation de sortie.
+const trashOpen = ref(false);
+const trashTarget = ref<{ id: string; name: string } | null>(null);
+const trashing = ref(false);
+const trashError = ref<string | null>(null);
+
+function handleTrash() {
+  if (!font.value) return;
+  trashTarget.value = {
+    id: props.id,
+    name:
+      font.value.fullName ??
+      font.value.familyName ??
+      font.value.originalFilename,
+  };
+  trashError.value = null;
+  trashOpen.value = true;
+}
+
+function onTrashDialog(open: boolean) {
+  trashOpen.value = open;
+}
+
+async function confirmTrash() {
+  // Fermé avant l'appel : un double clic n'envoie qu'une requête.
+  if (!trashOpen.value || !trashTarget.value || trashing.value) return;
+  trashOpen.value = false;
+  trashing.value = true;
+  try {
+    await fontsStore.trashFont(trashTarget.value.id);
+    // La liste se recharge au montage : la police n'y figure plus.
+    await router.push({ name: "fonts" });
+  } catch (e) {
+    trashError.value = t("fontDetail.trashFailed", {
+      error: e instanceof Error ? e.message : t("common.unknownError"),
+    });
+  } finally {
+    trashing.value = false;
+  }
+}
+
 function isSafeUrl(url: string | null): boolean {
   if (!url) return false;
   try {
@@ -393,8 +450,26 @@ onUnmounted(() => {
               <Download class="mr-2 h-4 w-4" />
               {{ t("common.download") }}
             </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              :aria-label="t('fontDetail.trash')"
+              :title="t('fontDetail.trash')"
+              :disabled="trashing"
+              @click="handleTrash"
+            >
+              <Trash2 class="h-4 w-4 text-muted-foreground" />
+            </Button>
           </div>
         </div>
+        <p
+          v-if="trashError"
+          role="alert"
+          class="mt-3 text-[13px] text-destructive"
+        >
+          {{ trashError }}
+        </p>
       </header>
 
       <!-- Preview -->
@@ -667,5 +742,26 @@ onUnmounted(() => {
         </Panel>
       </section>
     </div>
+
+    <Dialog :open="trashOpen" @update:open="onTrashDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {{ t("fontDetail.trashTitle", { name: trashTarget?.name ?? "" }) }}
+          </DialogTitle>
+          <DialogDescription>
+            {{ t("fontDetail.trashConfirm") }}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" @click="onTrashDialog(false)">
+            {{ t("common.cancel") }}
+          </Button>
+          <Button variant="destructive" @click="confirmTrash">
+            {{ t("fontDetail.trash") }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

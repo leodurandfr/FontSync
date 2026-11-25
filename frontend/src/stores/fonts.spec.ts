@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useFontsStore } from "@/stores/fonts";
 import type { Font } from "@/types/api";
@@ -54,5 +54,68 @@ describe("fonts store — removeFonts", () => {
     store.removeFonts([]);
     expect(store.fonts.map((f) => f.id)).toEqual(["a"]);
     expect(store.total).toBe(4);
+  });
+});
+
+describe("fonts store — trashFont", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends DELETE and removes the font locally, counting it once", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useFontsStore();
+    store.fonts = [font("a"), font("b")];
+    store.total = 2;
+
+    await store.trashFont("a");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/fonts/a");
+    expect(init?.method).toBe("DELETE");
+    expect(store.fonts.map((f) => f.id)).toEqual(["b"]);
+    expect(store.total).toBe(1);
+
+    // L'event WS `font.deleted` arrive ensuite pour la même police.
+    store.removeFont("a");
+    expect(store.fonts.map((f) => f.id)).toEqual(["b"]);
+    expect(store.total).toBe(1);
+  });
+
+  it("throws the server detail and keeps the font when refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "Font not found" }), {
+            status: 404,
+          }),
+      ),
+    );
+
+    const store = useFontsStore();
+    store.fonts = [font("a")];
+    store.total = 1;
+
+    await expect(store.trashFont("a")).rejects.toThrow("Font not found");
+    expect(store.fonts.map((f) => f.id)).toEqual(["a"]);
+    expect(store.total).toBe(1);
+  });
+
+  it("falls back to the HTTP status when the body has no detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("oops", { status: 500 })),
+    );
+    const store = useFontsStore();
+    store.fonts = [font("a")];
+    store.total = 1;
+    await expect(store.trashFont("a")).rejects.toThrow("HTTP 500");
+    expect(store.total).toBe(1);
   });
 });

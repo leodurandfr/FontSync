@@ -61,6 +61,11 @@ export default {
     installedOnCount: "Installed on {n} of your {total} machines",
   },
   fontDetail: {
+    trash: "Move to trash",
+    trashTitle: "Move “{name}” to the trash?",
+    trashConfirm:
+      "The font leaves the library but stays in the Trash, where you can restore it. Macs uninstall it only if “Propagate deletions” is on for that device.",
+    trashFailed: "Could not move the font to the trash: {error}",
     openDetails: "View details",
     cannotLoad: "Could not load the font.",
     fonts: "Fonts",
