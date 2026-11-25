@@ -162,100 +162,147 @@
 }
 
 /*
- * Palettes de couleurs (sélecteur en bas de la sidebar, réglages). Chaque
- * palette ne fixe qu'une teinte (`--tint`) ; les surfaces la reçoivent en
- * dosage léger via color-mix, l'accent (`--primary`) la porte pleinement.
- * Sans `data-palette` sur <html> : interface neutre d'origine (règles ci-dessus).
+ * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des duos
+ * contrastés. Chaque palette fixe une couleur de sidebar, un fond et un accent
+ * complémentaire ; les tokens de l'interface en dérivent ci-dessous, en clair
+ * comme en sombre. Sans `data-palette` sur <html> : interface neutre d'origine.
  */
-[data-palette="amber"] {
-  --tint: #f08c00;
-  --tint-on-dark: #ffa94d;
+[data-palette="navy"] {
+  --p-sidebar: #1b2a4a;
+  --p-sidebar-fg: #f4efe6;
+  --p-bg: #f4efe6;
+  --p-card: #fbf8f2;
+  --p-accent: #ff6b4a;
+  --p-accent-fg: #ffffff;
+  --p-text: #1b2a4a;
 }
-[data-palette="sage"] {
-  --tint: #12a150;
-  --tint-on-dark: #4ade80;
+[data-palette="forest"] {
+  --p-sidebar: #1f3d2b;
+  --p-sidebar-fg: #f2e8d5;
+  --p-bg: #f2e8d5;
+  --p-card: #faf5ea;
+  --p-accent: #e0a020;
+  --p-accent-fg: #1f3d2b;
+  --p-text: #1f3d2b;
 }
-[data-palette="ocean"] {
-  --tint: #1f6feb;
-  --tint-on-dark: #60a5fa;
+[data-palette="plum"] {
+  --p-sidebar: #3b1f4a;
+  --p-sidebar-fg: #f3eefa;
+  --p-bg: #efe8f5;
+  --p-card: #faf7fc;
+  --p-accent: #b8d430;
+  --p-accent-fg: #24112e;
+  --p-text: #2a1636;
 }
-[data-palette="lavender"] {
-  --tint: #7c4dff;
-  --tint-on-dark: #a78bfa;
+[data-palette="cobalt"] {
+  --p-sidebar: #1f4fd8;
+  --p-sidebar-fg: #ffffff;
+  --p-bg: #fff1e3;
+  --p-card: #fff9f2;
+  --p-accent: #ff7a1a;
+  --p-accent-fg: #ffffff;
+  --p-text: #14224d;
 }
-[data-palette="rose"] {
-  --tint: #e8467c;
-  --tint-on-dark: #f472b6;
+[data-palette="flamingo"] {
+  --p-sidebar: #e23d7a;
+  --p-sidebar-fg: #ffffff;
+  --p-bg: #e6f5ec;
+  --p-card: #f5fbf7;
+  --p-accent: #0f9d63;
+  --p-accent-fg: #ffffff;
+  --p-text: #23152a;
 }
 
-/* Clair : surfaces franchement colorées, texte foncé teinté. */
+/* Clair : fond et cartes de la couleur claire, accent complémentaire. */
 :root[data-palette] {
-  --background: color-mix(in oklab, #ffffff, var(--tint) 30%);
-  --foreground: color-mix(in oklab, #111111, var(--tint) 30%);
-  --card: color-mix(in oklab, #ffffff, var(--tint) 18%);
-  --card-foreground: var(--foreground);
-  --popover: color-mix(in oklab, #ffffff, var(--tint) 12%);
-  --popover-foreground: var(--foreground);
-  --sidebar: color-mix(in oklab, #ffffff, var(--tint) 26%);
-  --sidebar-foreground: var(--foreground);
-  --primary: color-mix(in oklab, var(--tint), #000000 15%);
-  --primary-foreground: #ffffff;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: #ffffff;
-  --secondary: color-mix(in oklab, #ffffff, var(--tint) 24%);
-  --secondary-foreground: var(--foreground);
-  --muted: color-mix(in oklab, #ffffff, var(--tint) 22%);
-  --muted-foreground: color-mix(in oklab, #555555, var(--tint) 45%);
-  --accent: color-mix(in oklab, #ffffff, var(--tint) 42%);
-  --accent-foreground: color-mix(in oklab, #000000, var(--tint) 35%);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --border: color-mix(in oklab, #ffffff, var(--tint) 38%);
+  --background: var(--p-bg);
+  --foreground: var(--p-text);
+  --card: var(--p-card);
+  --card-foreground: var(--p-text);
+  --popover: var(--p-card);
+  --popover-foreground: var(--p-text);
+  --primary: var(--p-accent);
+  --primary-foreground: var(--p-accent-fg);
+  --secondary: color-mix(in oklab, var(--p-text), var(--p-bg) 92%);
+  --secondary-foreground: var(--p-text);
+  --muted: color-mix(in oklab, var(--p-text), var(--p-bg) 95%);
+  --muted-foreground: color-mix(in oklab, var(--p-text), var(--p-bg) 40%);
+  --accent: color-mix(in oklab, var(--p-accent), var(--p-bg) 80%);
+  --accent-foreground: var(--p-text);
+  --border: color-mix(in oklab, var(--p-text), var(--p-bg) 85%);
   --input: var(--border);
-  --ring: var(--tint);
-  --brand: var(--tint);
-  --foreground-subtle: color-mix(in oklab, #777777, var(--tint) 40%);
-  --separator: color-mix(in oklab, #ffffff, var(--tint) 45%);
-  --sidebar-border: var(--separator);
+  --ring: var(--p-accent);
+  --brand: var(--p-accent);
+  --foreground-subtle: color-mix(in oklab, var(--p-text), var(--p-bg) 60%);
+  --separator: color-mix(in oklab, var(--p-text), var(--p-bg) 85%);
   --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, #ffffff, var(--tint) 36%);
-  --segment-track: color-mix(in oklab, #ffffff, var(--tint) 40%);
-  --segment-thumb: #ffffff;
+  --font-preview: color-mix(in oklab, var(--p-text), var(--p-bg) 94%);
+  --segment-track: color-mix(in oklab, var(--p-text), var(--p-bg) 90%);
+  --segment-thumb: var(--p-card);
 }
 
-/* Sombre : fonds profonds de la couleur, texte clair teinté. */
+/* Sombre : fonds profonds tirés de la couleur de sidebar, texte clair. */
 :root.dark[data-palette] {
-  --background: color-mix(in oklab, #000000, var(--tint) 22%);
-  --foreground: color-mix(in oklab, #ffffff, var(--tint-on-dark) 18%);
-  --card: color-mix(in oklab, #000000, var(--tint) 28%);
-  --card-foreground: var(--foreground);
-  --popover: color-mix(in oklab, #000000, var(--tint) 34%);
-  --popover-foreground: var(--foreground);
-  --sidebar: color-mix(in oklab, #000000, var(--tint) 32%);
-  --sidebar-foreground: var(--foreground);
-  --primary: var(--tint-on-dark);
-  --primary-foreground: #111111;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: #111111;
-  --secondary: color-mix(in oklab, #000000, var(--tint) 38%);
-  --secondary-foreground: var(--foreground);
-  --muted: color-mix(in oklab, #000000, var(--tint) 26%);
-  --muted-foreground: color-mix(in oklab, #9a9a9a, var(--tint-on-dark) 45%);
-  --accent: color-mix(in oklab, #000000, var(--tint) 48%);
-  --accent-foreground: color-mix(in oklab, #ffffff, var(--tint-on-dark) 25%);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --border: color-mix(in oklab, #000000, var(--tint) 42%);
+  --p-sidebar-dark: color-mix(in oklab, var(--p-sidebar), #000000 40%);
+  --background: color-mix(in oklab, var(--p-sidebar), #000000 70%);
+  --foreground: var(--p-bg);
+  --card: color-mix(in oklab, var(--p-sidebar), #000000 62%);
+  --card-foreground: var(--p-bg);
+  --popover: color-mix(in oklab, var(--p-sidebar), #000000 65%);
+  --popover-foreground: var(--p-bg);
+  --secondary: color-mix(in oklab, var(--p-sidebar), #000000 62%);
+  --secondary-foreground: var(--p-bg);
+  --muted: color-mix(in oklab, var(--p-sidebar), #000000 66%);
+  --muted-foreground: color-mix(in oklab, var(--p-bg), #000000 40%);
+  --accent: color-mix(in oklab, var(--p-accent), #000000 65%);
+  --accent-foreground: var(--p-bg);
+  --border: color-mix(in oklab, var(--p-sidebar), #000000 55%);
   --input: var(--border);
-  --ring: var(--tint-on-dark);
-  --brand: var(--tint-on-dark);
-  --foreground-subtle: color-mix(in oklab, #000000, var(--tint-on-dark) 55%);
-  --separator: color-mix(in oklab, #000000, var(--tint) 44%);
-  --sidebar-border: var(--separator);
+  --foreground-subtle: color-mix(in oklab, var(--p-bg), #000000 62%);
+  --separator: color-mix(in oklab, var(--p-sidebar), #000000 55%);
   --panel-border: var(--separator);
-  --font-preview: color-mix(in oklab, #000000, var(--tint) 16%);
-  --segment-track: color-mix(in oklab, #000000, var(--tint) 42%);
-  --segment-thumb: color-mix(in oklab, #000000, var(--tint) 70%);
+  --font-preview: color-mix(in oklab, var(--p-sidebar), #000000 76%);
+  --segment-track: color-mix(in oklab, var(--p-sidebar), #000000 55%);
+  --segment-thumb: color-mix(in oklab, var(--p-sidebar), #000000 25%);
+}
+
+/*
+ * La sidebar porte la couleur forte de la palette : on redéfinit les tokens
+ * dans son sous-arbre (les utilitaires Tailwind lisent les variables à
+ * l'endroit où elles s'appliquent).
+ */
+[data-palette] [data-surface="sidebar"] {
+  --card: var(--p-sidebar);
+  --card-foreground: var(--p-sidebar-fg);
+  --foreground: var(--p-sidebar-fg);
+  --muted-foreground: color-mix(
+    in oklab,
+    var(--p-sidebar-fg),
+    var(--p-sidebar) 35%
+  );
+  --foreground-subtle: color-mix(
+    in oklab,
+    var(--p-sidebar-fg),
+    var(--p-sidebar) 55%
+  );
+  --accent: color-mix(in oklab, var(--p-accent), var(--p-sidebar) 25%);
+  --accent-foreground: var(--p-accent-fg);
+  --separator: color-mix(in oklab, var(--p-sidebar-fg), var(--p-sidebar) 84%);
+  --panel-border: color-mix(in oklab, var(--p-sidebar), #000000 15%);
+  --border: var(--separator);
+}
+.dark[data-palette] [data-surface="sidebar"] {
+  --card: var(--p-sidebar-dark);
+  --separator: color-mix(
+    in oklab,
+    var(--p-sidebar-fg),
+    var(--p-sidebar-dark) 88%
+  );
+  --muted-foreground: color-mix(
+    in oklab,
+    var(--p-sidebar-fg),
+    var(--p-sidebar-dark) 40%
+  );
 }
 
 @layer base {

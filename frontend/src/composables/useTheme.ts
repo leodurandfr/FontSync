@@ -3,28 +3,31 @@ import { ref } from "vue";
 export type Theme = "light" | "dark" | "system";
 
 /**
- * Palette de couleurs : teinte l'ensemble de l'interface (fonds, survols,
- * séparateurs, couleur d'accent). `neutral` = l'interface noir et blanc
+ * Palette de couleurs : duo contrasté (sidebar colorée, fond, accent
+ * complémentaire) appliqué à toute l'interface. `neutral` = l'interface noir et blanc
  * d'origine. Les teintes vivent dans `assets/index.css` (`[data-palette]`).
  */
 export const PALETTES = [
   "neutral",
-  "amber",
-  "sage",
-  "ocean",
-  "lavender",
-  "rose",
+  "navy",
+  "forest",
+  "plum",
+  "cobalt",
+  "flamingo",
 ] as const;
 export type Palette = (typeof PALETTES)[number];
 
-/** Couleur de la pastille affichée dans le sélecteur (= teinte de la palette). */
-export const PALETTE_SWATCH: Record<Palette, string> = {
-  neutral: "#8a8a8a",
-  amber: "#f08c00",
-  sage: "#12a150",
-  ocean: "#1f6feb",
-  lavender: "#7c4dff",
-  rose: "#e8467c",
+/** Couleurs montrées par la pastille : sidebar, fond, accent. */
+export const PALETTE_SWATCH: Record<
+  Palette,
+  { sidebar: string; bg: string; accent: string }
+> = {
+  neutral: { sidebar: "#ffffff", bg: "#e9eaec", accent: "#111111" },
+  navy: { sidebar: "#1b2a4a", bg: "#f4efe6", accent: "#ff6b4a" },
+  forest: { sidebar: "#1f3d2b", bg: "#f2e8d5", accent: "#e0a020" },
+  plum: { sidebar: "#3b1f4a", bg: "#efe8f5", accent: "#b8d430" },
+  cobalt: { sidebar: "#1f4fd8", bg: "#fff1e3", accent: "#ff7a1a" },
+  flamingo: { sidebar: "#e23d7a", bg: "#e6f5ec", accent: "#0f9d63" },
 };
 
 const STORAGE_KEY = "fontsync_theme";

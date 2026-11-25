@@ -48,11 +48,11 @@ export default {
     palette: "Colors",
     palettes: {
       neutral: "Neutral",
-      amber: "Amber",
-      sage: "Green",
-      ocean: "Ocean",
-      lavender: "Violet",
-      rose: "Rose",
+      navy: "Navy & coral",
+      forest: "Forest & ochre",
+      plum: "Plum & lime",
+      cobalt: "Cobalt & orange",
+      flamingo: "Flamingo & emerald",
     },
   },
   toolbar: {

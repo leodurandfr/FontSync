@@ -143,6 +143,7 @@ function startResize(e: PointerEvent) {
       arrondis) : seule une bordure droite le sépare du contenu.
     -->
     <aside
+      data-surface="sidebar"
       class="flex h-screen flex-col overflow-hidden border-r border-panel-border bg-card text-card-foreground"
       :class="isOverlay ? 'relative' : 'absolute right-0 top-0'"
       :style="{ width: `${layout.sidebarWidth}px` }"
@@ -229,7 +230,7 @@ function startResize(e: PointerEvent) {
             class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onDuplicates
-                ? 'bg-accent font-medium text-foreground'
+                ? 'bg-accent font-medium text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
@@ -243,7 +244,7 @@ function startResize(e: PointerEvent) {
             class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onTrash
-                ? 'bg-accent font-medium text-foreground'
+                ? 'bg-accent font-medium text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
@@ -279,7 +280,7 @@ function startResize(e: PointerEvent) {
           class="flex size-8 items-center justify-center rounded-md transition-colors"
           :class="
             onSettings
-              ? 'bg-accent text-foreground'
+              ? 'bg-accent text-accent-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
           "
           :title="t('sidebar.settings')"
