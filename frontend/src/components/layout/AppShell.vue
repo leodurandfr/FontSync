@@ -86,20 +86,7 @@ onUnmounted(disconnect);
       </button>
     </Panel>
 
-    <!--
-      En mode « push » sidebar ouverte, on tire le contenu de 8px vers la
-      gauche (la demi-gouttière à droite du panneau) pour que sa bordure vienne
-      affleurer le bord du panneau : les filets séparateurs des fontes semblent
-      ainsi filer sous la sidebar. Désactivé fermé / en overlay, sinon le
-      `overflow-hidden` parent rognerait 8px de contenu à gauche. Transitionnée
-      en phase avec la largeur de la sidebar (même durée/easing) : sinon la
-      marge bascule instantanément pendant que la sidebar anime sur 200 ms, ce
-      qui produit un saut visuel au lieu d'un mouvement continu.
-    -->
-    <main
-      class="relative min-w-0 flex-1 overflow-hidden transition-[margin-left] duration-200 ease-in-out"
-      :class="!isOverlay && layout.sidebarOpen ? '-ml-2' : ''"
-    >
+    <main class="relative min-w-0 flex-1 overflow-hidden">
       <!--
         Crossfade entre pages : opacity seule (composité GPU, aucun reflow) et
         mode out-in pour un vrai fade-out → fade-in séquentiel. La clé sur la

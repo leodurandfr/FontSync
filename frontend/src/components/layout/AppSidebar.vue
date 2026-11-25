@@ -10,7 +10,6 @@ import {
   Upload,
 } from "lucide-vue-next";
 import { SectionLabel } from "@/components/ui/section-label";
-import { Panel } from "@/components/ui/panel";
 import SidebarNavButton from "./SidebarNavButton.vue";
 import ThemeToggle from "./ThemeToggle.vue";
 import WindowControls from "./WindowControls.vue";
@@ -83,7 +82,7 @@ function startResize(e: PointerEvent) {
     Deux comportements selon la largeur de fenêtre (cf. useSidebarMode) :
 
     • Push (≥ 740px, modèle Finder) : le conteneur `relative` réserve sa largeur
-      (0 ↔ largeur + gouttière) et clippe (`overflow-hidden`) ; le panneau, ancré
+      (0 ↔ largeur) et clippe (`overflow-hidden`) ; le panneau, ancré
       au bord droit (`absolute right-0`), émerge par la gauche en poussant le
       contenu. Replié : largeur 0, panneau clippé hors champ et inerte.
 
@@ -116,20 +115,26 @@ function startResize(e: PointerEvent) {
           }
     "
   >
-    <Panel
-      as="aside"
-      class="m-2 flex h-[calc(100vh-16px)] flex-col overflow-hidden"
+    <!--
+      Panneau collé aux bords de la fenêtre (ni marge, ni ombre, ni coins
+      arrondis) : seule une bordure droite le sépare du contenu.
+    -->
+    <aside
+      class="flex h-screen flex-col overflow-hidden border-r border-panel-border bg-card text-card-foreground"
       :class="isOverlay ? 'relative' : 'absolute right-0 top-0'"
       :style="{ width: `${layout.sidebarWidth}px` }"
     >
       <!-- Header -->
       <!--
-        Pas de hauteur en dur : le padding vertical aligne le header sur la
-        hauteur de la barre flottante (toolbar `h-12` = 48px). L'élément le plus
-        haut (bouton replier : icône 16px + p-1) + py-3 donne ~48px.
+        Le panneau part du haut de la fenêtre (y = 0) alors que la barre
+        flottante de droite (toolbar `h-12`) occupe y = 8 → 56. Hauteur 56px
+        avec `pt-2` : la rangée de contenu occupe le même 8 → 56 que la
+        toolbar (feux, label et bouton restent alignés sur elle) et le filet
+        du bas tombe pile sous la toolbar. `pl-7` (28px) garde les feux à leur
+        position fixe (cf. AppShell : left 28px, top 26px).
       -->
       <div
-        class="flex flex-shrink-0 items-center justify-between border-b border-separator px-5 py-3"
+        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator pl-7 pr-5 pt-2"
         data-window-drag
       >
         <div class="flex min-w-0 items-center gap-3">
@@ -171,7 +176,7 @@ function startResize(e: PointerEvent) {
       </div>
 
       <!-- Nav -->
-      <nav class="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
+      <nav class="scrollbar-thin flex-1 overflow-y-auto px-5 py-3">
         <SectionLabel class="px-2 pb-1.5">{{
           t("sidebar.library")
         }}</SectionLabel>
@@ -228,7 +233,7 @@ function startResize(e: PointerEvent) {
 
       <!-- Footer -->
       <div
-        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-3"
+        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-5 py-3"
       >
         <UploadDialog>
           <button
@@ -265,6 +270,6 @@ function startResize(e: PointerEvent) {
           class="h-10 w-px rounded-full bg-foreground-subtle opacity-0 transition-opacity group-hover:opacity-100"
         />
       </div>
-    </Panel>
+    </aside>
   </div>
 </template>
