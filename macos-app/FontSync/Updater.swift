@@ -20,17 +20,19 @@ import SwiftUI
 @MainActor
 final class UpdaterViewModel: ObservableObject {
     private let controller: SPUStandardUpdaterController
+    /// Retenu ici : Sparkle ne garde qu'une référence faible à son délégué.
+    private let userDriverDelegate = FrontmostUserDriverDelegate()
 
     /// `false` pendant une vérification en cours (évite les déclenchements
     /// concurrents) — câblé sur le KVO de Sparkle.
     @Published var canCheckForUpdates = false
 
     init() {
-        // `startingUpdater: true` → planificateur actif immédiatement. Pas de
-        // délégué custom : le comportement standard (UI Sparkle) suffit pour
-        // une télécommande mince.
+        // `startingUpdater: true` → planificateur actif immédiatement. Le
+        // délégué d'affichage ne sert qu'à passer l'app au premier plan.
         controller = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            startingUpdater: true, updaterDelegate: nil,
+            userDriverDelegate: userDriverDelegate)
         controller.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
     }
@@ -38,6 +40,23 @@ final class UpdaterViewModel: ObservableObject {
     /// Vérification manuelle (depuis le menu). Affiche l'UI Sparkle même si
     /// aucune mise à jour n'est disponible (retour utilisateur explicite).
     func checkForUpdates() {
+        // App de barre de menus (LSUIElement) : sans activation, la fenêtre de
+        // Sparkle s'ouvre sous l'app active.
+        NSApp.activate(ignoringOtherApps: true)
         controller.checkForUpdates(nil)
+    }
+}
+
+/// Met l'app au premier plan chaque fois que Sparkle montre une fenêtre, y
+/// compris pour une mise à jour trouvée par la vérification périodique.
+final class FrontmostUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState
+    ) {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func standardUserDriverWillShowModalAlert() {
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
