@@ -195,6 +195,11 @@ async def test_first_capable_declaration_is_baseline(
     device = await _device(device_id)
     assert device.full_declaration_since is not None
     assert device.last_declaration_at == device.full_declaration_since
+    # Le registre est devenu le miroir de la déclaration : la police absente
+    # n'est pas jugée au delta suivant non plus.
+    assert len(await _registry(device_id)) == 1
+    await _delta(api_client, device_id, [kept_hash])
+    assert await _removals(api_client) == []
 
 
 @pytest.mark.asyncio

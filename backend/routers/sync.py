@@ -132,7 +132,7 @@ async def delta_sync(
         detection = DeletionDetection(quarantined=[], pending=[])
         if declared:
             now = datetime.now(timezone.utc)
-            await reconcile_inventory(device.id, body.fonts, db)
+            await reconcile_inventory(device.id, body.fonts, db, baseline=True)
             device.last_declaration_at = now
             device.full_declaration_since = now
             await harvest_tombstones(db)
