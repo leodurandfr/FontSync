@@ -108,7 +108,7 @@ describe("auth store (comptes)", () => {
         .mockResolvedValueOnce(json(status({ me: ADMIN_ME }))),
     );
     const auth = useAuthStore();
-    await auth.login("admin@example.test", "motdepasse-long");
+    await auth.login("admin@example.com", "motdepasse-long");
     expect(auth.token).toBeNull();
     expect(localStorage.getItem("fontsync_token")).toBeNull();
     expect(auth.phase).toBe("ready");
