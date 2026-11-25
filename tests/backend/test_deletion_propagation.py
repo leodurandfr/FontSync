@@ -41,7 +41,7 @@ from backend.services.deletion_propagation import (
 from backend.services.font_importer import import_font
 from backend.services.sync_manager import compute_delta, register_device_font
 from backend.services.trash import purge_expired, purge_font
-from tests.backend.conftest import ADMIN_PRINCIPAL, AUTH_HEADERS
+from tests.backend.conftest import ADMIN_PRINCIPAL, AGENT_CAPABILITIES, AUTH_HEADERS
 
 # ---------- Helpers API ----------
 
@@ -50,7 +50,12 @@ async def _register_device(client: AsyncClient, hostname: str = "mac-test") -> s
     resp = await client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac de test", "hostname": hostname, "os": "macos"},
+        json={
+            "name": "Mac de test",
+            "hostname": hostname,
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -1019,7 +1024,12 @@ async def test_deleting_a_device_soft_deletes_it(
     resp = await api_client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac de test", "hostname": "soft-me", "os": "macos"},
+        json={
+            "name": "Mac de test",
+            "hostname": "soft-me",
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["id"] == device_id

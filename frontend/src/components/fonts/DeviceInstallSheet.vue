@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import { Monitor, Loader2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { apiFetch } from "@/lib/api";
+import { deviceSupports } from "@/stores/devices";
 import { useLocale } from "@/composables/useLocale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ interface RawDeviceStatus {
   localPath: string | null;
   installedAt: string | null;
   active: boolean;
+  capabilities?: string[] | null;
 }
 
 interface DeviceStatus {
@@ -42,6 +44,9 @@ interface DeviceStatus {
   // appareil : `active` — tous le sont ; `mixed` — certains seulement.
   active: boolean;
   mixed: boolean;
+  // L'agent applique la désactivation (capacité `deactivate`) ; sinon l'API
+  // la refuse (409) et l'interface la grise.
+  canDeactivate: boolean;
 }
 
 function mergeDeviceStatuses(perFont: RawDeviceStatus[][]): DeviceStatus[] {
@@ -74,6 +79,7 @@ function mergeDeviceStatuses(perFont: RawDeviceStatus[][]): DeviceStatus[] {
       active:
         installedEntries.length > 0 && activeCount === installedEntries.length,
       mixed: activeCount > 0 && activeCount < installedEntries.length,
+      canDeactivate: deviceSupports(first, "deactivate"),
     });
   }
   return merged;
@@ -336,9 +342,19 @@ async function handleToggleActive(deviceId: string, next: boolean) {
                         ? t("deviceInstall.disabledPartially")
                         : t("deviceInstall.disabledHere")
                   }}</Badge>
+                  <!-- Réactiver reste permis à un agent ancien ; désactiver,
+                       non : il ne l'appliquerait pas (409, B-32). -->
                   <Switch
                     :model-value="status.active"
-                    :disabled="actionInProgress.has(status.deviceId)"
+                    :disabled="
+                      actionInProgress.has(status.deviceId) ||
+                      (status.active && !status.canDeactivate)
+                    "
+                    :title="
+                      status.canDeactivate
+                        ? undefined
+                        : t('devices.agentTooOldAction')
+                    "
                     :aria-label="t('deviceInstall.toggleActive')"
                     @update:model-value="
                       handleToggleActive(status.deviceId, $event)

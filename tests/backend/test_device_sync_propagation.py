@@ -28,8 +28,8 @@ from backend.models.base import Base
 from backend.routers import fonts as fonts_router
 from backend.services.storage import FilesystemStorage
 from backend.services.ws_manager import WebSocketManager
+from tests.backend.conftest import AGENT_CAPABILITIES, seed_session
 from tests.backend.conftest import API_TOKEN as TOKEN
-from tests.backend.conftest import seed_session
 
 _AUTH = {"Authorization": f"Bearer {TOKEN}"}
 _MISSING_UUID = "00000000-0000-0000-0000-000000000000"
@@ -89,7 +89,12 @@ async def _register_device(client: AsyncClient, hostname: str = "mac-test") -> s
     resp = await client.post(
         "/api/devices/register",
         headers=_AUTH,
-        json={"name": "Mac de test", "hostname": hostname, "os": "macos"},
+        json={
+            "name": "Mac de test",
+            "hostname": hostname,
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]

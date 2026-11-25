@@ -46,6 +46,7 @@ from backend.schemas.font import (
     SortOrder,
     TrashListResponse,
 )
+from backend.services.capabilities import DEACTIVATE, require_capability
 from backend.services.duplicate_faces import (
     DuplicateGroup,
     FaceKey,
@@ -706,6 +707,7 @@ def _to_device_status(
         local_path=df.local_path if df else None,
         installed_at=df.installed_at if df else None,
         active=df.active if df else True,
+        capabilities=device.capabilities,
     )
 
 
@@ -828,6 +830,9 @@ async def deactivate_font_on_device(
     await _get_font_or_404(font_id, db)
     device = await _get_device_or_404(device_id, db)
     assert_device_access(principal, device)
+    # Un agent sans la capacité ignore `toDeactivate` (B-32) : la police
+    # resterait active sur le disque, marquée désactivée ici.
+    require_capability(device, DEACTIVATE)
     df = await _get_device_font_or_409(device_id, font_id, db)
     df.active = False
     await db.commit()

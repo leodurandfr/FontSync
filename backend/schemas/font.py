@@ -111,6 +111,9 @@ class FontDeviceStatus(CamelModel):
     active: bool = True
     """État désiré sur cet appareil (`device_fonts.active`). Sans association
     (`installed=False`), reste à sa valeur par défaut — rien à activer."""
+    capabilities: list[str] | None = None
+    """Capacités de l'agent de cet appareil (B-32) : sans `deactivate`,
+    l'interface grise la désactivation, que l'API refuserait (409)."""
 
 
 class FontListResponse(CamelModel):

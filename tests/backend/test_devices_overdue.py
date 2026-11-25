@@ -23,14 +23,19 @@ from backend.main import app
 from backend.models.device import Device
 from backend.services.device_activity import sync_overdue
 from backend.services.ws_manager import ws_manager
-from tests.backend.conftest import AUTH_HEADERS
+from tests.backend.conftest import AGENT_CAPABILITIES, AUTH_HEADERS
 
 
 async def _register(client: AsyncClient, hostname: str = "mac") -> dict:
     resp = await client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "Mac", "hostname": hostname, "os": "macos"},
+        json={
+            "name": "Mac",
+            "hostname": hostname,
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()

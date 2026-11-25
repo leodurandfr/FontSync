@@ -1,9 +1,10 @@
 """Capabilities this agent announces to the server at register time (B-32).
 
-The server stores them on the device and exposes them; nothing is gated on
-them yet. A future server can then tell an agent that declares its whole
-library, deactivates and uninstalls from an older one that does not, instead
-of guessing from ``agent_version``.
+The server relies on them rather than on ``agent_version``
+(``backend/services/capabilities.py``): it infers deletions only from an agent
+that declares its whole library, and refuses deactivation or deletion
+propagation for an agent that would not apply them. Never announce a
+capability the agent does not fully honour.
 
 - ``full-declaration``: every delta lists all fonts found on disk, so a
   missing hash means a missing file.

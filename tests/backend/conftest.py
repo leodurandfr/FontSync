@@ -184,6 +184,10 @@ API_TOKEN = "test-admin-session-token-000000000000000000"
 assert len(API_TOKEN) == 43
 AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 TEST_ADMIN_EMAIL = "test-admin@example.com"
+# Capacités d'un agent à jour (`agent/capabilities.py`). Sans elles, le serveur
+# ne déduit aucune suppression d'un delta et refuse désactivation et propagation
+# (M-32, B-32) : un test qui simule un Mac actuel les annonce au register.
+AGENT_CAPABILITIES = ("full-declaration", "deactivate", "uninstall")
 
 
 async def seed_session(

@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
-import { useDevicesStore } from "@/stores/devices";
+import { deviceSupports, useDevicesStore } from "@/stores/devices";
 import { apiFetch } from "@/lib/api";
 import {
   deviceStatus,
@@ -259,6 +259,16 @@ const STATUS_DOT: Record<DeviceStatusKind, string> = {
             </div>
           </div>
 
+          <!-- Agent sans `full-declaration` : le serveur ne déduit aucune
+               suppression de ses syncs (M-32). Le dire plutôt que de laisser
+               croire qu'une police supprimée sur ce Mac sera suivie. -->
+          <p
+            v-if="!deviceSupports(device, 'full-declaration')"
+            class="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400"
+          >
+            {{ t("devices.agentTooOld") }}
+          </p>
+
           <Separator />
 
           <!-- Sync toggles -->
@@ -322,9 +332,20 @@ const STATUS_DOT: Record<DeviceStatusKind, string> = {
                   </span>
                 </Label>
               </div>
+              <!-- Activer la propagation suppose un agent qui désinstalle
+                   (B-32) ; la couper reste toujours possible. -->
               <Switch
                 :model-value="device.propagateDeletions"
-                :disabled="saving.has(device.id)"
+                :disabled="
+                  saving.has(device.id) ||
+                  (!device.propagateDeletions &&
+                    !deviceSupports(device, 'uninstall'))
+                "
+                :title="
+                  deviceSupports(device, 'uninstall')
+                    ? undefined
+                    : t('devices.agentTooOldAction')
+                "
                 @update:model-value="
                   togglePropagateDeletions(device.id, $event)
                 "

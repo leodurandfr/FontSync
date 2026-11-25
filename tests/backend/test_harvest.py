@@ -28,7 +28,7 @@ from backend.services.font_importer import HarvestedFontRefused, import_font
 from backend.services.harvest import harvest_tombstones
 from backend.services.inventory import reconcile_inventory
 from backend.services.sync_manager import compute_delta, register_device_font
-from tests.backend.conftest import ADMIN_PRINCIPAL
+from tests.backend.conftest import ADMIN_PRINCIPAL, AGENT_CAPABILITIES
 
 
 async def _make_device(db, *, hostname: str = "mac") -> Device:
@@ -950,7 +950,12 @@ async def test_api_push_of_harvested_font_is_refused_until_web_upload(
     resp = await api_client.post(
         "/api/devices/register",
         headers=AUTH_HEADERS,
-        json={"name": "A", "hostname": "mac-a", "os": "macos"},
+        json={
+            "name": "A",
+            "hostname": "mac-a",
+            "os": "macos",
+            "capabilities": list(AGENT_CAPABILITIES),
+        },
     )
     device = resp.json()["id"]
     assert (

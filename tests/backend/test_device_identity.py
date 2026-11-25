@@ -19,7 +19,7 @@ from httpx import AsyncClient
 
 from backend.config import settings
 from backend.routers import system as system_router
-from tests.backend.conftest import AUTH_HEADERS
+from tests.backend.conftest import AGENT_CAPABILITIES, AUTH_HEADERS
 
 _MISSING_UUID = "00000000-0000-0000-0000-000000000000"
 
@@ -88,14 +88,16 @@ async def test_register_does_not_overwrite_server_side_settings(
     api_client: AsyncClient,
 ) -> None:
     """`propagate_deletions` est piloté depuis l'interface, pas par l'agent."""
-    device = await _register(api_client)
-    await api_client.patch(
+    caps = list(AGENT_CAPABILITIES)
+    device = await _register(api_client, capabilities=caps)
+    resp = await api_client.patch(
         f"/api/devices/{device['id']}",
         headers=AUTH_HEADERS,
         json={"propagateDeletions": True, "autoPull": True},
     )
+    assert resp.status_code == 200, resp.text
 
-    again = await _register(api_client, deviceId=device["id"])
+    again = await _register(api_client, deviceId=device["id"], capabilities=caps)
 
     assert again["propagateDeletions"] is True
     assert again["autoPull"] is True

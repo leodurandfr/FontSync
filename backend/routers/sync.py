@@ -16,6 +16,7 @@ from backend.models.device import Device
 from backend.models.font import Font
 from backend.schemas.font import FontResponse
 from backend.schemas.sync import DeltaSyncRequest, DeltaSyncResponse, PushResponse
+from backend.services.capabilities import FULL_DECLARATION, supports
 from backend.services.deletion_propagation import (
     DeletionDetection,
     clear_reinstalled_removals,
@@ -95,8 +96,10 @@ async def delta_sync(
     4. **Delta** — lecture pure, voit ses propres retraits et sa propre
        réconciliation.
 
-    La détection tourne pour **tout** appareil, quel que soit
-    `propagate_deletions`. Conditionner l'écoute à ce réglage rendait toute
+    La détection n'a lieu que pour un agent qui déclare toute sa bibliothèque
+    (capacité `full-declaration`, M-32), et pas sur son premier delta, qui sert
+    de ligne de base (`devices.full_declaration_since`). Elle tourne alors quel
+    que soit `propagate_deletions`. Conditionner l'écoute à ce réglage rendait toute
     suppression locale impossible : le serveur ne concluait rien, et
     `auto_pull` réinstallait la police au sync suivant — mesuré, 31 s entre le
     geste et son annulation. Or enregistrer une disparition n'efface aucun
@@ -113,15 +116,37 @@ async def delta_sync(
     note_sync_activity(device)
 
     await clear_reinstalled_removals(device.id, body.fonts, db)
-    detection = await detect_local_deletions(device.id, declared, db)
 
-    # Écritures d'inventaire : uniquement sur une déclaration CRÉDIBLE. Une
-    # déclaration vide (G1) ou au-delà du seuil de quarantaine (G2, suspecte)
-    # ne permet de rien conclure — ni sur les absences, ni sur les présences.
-    if declared and not detection.pending:
-        await reconcile_inventory(device.id, body.fonts, db)
-        device.last_declaration_at = datetime.now(timezone.utc)
-        await harvest_tombstones(db)
+    if not supports(device, FULL_DECLARATION):
+        # Agent qui ne garantit pas de déclarer toute sa bibliothèque (M-32,
+        # B-112 : ≤ 0.1.2 omet par exemple les polices désactivées). Une
+        # absence n'y prouve rien : ni détection, ni réconciliation, ni
+        # avancement de `last_declaration_at`, ni récolte. Seul le delta est
+        # servi.
+        detection = DeletionDetection(quarantined=[], pending=[])
+    elif device.full_declaration_since is None:
+        # Premier delta capable : il sert de ligne de base. Le registre hérité
+        # (d'un agent antérieur, d'une fusion) n'est pas comparé à lui — il est
+        # remplacé par ce que la machine déclare. Les deltas suivants, eux,
+        # détectent normalement.
+        detection = DeletionDetection(quarantined=[], pending=[])
+        if declared:
+            now = datetime.now(timezone.utc)
+            await reconcile_inventory(device.id, body.fonts, db)
+            device.last_declaration_at = now
+            device.full_declaration_since = now
+            await harvest_tombstones(db)
+    else:
+        detection = await detect_local_deletions(device.id, declared, db)
+
+        # Écritures d'inventaire : uniquement sur une déclaration CRÉDIBLE. Une
+        # déclaration vide (G1) ou au-delà du seuil de quarantaine (G2,
+        # suspecte) ne permet de rien conclure — ni sur les absences, ni sur
+        # les présences.
+        if declared and not detection.pending:
+            await reconcile_inventory(device.id, body.fonts, db)
+            device.last_declaration_at = datetime.now(timezone.utc)
+            await harvest_tombstones(db)
 
     await db.commit()
     if detection.total:
