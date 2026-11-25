@@ -23,7 +23,6 @@ import UsersSection from "@/components/settings/UsersSection.vue";
 import { useWsStore } from "@/stores/ws";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme, type Theme } from "@/composables/useTheme";
-import PaletteSwatches from "@/components/layout/PaletteSwatches.vue";
 import { useLocale } from "@/composables/useLocale";
 import { useServerUpdate } from "@/composables/useServerUpdate";
 import { useBackupHealth } from "@/composables/useBackupHealth";
@@ -182,18 +181,6 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
                 <span class="hidden sm:inline">{{ option.label }}</span>
               </ToggleGroupItem>
             </ToggleGroup>
-          </div>
-
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <p class="text-[13px] font-medium">
-                {{ t("settings.palette") }}
-              </p>
-              <p class="text-[13px] text-muted-foreground">
-                {{ t("settings.paletteDesc") }}
-              </p>
-            </div>
-            <PaletteSwatches class="pr-1" />
           </div>
 
           <div class="flex items-center justify-between gap-4">

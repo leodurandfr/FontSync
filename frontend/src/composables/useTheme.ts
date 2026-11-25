@@ -2,42 +2,10 @@ import { ref } from "vue";
 
 export type Theme = "light" | "dark" | "system";
 
-/**
- * Couleur d'accentuation, comme sur macOS : l'interface reste neutre et seule
- * la sélection (élément actif, boutons principaux, interrupteurs) prend la
- * couleur choisie. `neutral` garde l'accent noir/blanc d'origine. Les valeurs
- * vivent dans `assets/index.css` (`[data-palette]`).
- */
-export const PALETTES = [
-  "neutral",
-  "blue",
-  "purple",
-  "pink",
-  "red",
-  "orange",
-  "yellow",
-  "green",
-] as const;
-export type Palette = (typeof PALETTES)[number];
-
-/** Couleur de la pastille de chaque palette (identique à son accent). */
-export const PALETTE_SWATCH: Record<Palette, string> = {
-  neutral: "#8e8e93",
-  blue: "#007aff",
-  purple: "#9a4fd6",
-  pink: "#e8457e",
-  red: "#e5383e",
-  orange: "#f2810f",
-  yellow: "#f5c400",
-  green: "#34a853",
-};
-
 const STORAGE_KEY = "fontsync_theme";
-const PALETTE_KEY = "fontsync_palette";
 
 // État singleton : partagé entre tous les composants qui appellent useTheme().
 const theme = ref<Theme>(readStoredTheme());
-const palette = ref<Palette>(readStoredPalette());
 /** Apparence réellement affichée (le mode `system` résolu). */
 const dark = ref(false);
 
@@ -67,13 +35,6 @@ function readStoredTheme(): Theme {
   return "system";
 }
 
-function readStoredPalette(): Palette {
-  const stored = readStorage(PALETTE_KEY);
-  return (PALETTES as readonly string[]).includes(stored ?? "")
-    ? (stored as Palette)
-    : "neutral";
-}
-
 function systemPrefersDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
@@ -88,13 +49,6 @@ function applyTheme(value: Theme) {
   document.documentElement.classList.toggle("dark", dark.value);
 }
 
-/** Pose `data-palette` sur <html> (absent pour la palette neutre). */
-function applyPalette(value: Palette) {
-  const root = document.documentElement;
-  if (value === "neutral") root.removeAttribute("data-palette");
-  else root.setAttribute("data-palette", value);
-}
-
 function setTheme(value: Theme) {
   theme.value = value;
   writeStorage(STORAGE_KEY, value);
@@ -106,19 +60,12 @@ function toggleTheme() {
   setTheme(dark.value ? "light" : "dark");
 }
 
-function setPalette(value: Palette) {
-  palette.value = value;
-  writeStorage(PALETTE_KEY, value);
-  applyPalette(value);
-}
-
 /**
  * Initialise le thème au démarrage de l'app : applique la valeur mémorisée et
  * suit les changements de préférence système tant que le mode `system` est actif.
  */
 function initTheme() {
   applyTheme(theme.value);
-  applyPalette(palette.value);
   if (!mediaQuery) {
     mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     mediaQuery.addEventListener("change", () => {
@@ -130,10 +77,8 @@ function initTheme() {
 export function useTheme() {
   return {
     theme,
-    palette,
     setTheme,
     toggleTheme,
-    setPalette,
     initTheme,
     dark,
   };

@@ -38,8 +38,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-selection: var(--selection);
-  --color-selection-foreground: var(--selection-foreground);
 
   /* Tokens proto-spécifiques */
   --color-brand: var(--brand);
@@ -161,54 +159,6 @@
   --sidebar-accent-foreground: #e8e8e8;
   --sidebar-border: #1e1e1e;
   --sidebar-ring: #333333;
-}
-
-/*
- * Couleur d'accentuation (sélecteur en bas de la sidebar, réglages), comme sur
- * macOS : fonds, textes et bordures restent neutres ; seuls la sélection, les
- * boutons principaux, les interrupteurs et le focus prennent la couleur.
- * Sans `data-palette` sur <html> : accent noir/blanc d'origine.
- */
-:root {
-  --selection: var(--accent);
-  --selection-foreground: var(--accent-foreground);
-}
-[data-palette="blue"] {
-  --p: #007aff;
-  --p-fg: #ffffff;
-}
-[data-palette="purple"] {
-  --p: #9a4fd6;
-  --p-fg: #ffffff;
-}
-[data-palette="pink"] {
-  --p: #e8457e;
-  --p-fg: #ffffff;
-}
-[data-palette="red"] {
-  --p: #e5383e;
-  --p-fg: #ffffff;
-}
-[data-palette="orange"] {
-  --p: #f2810f;
-  --p-fg: #ffffff;
-}
-[data-palette="yellow"] {
-  --p: #f5c400;
-  --p-fg: #111111;
-}
-[data-palette="green"] {
-  --p: #34a853;
-  --p-fg: #ffffff;
-}
-:root[data-palette],
-:root.dark[data-palette] {
-  --primary: var(--p);
-  --primary-foreground: var(--p-fg);
-  --selection: var(--p);
-  --selection-foreground: var(--p-fg);
-  --ring: var(--p);
-  --brand: var(--p);
 }
 
 @layer base {
