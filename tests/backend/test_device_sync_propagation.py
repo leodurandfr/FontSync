@@ -22,7 +22,6 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend import auth
 from backend.config import settings
 from backend.database import get_db
 from backend.main import app
@@ -39,7 +38,6 @@ _MISSING_UUID = "00000000-0000-0000-0000-000000000000"
 @pytest.fixture(autouse=True)
 def _set_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "fontsync_token", TOKEN)
-    monkeypatch.setattr(auth, "_generated_token", None)
 
 
 @pytest.fixture

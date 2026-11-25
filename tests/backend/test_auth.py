@@ -10,13 +10,13 @@ Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
   param ou en-tête (le navigateur ne peut pas poser d'en-tête au handshake) ;
   plus de cookie, et l'Origin est contrôlé (P1-5f, test_ws_origin.py) ;
 - les quasi-égalités (préfixe, suffixe, casse, substitution) sont refusées ;
-- un token est généré + loggé quand `FONTSYNC_TOKEN` est absent ou blanc.
+- sans `FONTSYNC_TOKEN` (ou blanc), aucun token hérité n'ouvre l'API ;
+- les seules routes `/api` publiques sont les entrées de `/api/auth`.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -64,7 +64,6 @@ SYNC_PULL_PATH = f"/api/sync/pull/{_MISSING_UUID}?device_id={_MISSING_UUID}"
 def _set_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """Token d'instance connu + repli généré réinitialisé pour l'isolation."""
     monkeypatch.setattr(settings, "fontsync_token", TOKEN)
-    monkeypatch.setattr(auth, "_generated_token", None)
 
 
 @pytest.fixture(autouse=True)
@@ -231,32 +230,28 @@ def test_ws_client_rejects_cookie_only() -> None:
             pass
 
 
-# ---- Token généré quand FONTSYNC_TOKEN est absent ----
+# ---- Sans FONTSYNC_TOKEN : plus de token généré, seuls les comptes ouvrent ----
 
 
-def test_generates_and_logs_token_when_unset(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+@pytest.mark.asyncio
+async def test_no_token_configured_means_no_legacy_access(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "fontsync_token", "")
-    monkeypatch.setattr(auth, "_generated_token", None)
-
-    with caplog.at_level(logging.WARNING, logger="backend.auth"):
-        first = auth.get_server_token()
-        second = auth.get_server_token()
-
-    assert first  # non vide
-    assert first == second  # stable sur la durée de vie du process
-    assert any("FONTSYNC_TOKEN" in r.getMessage() for r in caplog.records)
+    assert auth.legacy_token() is None
+    assert not auth.token_is_valid("")
+    resp = await client.get("/api/stats", headers=_bearer("anything"))
+    assert resp.status_code == 401
 
 
 # ---- Énumération structurelle et quasi-égalités (M-49) ----
 #
 # Chaque route `/api/*` de l'app réelle, telle que montée : un router ajouté
-# sans `Depends(require_token)` (ou un `include_router` qui la perd) fait
+# sans `Depends(require_auth)` (ou un `include_router` qui la perd) fait
 # échouer la suite, sans qu'il faille penser à l'ajouter à une liste.
 
-# Tout /api, SSE compris : en-tête seulement (`TokenAuthMiddleware` puis
-# `require_token`) ; `?token=` n'est admis que sur le WebSocket navigateur.
+# Tout /api, SSE compris : en-tête seulement (`AuthMiddleware` puis
+# `require_auth`) ; `?token=` n'est admis que sur le WebSocket navigateur.
 # Hors `/api` : la santé et, si le frontend est buildé, le repli SPA.
 _PUBLIC_ROUTES = {"/health", "/{full_path:path}"}
 # Routes Starlette (pas FastAPI) admises : la doc OpenAPI (seulement si
@@ -271,7 +266,7 @@ _STARLETTE_PUBLIC = {
 }
 _WEBSOCKET_ROUTES = {"/ws/client"}
 # Relevé à l'import, avant que la fixture `client` ne vide les surcharges : un
-# `app.dependency_overrides[require_token] = …` dans l'app ouvrirait tout.
+# `app.dependency_overrides[require_auth] = …` dans l'app ouvrirait tout.
 _OVERRIDES_AT_IMPORT = dict(app.dependency_overrides)
 
 
@@ -322,16 +317,26 @@ def test_route_enumeration_sees_every_router() -> None:
     assert ("POST", "/api/system/update") in _API_CALLS
 
 
-@pytest.mark.parametrize(("method", "path"), _API_CALLS)
+_PROTECTED_API_CALLS = [(m, p) for m, p in _API_CALLS if p not in auth.PUBLIC_API_PATHS]
+
+
+def test_public_api_paths_are_exactly_the_auth_entry_points() -> None:
+    """Toute route publique de `/api` est une entrée de `/api/auth` listée."""
+    public = {p for _m, p in _API_CALLS if p in auth.PUBLIC_API_PATHS}
+    assert public == set(auth.PUBLIC_API_PATHS)
+    assert all(p.startswith("/api/auth/") for p in public)
+
+
+@pytest.mark.parametrize(("method", "path"), _PROTECTED_API_CALLS)
 def test_every_api_route_declares_the_token_dependency(method: str, path: str) -> None:
     route = next(r for r in _api_routes() if r.path == path and method in r.methods)
-    assert auth.require_token in _dependency_calls(route.dependant), (
-        f"{method} {path} n'exige pas require_token"
+    assert auth.require_auth in _dependency_calls(route.dependant), (
+        f"{method} {path} n'exige pas require_auth"
     )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("method", "path"), _API_CALLS)
+@pytest.mark.parametrize(("method", "path"), _PROTECTED_API_CALLS)
 async def test_every_api_route_rejects_a_missing_token(
     client: AsyncClient, method: str, path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -371,7 +376,7 @@ def test_no_low_priority_route() -> None:
 
 
 def test_auth_dependencies_are_never_overridden() -> None:
-    assert auth.require_token not in _OVERRIDES_AT_IMPORT
+    assert auth.require_auth not in _OVERRIDES_AT_IMPORT
 
 
 # Préfixe, suffixe, casse, troncature, substitution à longueur égale : une
@@ -399,11 +404,9 @@ async def test_rest_ignores_query_and_cookie_tokens(client: AsyncClient) -> None
 def test_blank_configured_token_is_never_the_server_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`FONTSYNC_TOKEN="   "` vaut « absent » : un token est généré, et une
-    suite d'espaces n'ouvre rien."""
+    """`FONTSYNC_TOKEN="   "` vaut « absent » : une suite d'espaces n'ouvre rien."""
     monkeypatch.setattr(settings, "fontsync_token", "   ")
-    monkeypatch.setattr(auth, "_generated_token", None)
-    assert auth.get_server_token().strip()
+    assert auth.legacy_token() is None
     assert not auth.token_is_valid("   ")
 
 

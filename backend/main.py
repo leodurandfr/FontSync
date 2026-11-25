@@ -19,21 +19,24 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from backend.auth import TokenAuthMiddleware, get_server_token, require_token
+from backend.auth import AuthMiddleware, legacy_token, require_auth
 from backend.config import settings
 from backend.database import async_session
 from backend.host_guard import HostGuardMiddleware
 from backend.logging_filters import install_token_redaction
 from backend.routers import (
     agent_events,
+    auth,
     devices,
     font_families,
     fonts,
     stats,
     sync,
     system,
+    users,
     ws,
 )
+from backend.services.accounts import bootstrap_admin_from_env
 from backend.services.backup import run_blob_backup_loop, run_database_backup_loop
 from backend.services.storage import get_storage_backend
 from backend.services.trash import run_purge_loop
@@ -48,10 +51,11 @@ install_token_redaction()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Au boot : résoudre le token d'instance, armer la purge de corbeille.
+    """Au boot : premier admin éventuel, purge de corbeille, sauvegardes.
 
-    Le token est résolu (et généré + loggué s'il est absent) dès le démarrage
-    (P1.1), sans attendre la première requête.
+    `FONTSYNC_ADMIN_EMAIL`/`_PASSWORD` créent le premier admin si aucun compte
+    n'existe (installation scriptée). Le token d'instance hérité, s'il est
+    défini, est signalé : il ne sert plus qu'à la transition vers les comptes.
 
     La purge automatique de la corbeille ne tourne que si une rétention est
     configurée — désactivée par défaut : rien ne supprime de fichier tout seul
@@ -60,8 +64,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     La sauvegarde automatique (base + polices) ne tourne que si `BACKUP_DIR`
     est configuré — désactivée par défaut, cf. `backend.services.backup`.
     """
-    get_server_token()
-    logger.info("Auth par token activée sur /api/* (token d'instance résolu).")
+    try:
+        async with async_session() as db:
+            await bootstrap_admin_from_env(db)
+    except Exception:  # noqa: BLE001 — une base pas encore migrée ne doit pas tuer le boot
+        logger.exception("Création du premier admin depuis l'environnement impossible.")
+    if legacy_token() is not None:
+        logger.warning(
+            "FONTSYNC_TOKEN est défini : il reste accepté avec les droits admin. "
+            "Retirez-le du .env une fois chaque Mac connecté avec un compte."
+        )
 
     background_tasks = [
         asyncio.create_task(run_purge_loop(async_session, get_storage_backend)),
@@ -103,28 +115,31 @@ def _versioned_openapi() -> dict:
 
 app.openapi = _versioned_openapi  # type: ignore[method-assign]
 
-# Auth par token (P1-5e) : tout `/api/*` sans `Authorization: Bearer` valide
-# reçoit 401 AVANT que le corps de la requête soit lu (B-157). Ajouté avant la
+# Auth (P1-5e) : tout `/api/*` sans identité valide (cookie de session, jeton
+# d'appareil, token hérité) reçoit 401 AVANT que le corps soit lu (B-157). Ajouté avant la
 # garde Host, donc exécuté après elle : Starlette fait du dernier middleware
 # ajouté le plus externe.
-app.add_middleware(TokenAuthMiddleware)
+app.add_middleware(AuthMiddleware)
 
 # Garde anti DNS rebinding : un `Host` inattendu est refusé avant toute route
 # (400, ou fermeture 1008 pour le WebSocket). Réglage `ALLOWED_HOSTS`, cf.
 # `backend.host_guard` et docs/INSTALL-NAS.md.
 app.add_middleware(HostGuardMiddleware)
 
-# Défense en profondeur : chaque routeur `/api/*` redemande le token (même règle
-# que le middleware, en-tête `Authorization: Bearer`, SSE compris). Le
-# WebSocket vérifie le token dans son propre handler (handshake sans en-tête
-# côté navigateur). `/health` et la SPA restent publics.
-app.include_router(fonts.router, dependencies=[Depends(require_token)])
-app.include_router(devices.router, dependencies=[Depends(require_token)])
-app.include_router(sync.router, dependencies=[Depends(require_token)])
-app.include_router(font_families.router, dependencies=[Depends(require_token)])
-app.include_router(stats.router, dependencies=[Depends(require_token)])
-app.include_router(system.router, dependencies=[Depends(require_token)])
-app.include_router(agent_events.router, dependencies=[Depends(require_token)])
+# Défense en profondeur : chaque routeur `/api/*` redemande l'identité (même
+# règle que le middleware, SSE compris). Le WebSocket la vérifie dans son
+# propre handler. `/health`, la SPA et les routes publiques de `/api/auth`
+# (`backend.auth.PUBLIC_API_PATHS`) se passent d'identité.
+app.include_router(fonts.router, dependencies=[Depends(require_auth)])
+app.include_router(devices.router, dependencies=[Depends(require_auth)])
+app.include_router(sync.router, dependencies=[Depends(require_auth)])
+app.include_router(font_families.router, dependencies=[Depends(require_auth)])
+app.include_router(stats.router, dependencies=[Depends(require_auth)])
+app.include_router(system.router, dependencies=[Depends(require_auth)])
+app.include_router(agent_events.router, dependencies=[Depends(require_auth)])
+app.include_router(auth.router)
+app.include_router(users.users_router, dependencies=[Depends(require_auth)])
+app.include_router(users.invitations_router, dependencies=[Depends(require_auth)])
 app.include_router(ws.router)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"

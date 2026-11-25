@@ -1,6 +1,6 @@
 """Auth en middleware ASGI (P1-5e, B-157, B-143, B-54).
 
-Les dépendances `require_token` des routeurs ne s'exécutent qu'APRÈS que
+Les dépendances `require_auth` des routeurs ne s'exécutent qu'APRÈS que
 FastAPI a lu et analysé le corps (formulaire multipart, JSON) : un client sans
 token pouvait faire lire au serveur des centaines de Mio avant le 401. Le
 middleware refuse tout `/api/*` sans `Authorization: Bearer` valide sans jamais
@@ -289,8 +289,8 @@ async def test_middleware_alone_accepts_only_the_bearer_header(
     headers: list[tuple[bytes, bytes]], query: bytes, expected: int
 ) -> None:
     """Défense en profondeur dans les deux sens : le middleware ne compte pas
-    sur `require_token` (ni l'inverse)."""
-    from backend.auth import TokenAuthMiddleware
+    sur `require_auth` (ni l'inverse)."""
+    from backend.auth import AuthMiddleware
 
     reached: list[bool] = []
 
@@ -315,6 +315,6 @@ async def test_middleware_alone_accepts_only_the_bearer_header(
         "query_string": query,
         "headers": headers,
     }
-    await TokenAuthMiddleware(inner)(scope, receive, send)
+    await AuthMiddleware(inner)(scope, receive, send)
     assert messages[0]["status"] == expected
     assert reached == ([True] if expected == 200 else [])

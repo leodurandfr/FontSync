@@ -75,7 +75,9 @@ This is the simplest and most reproducible method, including on Synology whose
    (`alembic upgrade head`) then starts the server. The SQLite database is created
    automatically in the `db` volume.
 
-5. Open `http://<nas-ip>:8080`. The web UI asks for the token on first access.
+5. Open `http://<nas-ip>:8080` and create the **administrator account** (email +
+   password). Then invite the other people from the interface. Until every Mac
+   has signed in with an account, keep `FONTSYNC_TOKEN`: the Macs still use it.
 
 ### On Synology Container Manager (graphical interface)
 
@@ -110,10 +112,11 @@ This is the simplest and most reproducible method, including on Synology whose
 | `DEVICE_OVERDUE_MINUTES` | A device whose agent has not synced for this long is flagged "overdue" in Settings → Devices, even when connected. Default `30` (3 × the agent's 600 s interval) | `30` |
 | `FONTSYNC_BACKUP_DIR` | **Host** folder mounted on `/backups` (read by the compose file, not by the server). Default `./auto-backups`, next to the compose file | `/volume2/fontsync-backups` |
 
-> If `FONTSYNC_TOKEN` is left empty, the server **generates** a token at
-> startup and **logs** it (never an open server by default). The example
-> compose makes it **mandatory** to prevent it from changing at every
-> restart.
+> If `FONTSYNC_TOKEN` is left empty, only accounts open the API: create the
+> administrator from the web UI on first access. When it is set, creating the
+> administrator asks for it, so that nobody else can claim an exposed server.
+> Lost the administrator password? `docker exec -it fontsync python -m
+> backend.cli reset-password <email>`.
 
 > **Host check (DNS rebinding protection).** The server answers only when the
 > `Host` header is an IP address, `localhost`, a `*.local` name or a Tailscale

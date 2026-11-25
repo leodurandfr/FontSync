@@ -21,7 +21,6 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend import auth
 from backend.config import settings
 from backend.database import get_db
 from backend.main import app
@@ -38,7 +37,6 @@ async def client(
     # Auth par token (P1) : tout `/api/*` exige le Bearer ; on fixe un token
     # connu et on le pose par défaut sur le client.
     monkeypatch.setattr(settings, "fontsync_token", _TOKEN)
-    monkeypatch.setattr(auth, "_generated_token", None)
     engine = create_async_engine(
         "sqlite+aiosqlite://",
         poolclass=StaticPool,

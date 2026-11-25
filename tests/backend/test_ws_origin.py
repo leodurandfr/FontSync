@@ -15,7 +15,6 @@ import pytest
 from fastapi import WebSocketDisconnect
 from starlette.testclient import TestClient
 
-from backend import auth
 from backend.config import settings
 from backend.main import app
 from backend.routers import agent_events
@@ -30,7 +29,6 @@ LOCAL = "http://localhost:8080"
 @pytest.fixture(autouse=True)
 def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "fontsync_token", TOKEN)
-    monkeypatch.setattr(auth, "_generated_token", None)
     monkeypatch.setattr(settings, "allowed_hosts", "")
     if hasattr(settings, "allowed_origins"):
         monkeypatch.setattr(settings, "allowed_origins", "")

@@ -490,18 +490,63 @@ covering them all would need a migration and a re-analysis of the library. On
 the measurement above that is 87 of 918 faces, and the gap always falls the safe
 way — those groups go undetected, never mis-resolved.
 
+### 4.6 Accounts and sessions
+
+The font library is **shared** by every account of an instance: an account says
+who may come in and who owns a device, not who owns a font. Tables
+(`backend/models/user.py`):
+
+| Table | Main columns | Role |
+|-------|--------------|------|
+| `users` | `email` (unique, lower-case), `password_hash` (argon2id), `role` (`admin`/`member`), `disabled_at` | Accounts |
+| `auth_sessions` | `user_id`, `token_hash` (SHA-256), `kind` (`web`/`device`), `device_id`, `label`, `last_used_at`, `expires_at`, `revoked_at` | One row per live connection |
+| `invitations` | `email`, `role`, `token_hash`, `expires_at`, `used_at`, `revoked_at` | Single-use invitation link |
+| `devices` | + `owner_user_id` | Every Mac belongs to an account |
+
+- **Tokens** are 32 random bytes shown once and stored as SHA-256. A web session
+  lasts `WEB_SESSION_DAYS` (30) and slides with use; a device token never expires
+  and is **bound to one device** at its first `POST /api/devices/register`. It
+  can then only act for that device (sync, SSE, settings), and never has admin
+  rights, even for an admin's account.
+- **One account, several Macs**: each `device-login` opens its own session, so
+  each Mac is revoked on its own (Settings → My sessions).
+- **Roles**: members browse, upload, install and trash (recoverable); they see
+  and manage only their own devices. Admins also manage accounts and
+  invitations, empty the trash, confirm held deletions, purge, merge devices
+  and trigger the server update.
+- **First launch**: `GET /api/auth/status` says `setupRequired` while no account
+  exists; `POST /api/auth/setup` creates the first admin. On a server that
+  already has a `FONTSYNC_TOKEN`, setup requires that token (`legacyToken`), so
+  that whoever reaches an exposed server first cannot claim it. Devices known
+  before accounts are attached to that admin. Scripted alternative:
+  `FONTSYNC_ADMIN_EMAIL` / `FONTSYNC_ADMIN_PASSWORD`.
+- **No outgoing email**: the admin invites with a link they copy
+  (`/invite#<token>`, the fragment never reaches the server) and resets
+  passwords; a lost admin password is reset with
+  `docker exec -it fontsync python -m backend.cli reset-password <email>`.
+- **Login** is rate-limited (5 failures per minute per IP and per email) and
+  answers the same for an unknown email and a wrong password.
+- **Migration**: while `FONTSYNC_TOKEN` is set, it keeps working everywhere with
+  admin rights, so existing Macs keep syncing; remove it from `.env` once every
+  Mac has signed in with an account.
+
 ## 5. Backend API (FastAPI)
 
-> **Auth:** all of `/api/*`, the SSE stream and the WebSocket require the shared
-> instance token (`FONTSYNC_TOKEN`) in the `Authorization: Bearer` header — except the
-> browser WS which accepts it in the query `?token=` (URL-encoded). Only `GET /health`
-> (and the SPA) is public. `/api/*` is checked by an ASGI middleware (`TokenAuthMiddleware`)
-> that answers 401 **before the request body is read**, then again by each router's
-> `require_token` dependency. The interactive API docs (`/docs`, `/redoc`,
-> `/openapi.json`) are off unless `FONTSYNC_API_DOCS=true`. The WebSocket takes the
-> token in the query or the header (no cookie) and refuses a foreign browser `Origin`
-> (`backend.host_guard.origin_is_allowed`, `ALLOWED_ORIGINS`). Actual prefixes: `/api/fonts`, `/api/devices`, `/api/sync`,
-> `/api/font-families`, `/api/stats`, `/api/agent`.
+> **Auth (accounts, §4.6):** all of `/api/*`, the SSE stream and the WebSocket require
+> an identity: a **web session** (`HttpOnly`, `SameSite=Strict` cookie
+> `fontsync_session`, set by `POST /api/auth/login`), a **device token**
+> (`Authorization: Bearer`, from `POST /api/auth/device-login`), or, while it is
+> still set, the **legacy instance token** `FONTSYNC_TOKEN` (`Bearer`, admin rights).
+> Only `GET /health`, the SPA and the entry points of `/api/auth` listed in
+> `backend.auth.PUBLIC_API_PATHS` are public. `/api/*` is checked by an ASGI middleware
+> (`AuthMiddleware`) that answers 401 **before the request body is read**, then again by
+> each router's `require_auth` dependency; admin routes add `require_admin`. A
+> cookie-authenticated write must come from an allowed `Origin`. The interactive API
+> docs (`/docs`, `/redoc`, `/openapi.json`) are off unless `FONTSYNC_API_DOCS=true`.
+> The WebSocket accepts the session cookie, or a token in the query/header, and refuses
+> a foreign browser `Origin` (`backend.host_guard.origin_is_allowed`, `ALLOWED_ORIGINS`).
+> Actual prefixes: `/api/auth`, `/api/users`, `/api/invitations`, `/api/fonts`,
+> `/api/devices`, `/api/sync`, `/api/font-families`, `/api/stats`, `/api/agent`.
 
 ### 5.1 MVP endpoints
 
@@ -582,7 +627,7 @@ way — those groups go undetected, never mis-resolved.
 
 | Endpoint | Description |
 |----------|-------------|
-| `WS /ws/client` | Frontend ↔ server channel (token in query `?token=`, URL-encoded) |
+| `WS /ws/client` | Frontend ↔ server channel (session cookie; or a token in query `?token=`, URL-encoded) |
 | `GET /api/agent/{device_id}/events` | **SSE** server → agent: « re-sync » signal consumed by `listen` |
 
 > The agent has no WebSocket of its own: it only listens to the SSE channel above.
@@ -1068,7 +1113,7 @@ fontsync/
 
 ### Technical decisions
 
-- **Auth = shared instance token** (`FONTSYNC_TOKEN`) verified on all of `/api/*`, the SSE and the WS; no user accounts (reserved for multi-user, long term)
+- **Auth = accounts** (admin + members) sharing **one** font library, one session per browser or Mac (§4.6); the legacy `FONTSYNC_TOKEN` stays accepted during the migration
 - **SQLite** as the database (single-user); Postgres reserved for a possible multi-user (long term)
 - **Soft delete** (`deleted_at`) for all deletions
 - **UUID** for all PKs (portable SQLAlchemy type)
