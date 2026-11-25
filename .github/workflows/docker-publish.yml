@@ -122,11 +122,13 @@ jobs:
       - name: Trivy (vulnérabilités de l'image)
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}
+        # `${IMAGE,,}` : github.repository garde ses majuscules (FontSync), qu'une
+        # référence d'image refuse — Trivy échouait avant même de scanner.
         run: |
           mkdir -p scan
           docker run --rm -v "$PWD/scan:/out" \
             aquasec/trivy@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7 \
-            image --scanners vuln --format table --output /out/trivy.txt "$IMAGE"
+            image --scanners vuln --format table --output /out/trivy.txt "${IMAGE,,}"
 
       - name: Rapport en artefact
         if: always()
