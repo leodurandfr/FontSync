@@ -13,6 +13,7 @@ import { SectionLabel } from "@/components/ui/section-label";
 import SidebarNavButton from "./SidebarNavButton.vue";
 import WindowControls from "./WindowControls.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
+import ThemeQuickSwitch from "@/components/layout/ThemeQuickSwitch.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
@@ -255,8 +256,9 @@ function startResize(e: PointerEvent) {
       <!-- Footer -->
       <!--
         Une seule rangée d'icônes (libellé en infobulle + aria-label) : le bas
-        du panneau prend le moins de hauteur possible. Le thème se règle dans
-        les réglages uniquement.
+        du panneau prend le moins de hauteur possible. Le bouton de thème
+        bascule clair/sombre ; un survol prolongé ou un appui long ouvre les
+        palettes de couleurs.
       -->
       <div
         class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-2"
@@ -285,6 +287,8 @@ function startResize(e: PointerEvent) {
         >
           <Settings class="size-3.5" :stroke-width="1.5" />
         </RouterLink>
+
+        <ThemeQuickSwitch />
       </div>
 
       <!-- Resize handle -->
