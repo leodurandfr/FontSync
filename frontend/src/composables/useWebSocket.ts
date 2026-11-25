@@ -17,9 +17,9 @@ let isManualClose = false;
 function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const base = `${proto}//${window.location.host}/ws/client`;
-  // Le handshake WebSocket du navigateur ne peut pas poser d'en-tête : le token
-  // (P1.4) passe en query param `?token=` (cf. `verify_websocket_token` côté
-  // serveur).
+  // La session navigateur passe par son cookie. Seul le token d'instance
+  // hérité, qu'un handshake navigateur ne peut pas poser en en-tête, passe en
+  // query param `?token=`.
   const token = useAuthStore().token;
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
@@ -130,9 +130,9 @@ function connect() {
     socket = null;
     wsStore.status = "disconnected";
 
-    // 1008 = WS_1008_POLICY_VIOLATION : le serveur a refusé le token (absent,
-    // invalide, ou tourné). Inutile de reconnecter avec le même token — on
-    // redemande la saisie et on s'arrête.
+    // 1008 = WS_1008_POLICY_VIOLATION : le serveur a refusé l'identité
+    // (session expirée ou révoquée, token tourné). Inutile de reconnecter
+    // telle quelle : on revérifie l'état de connexion et on s'arrête.
     if (event.code === 1008) {
       useAuthStore().markUnauthorized();
       return;

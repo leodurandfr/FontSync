@@ -1,49 +1,137 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import { useAuthStore } from "@/stores/auth";
+import { AuthError, useAuthStore } from "@/stores/auth";
+import type { AuthStatus } from "@/types/api";
 
-describe("auth store (P1.4)", () => {
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function status(partial: Partial<AuthStatus>): AuthStatus {
+  return {
+    setupRequired: false,
+    setupNeedsLegacyToken: false,
+    legacyTokenEnabled: false,
+    me: null,
+    ...partial,
+  };
+}
+
+const ADMIN_ME = {
+  kind: "web" as const,
+  role: "admin" as const,
+  user: null,
+  deviceId: null,
+};
+
+describe("auth store (comptes)", () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
   });
 
-  it("demande le token quand rien n'est mémorisé", () => {
-    const auth = useAuthStore();
-    expect(auth.token).toBeNull();
-    expect(auth.needsToken).toBe(true);
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("relit un token déjà mémorisé sans redemander la saisie", () => {
+  it("commence en vérification, sans identité", () => {
+    const auth = useAuthStore();
+    expect(auth.phase).toBe("checking");
+    expect(auth.needsAuth).toBe(true);
+    expect(auth.isAdmin).toBe(false);
+  });
+
+  it("aucun compte : propose la création de l'admin", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(status({ setupRequired: true }))),
+    );
+    const auth = useAuthStore();
+    await auth.refresh();
+    expect(auth.phase).toBe("setup");
+  });
+
+  it("comptes existants sans session : écran de connexion", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(status({}))));
+    const auth = useAuthStore();
+    await auth.refresh();
+    expect(auth.phase).toBe("login");
+  });
+
+  it("session valide : l'application s'affiche", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json(status({ me: ADMIN_ME }))),
+    );
+    const auth = useAuthStore();
+    await auth.refresh();
+    expect(auth.phase).toBe("ready");
+    expect(auth.needsAuth).toBe(false);
+    expect(auth.isAdmin).toBe(true);
+  });
+
+  it("un jeton d'appareil n'a jamais les droits d'admin", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json(status({ me: { ...ADMIN_ME, kind: "device" } })),
+        ),
+    );
+    const auth = useAuthStore();
+    await auth.refresh();
+    expect(auth.isAdmin).toBe(false);
+  });
+
+  it("envoie le token hérité mémorisé à la vérification", async () => {
     localStorage.setItem("fontsync_token", "abc");
-    setActivePinia(createPinia()); // store recréé après avoir amorcé le storage
-    const auth = useAuthStore();
-    expect(auth.token).toBe("abc");
-    expect(auth.needsToken).toBe(false);
+    setActivePinia(createPinia());
+    const fetchMock = vi.fn().mockResolvedValue(json(status({})));
+    vi.stubGlobal("fetch", fetchMock);
+    await useAuthStore().refresh();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer abc");
   });
 
-  it("setToken trim, persiste et ferme l'écran de saisie", () => {
+  it("connexion réussie : oublie le token hérité", async () => {
+    localStorage.setItem("fontsync_token", "abc");
+    setActivePinia(createPinia());
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(json({}))
+        .mockResolvedValueOnce(json(status({ me: ADMIN_ME }))),
+    );
     const auth = useAuthStore();
-    auth.setToken("  secret  ");
-    expect(auth.token).toBe("secret");
-    expect(localStorage.getItem("fontsync_token")).toBe("secret");
-    expect(auth.needsToken).toBe(false);
-  });
-
-  it("clearToken efface le token et réaffiche la saisie", () => {
-    const auth = useAuthStore();
-    auth.setToken("secret");
-    auth.clearToken();
+    await auth.login("admin@example.com", "motdepasse-long");
     expect(auth.token).toBeNull();
     expect(localStorage.getItem("fontsync_token")).toBeNull();
-    expect(auth.needsToken).toBe(true);
+    expect(auth.phase).toBe("ready");
   });
 
-  it("markUnauthorized réaffiche la saisie sans jeter la valeur courante", () => {
+  it("connexion refusée : AuthError avec le statut", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(json({ detail: "Identifiants invalides" }, 401)),
+    );
     const auth = useAuthStore();
-    auth.setToken("secret");
-    auth.markUnauthorized();
-    expect(auth.needsToken).toBe(true);
-    expect(auth.token).toBe("secret");
+    const err = await auth.login("a@b.c", "x").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect((err as AuthError).status).toBe(401);
+  });
+
+  it("serveur injoignable : écran de connexion avec l'alerte", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+    const auth = useAuthStore();
+    await auth.refresh();
+    expect(auth.unreachable).toBe(true);
+    expect(auth.phase).toBe("login");
   });
 });

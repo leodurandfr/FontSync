@@ -6,7 +6,6 @@ import {
   Copy,
   Download,
   Check,
-  KeyRound,
   Loader2,
   RefreshCw,
   Sun,
@@ -20,7 +19,9 @@ import { Badge } from "@/components/ui/badge";
 import { Panel } from "@/components/ui/panel";
 import { SectionLabel } from "@/components/ui/section-label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import AccountSection from "@/components/settings/AccountSection.vue";
 import DevicesSection from "@/components/settings/DevicesSection.vue";
+import UsersSection from "@/components/settings/UsersSection.vue";
 import { useWsStore } from "@/stores/ws";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme, type Theme } from "@/composables/useTheme";
@@ -100,12 +101,6 @@ function onLocaleChange(value: unknown) {
   if (value === "en" || value === "fr") {
     setLocale(value);
   }
-}
-
-// Redemander le token : on efface celui mémorisé, ce qui réaffiche l'écran de
-// saisie (App.vue gate sur `needsToken`).
-function changeToken() {
-  authStore.clearToken();
 }
 
 const serverUrl = computed(() => window.location.origin);
@@ -265,7 +260,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
                 {{ info?.version ?? "…" }}
               </code>
               <Button
-                v-if="info?.updateAvailable"
+                v-if="info?.updateAvailable && authStore.isAdmin"
                 variant="outline"
                 :disabled="
                   updateState === 'requesting' || updateState === 'restarting'
@@ -312,7 +307,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
               }}
             </p>
             <p
-              v-else-if="info && !info.updateAvailable"
+              v-else-if="info && !info.updateAvailable && authStore.isAdmin"
               class="mt-2 text-[13px] text-muted-foreground"
             >
               {{ t("settings.updateNotConfigured") }}
@@ -387,29 +382,9 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
         </Panel>
       </section>
 
-      <!-- Token d'accès -->
-      <section>
-        <SectionLabel class="mb-3">{{
-          t("settings.accessToken")
-        }}</SectionLabel>
-        <Panel class="space-y-4 p-6">
-          <i18n-t
-            keypath="settings.tokenDesc"
-            tag="p"
-            class="text-[13px] text-muted-foreground"
-            scope="global"
-          >
-            <template #code
-              ><code class="font-mono">FONTSYNC_TOKEN</code></template
-            >
-          </i18n-t>
-
-          <Button variant="outline" @click="changeToken">
-            <KeyRound class="mr-2 h-4 w-4" />
-            {{ t("settings.changeToken") }}
-          </Button>
-        </Panel>
-      </section>
+      <!-- Comptes -->
+      <AccountSection />
+      <UsersSection v-if="authStore.isAdmin" />
 
       <!-- Agent download -->
       <section>

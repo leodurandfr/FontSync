@@ -7,7 +7,7 @@ function fetchReturning(status: number) {
   return vi.fn().mockResolvedValue(new Response(null, { status }));
 }
 
-describe("apiFetch (P1.4)", () => {
+describe("apiFetch", () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
@@ -17,8 +17,8 @@ describe("apiFetch (P1.4)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("ajoute l'en-tête Bearer quand un token est connu", async () => {
-    useAuthStore().setToken("secret");
+  it("ajoute l'en-tête Bearer quand un token hérité est connu", async () => {
+    useAuthStore().token = "secret";
     const fetchMock = fetchReturning(200);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -40,27 +40,24 @@ describe("apiFetch (P1.4)", () => {
     expect(new Headers(init.headers).has("Authorization")).toBe(false);
   });
 
-  it("sur 401 : marque non autorisé et lève UnauthorizedError", async () => {
+  it("sur 401 : revérifie l'identité et lève UnauthorizedError", async () => {
     const auth = useAuthStore();
-    auth.setToken("secret");
-    expect(auth.needsToken).toBe(false);
+    auth.phase = "ready";
     vi.stubGlobal("fetch", fetchReturning(401));
 
     await expect(apiFetch("/api/stats")).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
-    expect(auth.needsToken).toBe(true);
+    expect(auth.needsAuth).toBe(true);
   });
 
   it("laisse passer les réponses non-401 (l'appelant vérifie res.ok)", async () => {
     vi.stubGlobal("fetch", fetchReturning(500));
     const res = await apiFetch("/api/stats");
     expect(res.status).toBe(500);
-    expect(useAuthStore().needsToken).toBe(true); // pas de token → reste à true
   });
 
   it("préserve la méthode et le signal d'annulation", async () => {
-    useAuthStore().setToken("secret");
     const fetchMock = fetchReturning(200);
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();

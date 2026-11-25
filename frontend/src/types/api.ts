@@ -297,3 +297,59 @@ export interface WsMessage {
   type: WsEventType;
   data: Record<string, unknown>;
 }
+
+// ---------- Comptes (cf. backend/schemas/auth.py) ----------
+
+export type Role = "admin" | "member";
+
+export interface User {
+  id: string;
+  email: string;
+  role: Role;
+  createdAt: string;
+  disabledAt: string | null;
+  deviceCount: number;
+  sessionCount: number;
+}
+
+/** Identité de la requête. `user` est vide pour le token d'instance hérité. */
+export interface Me {
+  kind: "web" | "device" | "legacy";
+  role: Role;
+  user: User | null;
+  deviceId: string | null;
+}
+
+export interface AuthStatus {
+  setupRequired: boolean;
+  setupNeedsLegacyToken: boolean;
+  legacyTokenEnabled: boolean;
+  me: Me | null;
+}
+
+export interface AuthSession {
+  id: string;
+  kind: "web" | "device";
+  label: string | null;
+  deviceId: string | null;
+  userId: string;
+  userEmail: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  current: boolean;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: Role;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+}
+
+export interface InvitationCreated {
+  invitation: Invitation;
+  token: string;
+}
