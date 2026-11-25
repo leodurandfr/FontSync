@@ -315,7 +315,6 @@ onBeforeUnmount(() => {
       "
       class="flex min-h-12 items-center gap-4 px-4 py-2 transition-colors hover:bg-accent sm:px-8"
     >
-      <span class="size-1.5 flex-shrink-0 rounded-full bg-foreground-subtle" />
       <span
         class="min-w-0 flex-1 truncate leading-tight transition-colors group-hover:text-brand"
         :style="{

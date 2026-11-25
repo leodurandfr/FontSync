@@ -261,6 +261,12 @@ export interface FontFamilyDetail extends FontFamily {
   members: FamilyMember[];
 }
 
+/** Nombre de familles, au total et par classification (barre latérale). */
+export interface FontFamilyCounts {
+  total: number;
+  byClassification: Record<string, number>;
+}
+
 export interface FontFamilyListResponse {
   items: FontFamily[];
   total: number;

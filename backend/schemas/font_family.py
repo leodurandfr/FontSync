@@ -104,6 +104,13 @@ class FontFamilyListResponse(CamelModel):
     pages: int
 
 
+class FontFamilyCounts(CamelModel):
+    """Nombre de familles, au total et par classification (barre latérale)."""
+
+    total: int
+    by_classification: dict[str, int]
+
+
 # ---------- Entrées ----------
 
 

@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { apiFetch } from "@/lib/api";
 import type {
   FontFamily,
+  FontFamilyCounts,
   FontFamilyListResponse,
   FamilyFilters,
 } from "@/types/api";
@@ -17,6 +18,19 @@ export const useFamiliesStore = defineStore("families", () => {
   const loadingMore = ref(false);
   const error = ref<string | null>(null);
   const initialized = ref(false);
+
+  // Compteurs sans filtre (barre latérale) : distincts de `total`, qui suit
+  // les filtres de la liste.
+  const counts = ref<FontFamilyCounts | null>(null);
+
+  async function fetchCounts() {
+    try {
+      const res = await apiFetch("/api/font-families/counts");
+      if (res.ok) counts.value = await res.json();
+    } catch {
+      // Compteurs facultatifs : en cas d'échec, la barre latérale s'en passe.
+    }
+  }
 
   let abortController: AbortController | null = null;
 
@@ -110,6 +124,8 @@ export const useFamiliesStore = defineStore("families", () => {
   return {
     families,
     total,
+    counts,
+    fetchCounts,
     page,
     pages,
     perPage,

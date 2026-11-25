@@ -102,6 +102,25 @@ async function changePassword() {
   }
 }
 
+// Navigateurs autres que celui-ci. Les Mac (sessions « device ») ne sont jamais
+// concernés : les déconnecter couperait leur synchronisation.
+const otherWebSessions = computed(() =>
+  sessions.value.filter((s) => s.kind === "web" && !s.current),
+);
+const revokingOthers = ref(false);
+
+async function revokeOtherWebSessions() {
+  revokingOthers.value = true;
+  try {
+    for (const session of otherWebSessions.value) {
+      await apiJson(`/api/auth/sessions/${session.id}`, "DELETE");
+    }
+  } finally {
+    revokingOthers.value = false;
+    await loadSessions();
+  }
+}
+
 async function revoke(session: AuthSession) {
   await apiJson(`/api/auth/sessions/${session.id}`, "DELETE");
   if (session.current) {
@@ -205,9 +224,24 @@ async function revoke(session: AuthSession) {
           <SectionLabel as="p" class="mb-1.5">{{
             t("account.sessions")
           }}</SectionLabel>
-          <p class="mb-3 text-[13px] text-muted-foreground">
-            {{ t("account.sessionsDesc") }}
-          </p>
+          <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <p class="text-[13px] text-muted-foreground">
+              {{ t("account.sessionsDesc") }}
+            </p>
+            <Button
+              v-if="otherWebSessions.length > 0"
+              variant="outline"
+              size="sm"
+              :disabled="revokingOthers"
+              @click="revokeOtherWebSessions"
+            >
+              {{
+                t("account.revokeOtherBrowsers", {
+                  n: otherWebSessions.length,
+                })
+              }}
+            </Button>
+          </div>
           <ul
             class="divide-y divide-separator rounded-lg border border-separator"
           >

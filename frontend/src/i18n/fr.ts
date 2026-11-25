@@ -153,6 +153,7 @@ const fr: typeof en = {
     thisSession: "Cette session",
     lastUsed: "Dernière activité : {date}",
     revoke: "Révoquer",
+    revokeOtherBrowsers: "Déconnecter les autres navigateurs ({n})",
     noSessions: "Aucune autre session.",
   },
   removals: {
