@@ -161,7 +161,8 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             </div>
             <ToggleGroup
               type="single"
-              class="gap-0.5 rounded-lg bg-segment-track p-0.5"
+              :spacing="0.5"
+              class="rounded-lg bg-segment-track p-0.5"
               :model-value="theme"
               @update:model-value="onThemeChange"
             >
@@ -193,7 +194,8 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             </div>
             <ToggleGroup
               type="single"
-              class="gap-0.5 rounded-lg bg-segment-track p-0.5"
+              :spacing="0.5"
+              class="rounded-lg bg-segment-track p-0.5"
               :model-value="locale"
               @update:model-value="onLocaleChange"
             >
