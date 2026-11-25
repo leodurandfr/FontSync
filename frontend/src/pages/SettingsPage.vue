@@ -9,7 +9,6 @@ import {
   Sun,
   Moon,
   Monitor,
-  Languages,
 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
@@ -162,7 +161,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             </div>
             <ToggleGroup
               type="single"
-              variant="outline"
+              class="gap-0.5 rounded-lg bg-segment-track p-0.5"
               :model-value="theme"
               @update:model-value="onThemeChange"
             >
@@ -171,8 +170,13 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
                 :key="option.value"
                 :value="option.value"
                 :aria-label="option.label"
+                class="h-7 gap-1.5 rounded-md px-3 text-[12px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-segment-thumb data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
               >
-                <component :is="option.icon" class="h-4 w-4 sm:mr-1.5" />
+                <component
+                  :is="option.icon"
+                  class="size-3.5"
+                  :stroke-width="1.75"
+                />
                 <span class="hidden sm:inline">{{ option.label }}</span>
               </ToggleGroupItem>
             </ToggleGroup>
@@ -189,7 +193,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             </div>
             <ToggleGroup
               type="single"
-              variant="outline"
+              class="gap-0.5 rounded-lg bg-segment-track p-0.5"
               :model-value="locale"
               @update:model-value="onLocaleChange"
             >
@@ -198,9 +202,9 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
                 :key="option.value"
                 :value="option.value"
                 :aria-label="option.label"
+                class="h-7 gap-1.5 rounded-md px-3 text-[12px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-segment-thumb data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
               >
-                <Languages class="h-4 w-4 sm:mr-1.5" />
-                <span class="hidden sm:inline">{{ option.label }}</span>
+                {{ option.label }}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>

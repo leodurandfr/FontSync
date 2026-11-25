@@ -46,6 +46,8 @@
   --color-font-preview: var(--font-preview);
   --color-panel-border: var(--panel-border);
   --shadow-panel: var(--panel-shadow);
+  --color-segment-track: var(--segment-track);
+  --color-segment-thumb: var(--segment-thumb);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -98,6 +100,9 @@
     0.12
   ); /* bordure externe des panneaux flottants (design-ctt) */
   --panel-shadow: none;
+  /* Contrôle segmenté façon macOS : rail gris, pastille active surélevée. */
+  --segment-track: rgba(0, 0, 0, 0.05);
+  --segment-thumb: #ffffff;
 
   --sidebar: #ffffff;
   --sidebar-foreground: #111111;
@@ -143,6 +148,8 @@
   --font-preview: #080808; /* fond des styles dépliés d'une famille — creux le plus sombre, sous le fond de page #0c0c0c */
   --panel-border: rgba(255, 255, 255, 0.08);
   --panel-shadow: none;
+  --segment-track: rgba(255, 255, 255, 0.06);
+  --segment-thumb: rgba(255, 255, 255, 0.14);
 
   --sidebar: #141414;
   --sidebar-foreground: #e8e8e8;

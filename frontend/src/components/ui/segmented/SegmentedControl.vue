@@ -17,7 +17,10 @@ const model = defineModel<T>({ required: true });
 </script>
 
 <template>
-  <div data-slot="segmented" class="flex items-center gap-0.5">
+  <div
+    data-slot="segmented"
+    class="flex items-center gap-0.5 rounded-lg bg-segment-track p-0.5"
+  >
     <button
       v-for="opt in options"
       :key="opt.value"
@@ -27,10 +30,10 @@ const model = defineModel<T>({ required: true });
       :aria-pressed="model === opt.value"
       :class="
         cn(
-          'flex size-7 items-center justify-center rounded-md transition-all',
+          'flex h-6 w-8 items-center justify-center rounded-md transition-all',
           model === opt.value
-            ? 'bg-accent text-foreground'
-            : 'text-foreground-subtle hover:bg-accent hover:text-muted-foreground',
+            ? 'bg-segment-thumb text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+            : 'text-muted-foreground hover:text-foreground',
         )
       "
       @click="model = opt.value"
