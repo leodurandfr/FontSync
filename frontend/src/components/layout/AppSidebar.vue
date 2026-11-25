@@ -155,7 +155,7 @@ function startResize(e: PointerEvent) {
             d'être déjà à pleine opacité bien avant d'y arriver.
           -->
           <span
-            class="truncate text-[13px] font-semibold transition-opacity duration-100 ease-in-out"
+            class="truncate pt-px text-[13px] font-semibold leading-none transition-opacity duration-100 ease-in-out"
             :class="
               layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'
             "
@@ -210,7 +210,7 @@ function startResize(e: PointerEvent) {
             "
           >
             <Copy class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[13px]">{{
+            <span class="truncate text-[12px]">{{
               t("sidebar.duplicates")
             }}</span>
           </RouterLink>
@@ -224,39 +224,47 @@ function startResize(e: PointerEvent) {
             "
           >
             <Trash2 class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[13px]">{{ t("sidebar.trash") }}</span>
+            <span class="truncate text-[12px]">{{ t("sidebar.trash") }}</span>
           </RouterLink>
         </template>
       </nav>
 
       <!-- Footer -->
+      <!--
+        Actions empilées comme les entrées de la nav (une par ligne) : sur une
+        seule rangée, « Upload », « Settings » et le thème étaient trop serrés.
+      -->
       <div
-        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-3"
+        class="flex flex-shrink-0 flex-col gap-0.5 border-t border-separator px-3 py-3"
       >
         <UploadDialog>
           <button
             type="button"
-            class="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <Upload class="size-3.5" :stroke-width="1.5" />
-            <span class="text-[13px]">{{ t("sidebar.upload") }}</span>
+            <span class="truncate text-[12px]">{{ t("sidebar.upload") }}</span>
           </button>
         </UploadDialog>
 
-        <RouterLink
-          :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
-          class="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
-          :class="
-            onSettings
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:bg-accent'
-          "
-        >
-          <Settings class="size-3.5" :stroke-width="1.5" />
-          <span class="text-[13px]">{{ t("sidebar.settings") }}</span>
-        </RouterLink>
+        <div class="flex items-center gap-1">
+          <RouterLink
+            :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
+            class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
+            :class="
+              onSettings
+                ? 'bg-accent font-medium text-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            "
+          >
+            <Settings class="size-3.5" :stroke-width="1.5" />
+            <span class="truncate text-[12px]">{{
+              t("sidebar.settings")
+            }}</span>
+          </RouterLink>
 
-        <ThemeToggle />
+          <ThemeToggle />
+        </div>
       </div>
 
       <!-- Resize handle -->

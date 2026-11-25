@@ -346,10 +346,11 @@ onBeforeUnmount(() => {
           v-if="familyFontIds.length > 0"
           variant="ghost"
           size="icon-sm"
+          class="size-7 text-muted-foreground hover:text-foreground"
           :aria-label="t('common.download')"
           @click="handleDownloadFamily"
         >
-          <Download class="h-3.5 w-3.5" />
+          <Download class="size-3.5" :stroke-width="1.5" />
         </Button>
         <DeviceInstallSheet
           v-if="familyFontIds.length > 0"
@@ -411,10 +412,11 @@ onBeforeUnmount(() => {
               v-if="familyFontIds.length > 0"
               variant="ghost"
               size="icon-sm"
+              class="size-7 text-muted-foreground hover:text-foreground"
               :aria-label="t('common.download')"
               @click="handleDownloadFamily"
             >
-              <Download class="h-3.5 w-3.5" />
+              <Download class="size-3.5" :stroke-width="1.5" />
             </Button>
             <DeviceInstallSheet
               v-if="familyFontIds.length > 0"
@@ -426,6 +428,7 @@ onBeforeUnmount(() => {
               as-child
               variant="ghost"
               size="icon-sm"
+              class="size-7 text-muted-foreground hover:text-foreground"
             >
               <RouterLink
                 :to="{
@@ -434,7 +437,7 @@ onBeforeUnmount(() => {
                 }"
                 :aria-label="t('fontDetail.openDetails')"
               >
-                <ArrowUpRight class="h-3.5 w-3.5" />
+                <ArrowUpRight class="size-3.5" :stroke-width="1.5" />
               </RouterLink>
             </Button>
           </div>

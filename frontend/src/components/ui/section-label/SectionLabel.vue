@@ -15,12 +15,7 @@ const props = withDefaults(defineProps<Props>(), { as: "p" });
     data-slot="section-label"
     :as="as"
     :as-child="asChild"
-    :class="
-      cn(
-        'text-[11px] font-medium text-muted-foreground',
-        props.class,
-      )
-    "
+    :class="cn('text-[10px] font-medium text-muted-foreground', props.class)"
   >
     <slot />
   </Primitive>

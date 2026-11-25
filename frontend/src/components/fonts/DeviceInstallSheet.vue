@@ -220,9 +220,10 @@ async function handleToggleActive(deviceId: string, next: boolean) {
         v-if="triggerVariant === 'icon'"
         variant="ghost"
         size="icon-sm"
+        class="size-7 text-muted-foreground hover:text-foreground"
         @click.prevent.stop="fetchDeviceStatuses"
       >
-        <Monitor class="h-3.5 w-3.5" />
+        <Monitor class="size-3.5" :stroke-width="1.5" />
       </Button>
       <Button
         v-else

@@ -30,7 +30,7 @@ defineEmits<{ click: [] }>();
     "
     @click="$emit('click')"
   >
-    <span class="truncate text-[13px]">{{ label }}</span>
+    <span class="truncate text-[12px]">{{ label }}</span>
     <span
       v-if="count !== undefined"
       class="text-[11px] tabular-nums text-muted-foreground"
