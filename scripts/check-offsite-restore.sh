@@ -25,8 +25,12 @@ ko() { printf 'KO   %s\n' "$1"; fail=1; }
 
 [[ -d "$dir" ]] || { ko "dossier introuvable : $dir"; exit 1; }
 
-latest=$(find "$dir" -type f -name '*.db' -print0 2>/dev/null \
-  | xargs -0 ls -t 2>/dev/null | head -n 1 || true)
+# Le plus récent sans `xargs ls -t` : sans fichier, GNU xargs lancerait quand
+# même `ls -t` sur le dossier courant.
+latest=""
+while IFS= read -r -d '' f; do
+  if [[ -z "$latest" || "$f" -nt "$latest" ]]; then latest=$f; fi
+done < <(find "$dir" -type f -name '*.db' -print0 2>/dev/null)
 if [[ -z "$latest" ]]; then
   ko "aucun instantané *.db sous $dir"
   exit 1
@@ -37,7 +41,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cp "$latest" "$work/check.db"
 
-integrity=$(sqlite3 "$work/check.db" 'PRAGMA integrity_check;' 2>&1 | head -n 1)
+integrity=$(sqlite3 "$work/check.db" 'PRAGMA integrity_check;' 2>&1 | head -n 1 || true)
 [[ "$integrity" == ok ]] && ok "integrity_check = ok" || ko "integrity_check : $integrity"
 
 revision=$(sqlite3 "$work/check.db" 'SELECT version_num FROM alembic_version;' 2>/dev/null || true)
