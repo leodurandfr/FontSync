@@ -51,9 +51,9 @@ const fr: typeof en = {
     palettes: {
       neutral: "Neutre",
       amber: "Ambre",
-      sage: "Sauge",
+      sage: "Vert",
       ocean: "Océan",
-      lavender: "Lavande",
+      lavender: "Violet",
       rose: "Rose",
     },
   },

@@ -49,9 +49,9 @@ export default {
     palettes: {
       neutral: "Neutral",
       amber: "Amber",
-      sage: "Sage",
+      sage: "Green",
       ocean: "Ocean",
-      lavender: "Lavender",
+      lavender: "Violet",
       rose: "Rose",
     },
   },
