@@ -110,7 +110,6 @@ export default {
     setupTitle: "Welcome to FontSync",
     setupSubtitle: "Create the administrator account for this server.",
     loginSubtitle: "Sign in to continue.",
-    tokenSubtitle: "Sign in with the instance token (former method).",
     inviteSubtitle: "Create your account: your email and a password.",
     inviteSubtitleFixed: "Choose the password for {email}.",
     email: "Email",
@@ -118,18 +117,12 @@ export default {
     newPassword: "Password",
     confirmPassword: "Confirm password",
     passwordHint: "At least {n} characters.",
-    instanceToken: "Instance token",
-    setupTokenHint:
-      "This server is already installed: paste the FONTSYNC_TOKEN value (from the .env file) to prove it is yours.",
     createAdmin: "Create account",
     acceptInvite: "Create my account",
     signIn: "Sign in",
-    useToken: "Use the instance token",
-    useAccount: "Sign in with an account",
     forgotPassword: "Forgot your password? Ask the administrator to reset it.",
     errors: {
       badCredentials: "Wrong email or password.",
-      invalidToken: "Invalid token.",
       tooManyAttempts: "Too many attempts. Try again in a minute.",
       passwordTooShort: "The password must be at least {n} characters.",
       passwordMismatch: "The two passwords differ.",
@@ -140,8 +133,6 @@ export default {
   account: {
     title: "My account",
     signedInAs: "Signed in as {email}",
-    legacySession:
-      "You are signed in with the legacy instance token, without an account.",
     roleAdmin: "Administrator",
     roleMember: "Member",
     changePassword: "Change password",
@@ -159,8 +150,6 @@ export default {
     lastUsed: "Last active: {date}",
     revoke: "Revoke",
     noSessions: "No other session.",
-    legacyTokenActive:
-      "The instance token (FONTSYNC_TOKEN) is still active. Remove it from the .env file once every Mac is signed in with an account.",
   },
   removals: {
     title: "Fonts removed from my Macs",

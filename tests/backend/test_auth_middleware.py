@@ -23,16 +23,15 @@ import pytest
 
 from backend.config import settings
 from backend.main import app
+from tests.backend.conftest import API_TOKEN as TOKEN
 
-TOKEN = "test-secret-token"
 REPO = Path(__file__).resolve().parents[2]
 BODY_SIZE = 5 * 1024 * 1024
 CHUNK = 64 * 1024
 
 
 @pytest.fixture(autouse=True)
-def _token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "fontsync_token", TOKEN)
+def _token(monkeypatch: pytest.MonkeyPatch, auth_db: object) -> None:
     monkeypatch.setattr(settings, "allowed_hosts", "")
 
 
@@ -219,7 +218,6 @@ print(json.dumps({p: c.get(p).status_code for p in ("/docs", "/redoc", "/openapi
 """
     env = {k: v for k, v in os.environ.items() if k != "FONTSYNC_API_DOCS"}
     env["FONTSYNC_API_DOCS"] = "true"
-    env["FONTSYNC_TOKEN"] = TOKEN
     out = subprocess.run(
         [sys.executable, "-c", code],
         cwd=REPO,
@@ -280,7 +278,7 @@ def test_route_path_matches_starlette(path: str, root_path: str) -> None:
     ("headers", "query", "expected"),
     [
         ([], f"token={TOKEN}".encode(), 401),
-        ([(b"cookie", f"fontsync_token={TOKEN}".encode())], b"", 401),
+        ([(b"cookie", f"fontsync_session={TOKEN}x".encode())], b"", 401),
         ([(b"authorization", f"Basic {TOKEN}".encode())], b"", 401),
         ([(b"authorization", f"Bearer {TOKEN}".encode())], b"", 200),
     ],
@@ -314,6 +312,8 @@ async def test_middleware_alone_accepts_only_the_bearer_header(
         "root_path": "",
         "query_string": query,
         "headers": headers,
+        # La base de session passe par les surcharges de l'app (`auth_db`).
+        "app": app,
     }
     await AuthMiddleware(inner)(scope, receive, send)
     assert messages[0]["status"] == expected

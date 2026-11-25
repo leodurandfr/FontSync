@@ -93,12 +93,12 @@ class FontsyncAgent < Formula
     <<~EOS
       L'agent FontSync est installé dans #{opt_bin}/fontsync-agent.
 
-      Configurez l'URL du serveur et le token d'instance, puis enregistrez
+      Connectez ce Mac à votre compte FontSync, puis enregistrez
       les LaunchAgents (sync + listen) :
 
+        fontsync-agent login --server http://<serveur>:8080
         fontsync-agent setup
 
-      Connectez ce Mac à votre compte : fontsync-agent login --server http://<nas>:8080
       Pour retirer les LaunchAgents : `fontsync-agent teardown`.
     EOS
   end

@@ -32,10 +32,8 @@ def _server(status: int, body: dict | None = None, seen: dict | None = None):
     return httpx.MockTransport(handler)
 
 
-def test_login_stores_the_device_token_and_drops_the_legacy_token() -> None:
-    config = AgentConfig(
-        server_url="http://nas:8080/", server_token="legacy", device_id="dev-1"
-    )
+def test_login_stores_the_device_token() -> None:
+    config = AgentConfig(server_url="http://nas:8080/", device_id="dev-1")
     config.save()
     seen: dict = {}
 
@@ -57,7 +55,6 @@ def test_login_stores_the_device_token_and_drops_the_legacy_token() -> None:
     reloaded = AgentConfig.load()
     assert reloaded.device_token == "device-tok"
     assert reloaded.account_email == "lea@example.com"
-    assert reloaded.server_token is None
     # L'identité du Mac est conservée : le serveur le reconnaît au register.
     assert reloaded.device_id == "dev-1"
     assert reloaded.auth_token == "device-tok"
@@ -68,7 +65,7 @@ def test_login_stores_the_device_token_and_drops_the_legacy_token() -> None:
     [(401, "incorrect"), (429, "Trop d'essais"), (404, "mettez-le à jour")],
 )
 def test_login_failures_say_why_and_write_nothing(status: int, message: str) -> None:
-    config = AgentConfig(server_url="http://nas:8080", server_token="legacy")
+    config = AgentConfig(server_url="http://nas:8080", device_id="dev-1")
     config.save()
 
     with pytest.raises(LoginError, match=message):
@@ -76,7 +73,7 @@ def test_login_failures_say_why_and_write_nothing(status: int, message: str) -> 
             config, email="a@example.com", password="x", transport=_server(status)
         )
 
-    assert AgentConfig.load().server_token == "legacy"
+    assert AgentConfig.load().device_id == "dev-1"
     assert AgentConfig.load().device_token is None
 
 

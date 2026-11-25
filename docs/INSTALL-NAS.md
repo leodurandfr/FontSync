@@ -51,8 +51,8 @@ This is the simplest and most reproducible method, including on Synology whose
 
 2. Drop the [`docker-compose.nas.yml`](../docker-compose.nas.yml) file from the repo into it.
 3. Next to it, create a **`.env`** file with the update secret. The command
-   refuses to overwrite an existing `.env`: if you are upgrading, **keep** your
-   `FONTSYNC_TOKEN` line as long as a Mac still uses it.
+   refuses to overwrite an existing `.env`: if you are upgrading, keep it (an
+   old `FONTSYNC_TOKEN` line in it is ignored and can be deleted).
 
    ```bash
    (set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
@@ -80,9 +80,10 @@ This is the simplest and most reproducible method, including on Synology whose
    `FONTSYNC_ADMIN_PASSWORD` in `.env` before starting. Then invite the other
    people from the interface (Settings → Accounts), and connect each Mac with
    its owner's email and password (FontSync app, or `fontsync-agent login`).
-   Upgrading an install that has a `FONTSYNC_TOKEN`: the first screen asks for
-   it to create the administrator; keep it in `.env` until every Mac has signed
-   in with an account, then remove it.
+   Upgrading from a version without accounts: the same screen appears right
+   after the update, create the administrator **immediately**. The Macs already
+   known are attached to that account; each Mac then signs in once with the
+   new FontSync app (until then it gets `401` and changes nothing).
 
 ### On Synology Container Manager (graphical interface)
 
@@ -101,7 +102,6 @@ This is the simplest and most reproducible method, including on Synology whose
 
 | Env variable        | Role                                              | Example value                                 |
 |---------------------|---------------------------------------------------|-----------------------------------------------|
-| `FONTSYNC_TOKEN`    | **Legacy** instance token, from before accounts (admin rights). Leave empty on a new install; keep it during a migration, until every Mac has signed in | empty |
 | `FONTSYNC_ADMIN_EMAIL` / `FONTSYNC_ADMIN_PASSWORD` | Create the first administrator at startup, if no account exists yet | `you@example.com` / a long password |
 | `DATABASE_URL`      | SQLite URL (async)                                 | `sqlite+aiosqlite:////data/fontsync.db`       |
 | `STORAGE_BACKEND`   | Storage backend                                    | `filesystem`                                  |
@@ -115,11 +115,11 @@ This is the simplest and most reproducible method, including on Synology whose
 | `BACKUP_DIR`        | Enables automatic backups (§5), written here. Empty = disabled | `/backups`                        |
 | `ALLOWED_HOSTS`     | Extra host names accepted in the `Host` header (comma-separated, `*.suffix` allowed). `*` disables the check | `nas.home.lan,*.example.com` |
 | `DEVICE_OVERDUE_MINUTES` | A device whose agent has not synced for this long is flagged "overdue" in Settings → Devices, even when connected. Default `30` (3 × the agent's 600 s interval) | `30` |
+| `FONTSYNC_MAINTENANCE` | `true` keeps the Macs away (HTTP 503) while the web interface still works — used by the restore script (§5). Default `false` | `false` |
 | `FONTSYNC_BACKUP_DIR` | **Host** folder mounted on `/backups` (read by the compose file, not by the server). Default `./auto-backups`, next to the compose file | `/volume2/fontsync-backups` |
 
-> If `FONTSYNC_TOKEN` is left empty, only accounts open the API: create the
-> administrator from the web UI on first access. When it is set, creating the
-> administrator asks for it, so that nobody else can claim an exposed server.
+> Only accounts open the API: create the administrator from the web UI on
+> first access (or with `FONTSYNC_ADMIN_EMAIL` / `FONTSYNC_ADMIN_PASSWORD`).
 > Lost the administrator password? `docker exec -it fontsync python -m
 > backend.cli reset-password <email>`.
 
@@ -261,7 +261,7 @@ database — **not against losing the NAS**: the backup folder sits in the same
 box as the data (a disk failure, a theft, a fire or ransomware takes both).
 **An off-NAS copy is required**: a scheduled, encrypted Hyper Backup or
 `rclone` task that copies the backup folder — and the compose folder, whose
-`.env` holds the tokens, hence the encryption — to a USB disk kept elsewhere,
+`.env` holds the update secret, hence the encryption — to a USB disk kept elsewhere,
 another NAS or a cloud (on Synology, Hyper Backup only offers shared folders
 as sources: put `FONTSYNC_BACKUP_DIR` in one). Test a restore from that copy
 once.
@@ -381,15 +381,15 @@ like this:
    daily snapshots are moved into `/backups/pre-restore-<date>/`, out of reach
    of the rotation that runs at every server start. Fonts are copied back from
    `/backups/fonts` without removing anything.
-4. **Restart with a maintenance token** (printed once): the script first lets
-   you pin the previous image (rollback, see below), shows the image about to
-   start, then starts it. The Macs get `401` and write nothing ("invalid
-   token" — do not type the maintenance token into the Mac app). If the token
-   does not take effect, the script stops the server again.
-5. **Audit** in the web interface, with the maintenance token.
-6. **Back to the real token**: every service of the compose file restarts with
-   `.env`; the script checks that the real token answers and the maintenance
-   one is refused.
+4. **Restart in maintenance mode** (`FONTSYNC_MAINTENANCE=1`): the script
+   first lets you pin the previous image (rollback, see below), shows the image
+   about to start, then starts it. The Macs get `503` and write nothing; the
+   web interface works. If maintenance mode does not take effect (`/health`
+   says so), the script stops the server again.
+5. **Audit** in the web interface, signed in with the administrator account.
+6. **Back to normal**: every service of the compose file restarts with `.env`;
+   the script checks that maintenance mode is off, and the Macs reconnect by
+   themselves.
 
 At every step it writes where things stand, and the exact command to type
 next, into `restore-state-<date>.txt` (compose folder, readable by root only),
@@ -418,13 +418,12 @@ confirmation, so nothing is uninstalled elsewhere — use *Put back* on each one
 `pre-restore-<date>/` folder (never leave the old `-wal` next to the restored
 file, never overwrite the old database), then copy the snapshot in as
 `fontsync.db`; copy `/backups/fonts` back into the `fonts` volume without
-`--delete`; start with a temporary token — as root on DSM, `env` and the
-full path matter: `sudo env FONTSYNC_TOKEN=<temporary> /usr/local/bin/docker
-compose -f docker-compose.nas.yml up -d fontsync` (a variable placed before
-`sudo` is dropped, and the server would start with the real token); switch
-auto-pull and propagation off on every device, audit, then `sudo
-/usr/local/bin/docker compose -f docker-compose.nas.yml up -d` with the real
-token.
+`--delete`; start in maintenance mode — as root on DSM, `env` and the full
+path matter: `sudo env FONTSYNC_MAINTENANCE=1 /usr/local/bin/docker compose -f
+docker-compose.nas.yml up -d fontsync` (a variable placed before `sudo` is
+dropped, and the Macs would reconnect at once); switch auto-pull and
+propagation off on every device, audit, then `sudo /usr/local/bin/docker
+compose -f docker-compose.nas.yml up -d` to leave maintenance mode.
 
 ### Restore from archives (methods A/B)
 
@@ -432,7 +431,7 @@ token.
 2. Move the current content of the `db` volume aside, then restore the
    archives into the `db` and `fonts` volumes (symmetric to method A:
    `tar xzf … -C /data` / `-C /fonts`).
-3. Start with a maintenance token and audit as above. At boot, an **older**
+3. Start in maintenance mode and audit as above. At boot, an **older**
    database is migrated forward (after a `pre-migrate` snapshot); a database
    written by a **newer** image is refused — see below.
 
@@ -474,8 +473,8 @@ migration attempts within 24 h instead of taking a snapshot on every restart.
 
 ## 6. Network exposure
 
-By default, the server listens over **plain HTTP** on the LAN. The token travels in
-clear text: **never expose it directly on the Internet**. For remote access,
+By default, the server listens over **plain HTTP** on the LAN. Passwords and
+session cookies travel in clear text: **never expose it directly on the Internet**. For remote access,
 place a **TLS reverse proxy** (Caddy / nginx) in front — see the
 "Transport & network security" section of the [README](../README.md). On Synology, the
 built-in **Reverse Proxy** (Control Panel → Application Portal)
@@ -559,71 +558,19 @@ Any Mac whose agent still uses the LAN URL loses the server: switch it to the
 
 ---
 
-## 7. Rotate or revoke the instance token
+## 7. Revoke access
 
-This procedure is for the NAS install (`docker-compose.nas.yml`, token in
-`.env`). Rotate `FONTSYNC_TOKEN` when it may have leaked (pasted in a chat, a
-log, a screenshot) or when a machine that knew it is retired. The server
-accepts a single token: from the moment the container is recreated with the
-new one, every client still holding the old one gets **HTTP 401** (the web
-interface and its WebSocket ask for the token again). Plan a few minutes with
-all your Macs at hand.
+There is no shared secret to rotate: each browser and each Mac has its own
+session, tied to an account.
 
-1. **Generate the new token** (keep it out of shell history and of any chat):
-
-   ```bash
-   openssl rand -base64 32
-   ```
-
-   Rotate `WATCHTOWER_TOKEN` in the same pass if it may have leaked too: the
-   same `.env` feeds both the `fontsync` and `watchtower` services.
-
-2. **Back up `.env`**, then edit it next to `docker-compose.nas.yml`:
-
-   ```bash
-   cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
-   # replace the FONTSYNC_TOKEN= (and WATCHTOWER_TOKEN=) value(s)
-   ```
-
-3. **Recreate the containers** — `restart` keeps the old environment, only a
-   recreation reads the new `.env`:
-
-   ```bash
-   docker compose -f docker-compose.nas.yml up -d
-   ```
-
-   In Synology Container Manager, change the variable in the project's
-   environment, then rebuild the project. With Docker's default log driver,
-   the recreated container starts with empty logs: lines written by the old
-   one (which may contain the old token in older versions) go away with it.
-
-4. **Check the switch** from any machine on the network, without putting the
-   tokens in your shell history. Each `read -rs` waits silently: paste the old
-   token (first line) or the new one (second line), then press Enter. Expect
-   `401` for the old token, then `200` for the new one.
-
-   ```bash
-   read -rs OLD && curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $OLD" http://<nas-ip>:8080/api/stats
-   read -rs NEW && curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $NEW" http://<nas-ip>:8080/api/stats
-   unset OLD NEW
-   ```
-
-   Use the NAS's IP address or `*.local` name: another host name gets HTTP 400
-   unless it is listed in `ALLOWED_HOSTS` (§3).
-
-5. **Each Mac with the app**: FontSync menu → **Préférences…** (⌘,) → paste
-   the new token → **Enregistrer**, then click **Installer l'agent** again.
-   Installing reloads both background jobs; the `listen` job keeps the token
-   it read at start-up, so saving alone is not enough. Check that the Mac shows
-   **Connected** under Settings → Devices in the web interface (French UI:
-   Paramètres → Appareils, « Connecté »).
-
-   **Each Mac with the command-line agent** (Homebrew): edit `server.token` in
-   `~/.fontsync/config.yaml`, then run `fontsync-agent setup` (it reloads both
-   jobs the same way).
-
-6. **Each browser, and the app's own web window**, asks for the token again on
-   its next request: paste the new one.
-
-Revoking without a replacement is the same procedure: every client stays at 401
-until it receives the new token.
+- **A lost or retired Mac, an unknown browser**: its owner opens Settings →
+  **My sessions** and clicks **Revoke** on it. The Mac gets `401` at its next
+  request and changes nothing; it can sign in again later from the FontSync app.
+- **A password that may have leaked**: change it (Settings → **Change
+  password**): every other session of that account is signed out.
+- **Someone leaving**: the administrator disables their account (Settings →
+  Accounts → **Disable**); all of its sessions stop working at once. Their
+  Macs keep their fonts, and nothing is removed from anyone else's Macs.
+- **`WATCHTOWER_TOKEN`** (update button only) may have leaked: replace its
+  value in `.env`, then `docker compose -f docker-compose.nas.yml up -d`
+  (`restart` would keep the old value).

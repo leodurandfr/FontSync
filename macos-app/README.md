@@ -37,7 +37,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 | `FontSync/AppModel.swift` | État observable (connexion, fonts, launchd), sonde périodique |
 | `FontSync/ServerClient.swift` | Client `GET /api/stats` avec `Authorization: Bearer` |
 | `FontSync/LaunchdStatus.swift` | État réel des LaunchAgents (`launchctl print`) + décision de réparation au lancement |
-| `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + jeton d'appareil, token d'instance hérité) |
+| `FontSync/AppConfig.swift` | Lecture de `~/.fontsync/config.yaml` (URL + jeton d'appareil) |
 | `FontSync/WebView.swift` | `WKWebView` (NSViewRepresentable) + contenu de la fenêtre |
 | `FontSync/PreferencesView.swift` | Préférences (URL + compte, connexion, actions agent) |
 | `FontSync/AgentController.swift` | Résolution du venv embarqué + `fontsync-agent setup/teardown/sync` |

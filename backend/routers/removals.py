@@ -31,10 +31,7 @@ async def list_my_removals(
     principal: Principal = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ) -> list[FontRemovalResponse]:
-    """Les polices que j'ai retirées de mes Mac, les plus récentes d'abord.
-
-    Le token d'instance hérité voit le groupe des appareils sans compte.
-    """
+    """Les polices que j'ai retirées de mes Mac, les plus récentes d'abord."""
     rows = await db.execute(
         select(FontRemoval, Font, Device.name)
         .join(Font, Font.id == FontRemoval.font_id)

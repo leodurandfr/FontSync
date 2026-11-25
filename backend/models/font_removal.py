@@ -11,9 +11,8 @@ Conséquences, toutes limitées aux appareils du même compte :
   retrait confirmé (`confirmed`) ;
 - les Mac des autres comptes ne sont jamais concernés, admin compris.
 
-`user_id` vide = appareils sans propriétaire (serveur encore sans compte, ou
-appareils enregistrés avec le token d'instance hérité) : ils forment un seul
-groupe, comme un compte.
+`user_id` vide = appareils sans propriétaire (enregistrés avant la création du
+premier compte, qui les adopte) : ils forment un seul groupe, comme un compte.
 """
 
 import uuid

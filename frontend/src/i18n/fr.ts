@@ -112,7 +112,6 @@ const fr: typeof en = {
     setupTitle: "Bienvenue sur FontSync",
     setupSubtitle: "Créez le compte administrateur de ce serveur.",
     loginSubtitle: "Connectez-vous pour continuer.",
-    tokenSubtitle: "Connexion avec le token d'instance (ancienne méthode).",
     inviteSubtitle: "Créez votre compte : votre email et un mot de passe.",
     inviteSubtitleFixed: "Choisissez le mot de passe du compte {email}.",
     email: "Email",
@@ -120,19 +119,13 @@ const fr: typeof en = {
     newPassword: "Mot de passe",
     confirmPassword: "Confirmez le mot de passe",
     passwordHint: "{n} caractères minimum.",
-    instanceToken: "Token d'instance",
-    setupTokenHint:
-      "Ce serveur est déjà installé : collez la valeur de FONTSYNC_TOKEN (dans le fichier .env) pour prouver qu'il est à vous.",
     createAdmin: "Créer le compte",
     acceptInvite: "Créer mon compte",
     signIn: "Se connecter",
-    useToken: "Utiliser le token d'instance",
-    useAccount: "Se connecter avec un compte",
     forgotPassword:
       "Mot de passe oublié ? Demandez à l'administrateur de le réinitialiser.",
     errors: {
       badCredentials: "Email ou mot de passe incorrect.",
-      invalidToken: "Token invalide.",
       tooManyAttempts: "Trop de tentatives. Réessayez dans une minute.",
       passwordTooShort: "Le mot de passe doit faire au moins {n} caractères.",
       passwordMismatch: "Les deux mots de passe diffèrent.",
@@ -143,8 +136,6 @@ const fr: typeof en = {
   account: {
     title: "Mon compte",
     signedInAs: "Connecté en tant que {email}",
-    legacySession:
-      "Vous êtes connecté avec le token d'instance hérité, sans compte.",
     roleAdmin: "Administrateur",
     roleMember: "Membre",
     changePassword: "Changer le mot de passe",
@@ -163,8 +154,6 @@ const fr: typeof en = {
     lastUsed: "Dernière activité : {date}",
     revoke: "Révoquer",
     noSessions: "Aucune autre session.",
-    legacyTokenActive:
-      "Le token d'instance (FONTSYNC_TOKEN) est encore actif. Retirez-le du fichier .env une fois tous vos Mac connectés avec un compte.",
   },
   removals: {
     title: "Polices retirées de mes Mac",

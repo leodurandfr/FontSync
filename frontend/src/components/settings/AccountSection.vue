@@ -119,11 +119,7 @@ async function revoke(session: AuthSession) {
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <p class="text-[13px]">
-            {{
-              user
-                ? t("account.signedInAs", { email: user.email })
-                : t("account.legacySession")
-            }}
+            {{ t("account.signedInAs", { email: user?.email ?? "" }) }}
           </p>
           <Badge variant="secondary">
             {{
@@ -138,13 +134,6 @@ async function revoke(session: AuthSession) {
           {{ t("account.logout") }}
         </Button>
       </div>
-
-      <p
-        v-if="auth.isAdmin && auth.legacyTokenEnabled"
-        class="rounded-lg border border-separator bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground"
-      >
-        {{ t("account.legacyTokenActive") }}
-      </p>
 
       <template v-if="user">
         <div>

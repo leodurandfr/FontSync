@@ -24,7 +24,8 @@
 # rien retirer. Auto-pull et « Propager les suppressions » sont coupés sur
 # tous les appareils DANS la base restaurée, avant qu'elle ne serve (réglages
 # d'avant dans /backups/pre-restore-devices-<date>.json). Le serveur redémarre
-# d'abord avec un jeton de maintenance (Macs refusés) pour l'audit.
+# d'abord en maintenance (FONTSYNC_MAINTENANCE=1 : Macs refusés, interface web
+# ouverte aux comptes) pour l'audit.
 #
 # À chaque étape, l'état courant et la commande à taper ensuite sont écrits
 # dans restore-state-<date>.txt (dossier du compose, lisible par root seul) et
@@ -40,7 +41,6 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.nas.yml}"
 SERVICE="${SERVICE:-fontsync}"
 snapshot="${1:-}"
 stage=start
-maint=""
 
 die() { echo "ERREUR : $*" >&2; exit 1; }
 say() { printf '\n==> %s\n' "$*"; }
@@ -51,13 +51,12 @@ confirm() {
   [ "$answer" = oui ] || { echo "Abandon à votre demande."; exit 1; }
 }
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
-# Appel dans le conteneur ; le jeton passe par le NOM de variable (-e VAR),
-# jamais en clair dans la ligne de commande (visible dans `ps`).
-in_container() { # in_container <jeton|""> <code python>
-  RESTORE_TOKEN="$1" dc exec -T -e RESTORE_TOKEN "$SERVICE" python -c "$2"
+# Exécute du Python dans le conteneur du serveur.
+in_container() { # in_container <code python>
+  dc exec -T "$SERVICE" python -c "$1"
 }
 healthy() {
-  in_container "" "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" \
+  in_container "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" \
     >/dev/null 2>&1
 }
 wait_healthy() {
@@ -69,22 +68,14 @@ wait_healthy() {
   done
   return 1
 }
-# Code HTTP d'un GET authentifié (jeton fourni, ou celui du conteneur si vide).
-api_status() {
-  in_container "$1" "
-import os, urllib.error, urllib.request
-token = os.environ.get('RESTORE_TOKEN') or os.environ['FONTSYNC_TOKEN']
-req = urllib.request.Request('http://127.0.0.1:8000/api/devices', headers={'Authorization': 'Bearer ' + token})
-try:
-    print(urllib.request.urlopen(req, timeout=10).status)
-except urllib.error.HTTPError as error:
-    print(error.code)
-" 2>/dev/null || echo "?"
+# Valeur de `maintenance` renvoyée par /health (« True » ou « False »).
+maintenance_flag() {
+  in_container "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10)).get('maintenance'))" \
+    2>/dev/null || echo "?"
 }
-
 state_text() {
   local DC="sudo $DOCKER compose -f $COMPOSE_ABS"
-  local MAINT_UP="sudo env FONTSYNC_TOKEN=$maint $DOCKER compose -f $COMPOSE_ABS up -d $SERVICE"
+  local MAINT_UP="sudo env FONTSYNC_MAINTENANCE=1 $DOCKER compose -f $COMPOSE_ABS up -d $SERVICE"
   echo "État de la restauration FontSync ($snapshot) — étape « $stage »"
   case "$stage" in
     start)
@@ -103,25 +94,25 @@ state_text() {
       echo "  Voir :  $DC run --rm --no-deps --entrypoint ls $SERVICE -laR /data" ;;
     restored)
       echo "  Serveur ARRÊTÉ, base RESTAURÉE ; auto-pull et propagation coupés dans la base."
-      echo "  Pour auditer avant que les Macs ne se reconnectent (jeton de maintenance) :"
+      echo "  Pour auditer avant que les Macs ne se reconnectent (maintenance) :"
       echo "    $MAINT_UP"
       echo "  puis, l'audit fait :  $DC up -d"
       echo "  (Démarrer directement avec $DC up -d ne réinstalle ni ne propage rien, mais"
       echo "  les Macs se reconnectent avant l'audit.)" ;;
     starting)
-      echo "  Serveur en cours de démarrage avec le jeton de maintenance (il migre peut-être"
-      echo "  la base, ou redémarre en boucle). Jeton : $maint"
+      echo "  Serveur en cours de démarrage en maintenance (il migre peut-être"
+      echo "  la base, ou redémarre en boucle)."
       echo "  Journal :  $DC logs -f $SERVICE      Arrêter :  $DC stop $SERVICE"
       echo "  Une fois prêt et l'audit fait :  $DC up -d" ;;
     maintenance)
-      echo "  Serveur en JETON DE MAINTENANCE (Macs refusés), réglages des appareils coupés."
-      echo "  Jeton : $maint"
+      echo "  Serveur en MAINTENANCE (Macs refusés), réglages des appareils coupés."
+      echo "  Audit dans l'interface web, avec votre compte admin."
       echo "  L'audit fait :  $DC up -d" ;;
     finishing)
-      echo "  Retour au vrai jeton lancé ; vérification non terminée."
+      echo "  Fin de la maintenance lancée ; vérification non terminée."
       echo "  Voir :  $DC ps   et   $DC logs $SERVICE ;  relancer au besoin :  $DC up -d" ;;
     done)
-      echo "  Terminé : vrai jeton actif, jeton de maintenance refusé." ;;
+      echo "  Terminé : maintenance levée, les Macs se reconnectent." ;;
   esac
 }
 set_stage() {
@@ -141,8 +132,6 @@ case "$snapshot" in */* | .*) die "donner le NOM du fichier dans /backups, pas u
 [ -f "$COMPOSE_FILE" ] || die "$COMPOSE_FILE introuvable : lancer depuis le dossier du compose"
 DOCKER="$(command -v docker)" || die "docker introuvable dans le PATH ($PATH)"
 COMPOSE_ABS="$(cd "$(dirname "$COMPOSE_FILE")" && pwd)/$(basename "$COMPOSE_FILE")"
-maint="$(openssl rand -hex 24 2>/dev/null || od -An -tx1 -N24 /dev/urandom | tr -d ' \n')"
-[ "${#maint}" -eq 48 ] || die "impossible de générer un jeton de maintenance"
 stamp="$(date -u +%Y%m%d-%H%M%S)"
 devices_file="pre-restore-devices-$stamp.json"
 STATE_FILE="$(dirname "$COMPOSE_ABS")/restore-state-$stamp.txt"
@@ -156,8 +145,8 @@ Restauration FontSync
   état écrit : $STATE_FILE
 Étapes : 1 vérifications → 2 arrêt du serveur → 3 base mise de côté (rien
 supprimé), instantané posé avec les réglages des appareils coupés, polices
-recopiées → 4 redémarrage avec un jeton de maintenance (Macs refusés) →
-5 audit par vous → 6 retour au vrai jeton.
+recopiées → 4 redémarrage en maintenance (Macs refusés) →
+5 audit par vous → 6 fin de la maintenance.
 EOF
 
 say "1/6 Vérifications (serveur toujours en marche)"
@@ -190,7 +179,7 @@ case "$rc" in
   *) set_stage uncertain; die "restauration interrompue ou incertaine (code $rc)" ;;
 esac
 
-say "4/6 Redémarrage avec un jeton de maintenance"
+say "4/6 Redémarrage en maintenance"
 cat <<EOF
     Retour arrière d'image ? Épinglez MAINTENANT l'image précédente
     (image: …:sha-<court>) dans $COMPOSE_ABS, puis répondez.
@@ -198,24 +187,22 @@ EOF
 confirm "Compose prêt ?"
 start_image="$(dc config --images "$SERVICE")" || die "docker compose config a échoué"
 echo "    image qui va démarrer : $start_image"
-echo "    Les Macs vont recevoir 401 (« Token invalide ») : c'est voulu, ne saisissez"
-echo "    pas le jeton de maintenance dans l'app."
-confirm "Démarrer cette image avec le jeton de maintenance ?"
+echo "    Les Macs vont recevoir 503 (« Serveur en maintenance ») : c'est voulu."
+confirm "Démarrer cette image en maintenance ?"
 set_stage starting
-FONTSYNC_TOKEN="$maint" dc up -d "$SERVICE"
+FONTSYNC_MAINTENANCE=1 dc up -d "$SERVICE"
 wait_healthy || die "le serveur ne répond pas (toujours en démarrage, ou en échec)"
-if [ "$(api_status "$maint")" != 200 ]; then
+if [ "$(maintenance_flag)" != True ]; then
   dc stop "$SERVICE" || true
   set_stage restored
-  die "le jeton de maintenance n'est pas pris en compte (compose sans \${FONTSYNC_TOKEN} ?) : serveur arrêté par sécurité"
+  die "la maintenance n'est pas prise en compte (compose sans \${FONTSYNC_MAINTENANCE} ?) : serveur arrêté par sécurité"
 fi
 set_stage maintenance
-echo "    serveur prêt, jeton de maintenance actif."
+echo "    serveur prêt, en maintenance."
 
 say "5/6 Audit (à faire par vous)"
 cat <<EOF
-    Ouvrez l'interface avec le jeton de maintenance (aussi dans $STATE_FILE) :
-      $maint
+    Ouvrez l'interface web et connectez-vous avec votre compte admin.
     - Auto-pull et « Propager les suppressions » sont coupés sur tous les
       appareils (valeurs d'avant : /backups/$devices_file).
     - Les polices supprimées APRÈS l'instantané sont redevenues actives. Celles
@@ -229,17 +216,16 @@ cat <<EOF
     - Les polices envoyées après l'instantané ne sont plus dans la bibliothèque
       (leurs fichiers restent dans /fonts) : un Mac qui les a les renverra.
 EOF
-confirm "Audit terminé : revenir au VRAI jeton (les Macs se reconnectent) ?"
+confirm "Audit terminé : lever la maintenance (les Macs se reconnectent) ?"
 
-say "6/6 Retour au vrai jeton (tous les services du compose)"
+say "6/6 Fin de la maintenance (tous les services du compose)"
 set_stage finishing
 dc up -d
-wait_healthy || die "le serveur ne répond pas après le retour au vrai jeton"
-[ "$(api_status "")" = 200 ] || die "le vrai jeton ne répond pas"
-[ "$(api_status "$maint")" = 401 ] || die "le jeton de maintenance est encore accepté"
+wait_healthy || die "le serveur ne répond pas après la fin de la maintenance"
+[ "$(maintenance_flag)" = False ] || die "le serveur est encore en maintenance"
 set_stage done
 cat <<EOF
-    Fait : vrai jeton actif, jeton de maintenance refusé.
+    Fait : maintenance levée.
     Laissez chaque Mac synchroniser une fois, regardez la corbeille (et la
     quarantaine), restaurez ce qui doit l'être, puis seulement réactivez
     auto-pull / propagation appareil par appareil dans Réglages → Appareils

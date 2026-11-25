@@ -2,7 +2,7 @@
 
 > ⚠️ **Jamais sur un Mac agent de production.** Cette checklist réécrit
 > `~/.fontsync/config.yaml`, installe et désinstalle des polices et relance les
-> jobs launchd : sur un Mac de prod, elle remplacerait sa configuration (token,
+> jobs launchd : sur un Mac de prod, elle remplacerait sa configuration (jeton d'appareil,
 > `device_id`) et toucherait ses vraies polices. Voie recommandée : un **compte
 > macOS dédié** (ex. `fontsync-e2e`) sur chaque Mac, pointé vers une instance de
 > test, jamais vers le serveur de prod.
@@ -129,7 +129,7 @@ soft-delete + B7) est conforme. 2 bugs réels confirmés (1 bloquant S3, 1 majeu
 ```bash
 [S] tailscale ip -4                 # → IP tailnet de ce Mac (sinon IP LAN : ipconfig getifaddr en0)
 [S] HOST=<IP tailnet> scripts/dev/run-server.sh
-#   → affiche un token aléatoire (jamais fontsync-dev hors loopback) : le noter pour l'agent du 2e Mac
+#   → affiche le mot de passe aléatoire du compte dev@example.com (jamais le mot de passe public hors loopback) : le noter pour M1 et M2
 ```
 
 > macOS peut demander d'autoriser les connexions entrantes → **accepter**.
@@ -144,10 +144,10 @@ soft-delete + B7) est conforme. 2 bugs réels confirmés (1 bloquant S3, 1 majeu
 **Vérification (depuis n'importe quelle machine) :**
 
 ```bash
-curl http://<IP-SERVEUR>:8080/health      # attendu : {"status":"ok"}
+curl http://<IP-SERVEUR>:8080/health      # attendu : {"status":"ok","maintenance":false}
 ```
 
-- **Résultat attendu :** `{"status":"ok"}`.
+- **Résultat attendu :** `{"status":"ok","maintenance":false}`.
 - **Résultat observé :** _______________________  Statut : ☐
 
 ### 0.2 — Ouvrir l'interface web `[UI]`
@@ -188,6 +188,14 @@ YAML
 ```
 
 > Remplace `<IP-SERVEUR>` par l'IP réelle. Répéter **à l'identique sur M2**.
+
+Connecter chaque Mac au compte (Option A : `dev@example.com` + le mot de passe
+affiché par `run-server.sh` ; Option B : le compte admin créé dans l'UI) :
+
+```bash
+[M1] .venv/bin/fontsync-agent login --email <email>   # mot de passe demandé
+[M2] .venv/bin/fontsync-agent login --email <email>
+```
 
 Installer les LaunchAgents (active **WatchPaths** + **listen** + 1er `sync`) :
 

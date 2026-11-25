@@ -1,7 +1,6 @@
 """Comptes : premier admin, connexion, jetons d'appareil, rôles, invitations.
 
-Chaque test part d'une instance SANS token hérité (nouvelle installation),
-sauf ceux qui vérifient la migration depuis `FONTSYNC_TOKEN`.
+Chaque test part d'une instance sans aucun compte (nouvelle installation).
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from backend.main import app
 from backend.models.device import Device
 from backend.services import accounts
 from backend.services.accounts import login_rate_limiter
-from tests.backend.conftest import API_TOKEN
 
 ADMIN = {"email": "Admin@Example.org", "password": "correct horse battery"}
 MEMBER_PASSWORD = "member password 1"
@@ -30,12 +28,11 @@ ORIGIN = {"Origin": "http://test"}
 
 @pytest_asyncio.fixture
 async def client(
-    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    bare_api_client: AsyncClient,
 ) -> AsyncGenerator[AsyncClient, None]:
-    """`api_client` sur une nouvelle installation : pas de `FONTSYNC_TOKEN`."""
-    monkeypatch.setattr(settings, "fontsync_token", "")
+    """Nouvelle installation : aucun compte."""
     login_rate_limiter.clear()
-    yield api_client
+    yield bare_api_client
     login_rate_limiter.clear()
 
 
@@ -94,8 +91,7 @@ async def test_fresh_install_requires_setup_and_nothing_else_is_open(
 ) -> None:
     status = (await client.get("/api/auth/status")).json()
     assert status["setupRequired"] is True
-    assert status["setupNeedsLegacyToken"] is False
-    assert status["legacyTokenEnabled"] is False
+    assert set(status) == {"setupRequired", "me"}
     assert (await client.get("/api/stats")).status_code == 401
 
 
@@ -125,41 +121,40 @@ async def test_setup_rejects_short_password(client: AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-# ---------- Migration depuis FONTSYNC_TOKEN ----------
+# ---------- Serveur installé avant les comptes ----------
+
+
+async def _orphan_device(name: str) -> str:
+    """Un Mac enregistré avant les comptes : sans propriétaire."""
+    async for db in app.dependency_overrides[get_db]():
+        device = Device(name=name, hostname=name, os="macos")
+        db.add(device)
+        await db.commit()
+        return str(device.id)
+    raise AssertionError("no database")
 
 
 @pytest.mark.asyncio
-async def test_existing_install_setup_needs_the_legacy_token_and_adopts_devices(
-    api_client: AsyncClient,
+async def test_existing_install_setup_adopts_devices_without_any_token(
+    client: AsyncClient,
 ) -> None:
-    """Serveur déjà installé : les Mac existants continuent avec le token, le
-    premier admin doit prouver qu'il le connaît, et récupère les appareils."""
-    legacy = _bearer(API_TOKEN)
-    device_id = await _register(api_client, API_TOKEN, "old-mac")
-
-    status = (await api_client.get("/api/auth/status")).json()
-    assert status["setupNeedsLegacyToken"] is True
-    assert (await api_client.post("/api/auth/setup", json=ADMIN)).status_code == 403
-
-    resp = await api_client.post(
-        "/api/auth/setup", json={**ADMIN, "legacyToken": API_TOKEN}
-    )
-    assert resp.status_code == 201, resp.text
-
-    # Le token hérité marche toujours, avec les droits admin.
-    assert (await api_client.get("/api/users", headers=legacy)).status_code == 200
-    devices = (await api_client.get("/api/devices")).json()
+    """Serveur déjà installé : la création de l'admin ne demande rien d'autre
+    qu'un email et un mot de passe, et l'admin récupère les Mac existants."""
+    device_id = await _orphan_device("old-mac")
+    assert (await client.get("/api/auth/status")).json()["setupRequired"] is True
+    await _setup(client)
+    devices = (await client.get("/api/devices")).json()
     assert [d["id"] for d in devices] == [device_id]
 
 
 @pytest.mark.asyncio
 async def test_device_login_keeps_the_existing_device_id(
-    api_client: AsyncClient,
+    client: AsyncClient,
 ) -> None:
-    device_id = await _register(api_client, API_TOKEN, "old-mac")
-    await api_client.post("/api/auth/setup", json={**ADMIN, "legacyToken": API_TOKEN})
-    token = await _device_token(api_client, ADMIN["email"], ADMIN["password"])
-    again = await _register(api_client, token, "old-mac.local", deviceId=device_id)
+    device_id = await _orphan_device("old-mac")
+    await _setup(client)
+    token = await _device_token(client, ADMIN["email"], ADMIN["password"])
+    again = await _register(client, token, "old-mac.local", deviceId=device_id)
     assert again == device_id
 
 
@@ -581,3 +576,29 @@ async def test_a_deletion_on_my_mac_never_reaches_someone_else(
     ).status_code == 404
     library = (await client.get("/api/fonts")).json()
     assert library["total"] == 2
+
+
+# ---------- Maintenance (restauration) ----------
+
+
+@pytest.mark.asyncio
+async def test_maintenance_refuses_macs_but_not_the_web(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pendant une restauration, les Mac attendent (503) ; l'admin audite dans
+    l'interface avec son compte."""
+    await _setup(client)
+    token = await _device_token(client, ADMIN["email"], ADMIN["password"])
+    monkeypatch.setattr(settings, "fontsync_maintenance", True)
+
+    assert (await client.get("/health")).json()["maintenance"] is True
+    assert (await client.get("/api/stats", headers=_bearer(token))).status_code == 503
+    relogin = await client.post(
+        "/api/auth/device-login",
+        json={"email": ADMIN["email"], "password": ADMIN["password"]},
+    )
+    assert relogin.status_code == 503
+    assert (await client.get("/api/stats")).status_code == 200  # cookie web
+
+    monkeypatch.setattr(settings, "fontsync_maintenance", False)
+    assert (await client.get("/api/stats", headers=_bearer(token))).status_code == 200

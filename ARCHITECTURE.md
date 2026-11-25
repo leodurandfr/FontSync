@@ -431,7 +431,8 @@ manages their removals in Settings (`GET /api/me/removals`, `POST
 /api/me/removals/confirm`, `DELETE /api/me/removals/{font_id}` to put a font
 back). Reinstalling the file by hand on one of their Macs (declared, managed
 layer, by a device that did not hold it) cancels the removal. Devices without
-an owner (legacy token) share one `user_id = NULL` group.
+an owner (known before accounts, until the first admin adopts them) share one
+`user_id = NULL` group.
 
 The detection itself is unchanged from the former quarantine. It lives in the sync **router**,
 not in `compute_delta`, because it writes — the delta stays a pure read. Three
@@ -555,10 +556,9 @@ who may come in and who owns a device, not who owns a font. Tables
   the role is changed afterwards in the account list. `POST /api/users`
   (direct creation) remains in the API but is no longer offered by the web UI.
 - **First launch**: `GET /api/auth/status` says `setupRequired` while no account
-  exists; `POST /api/auth/setup` creates the first admin. On a server that
-  already has a `FONTSYNC_TOKEN`, setup requires that token (`legacyToken`), so
-  that whoever reaches an exposed server first cannot claim it. Devices known
-  before accounts are attached to that admin. Scripted alternative:
+  exists; `POST /api/auth/setup` creates the first admin, with no other secret:
+  create it right after installing or updating. Devices known before accounts
+  are attached to that admin and sign in again with an account. Scripted alternative:
   `FONTSYNC_ADMIN_EMAIL` / `FONTSYNC_ADMIN_PASSWORD`.
 - **No outgoing email**: the admin invites with a link they copy
   (`/invite#<token>`, the fragment never reaches the server) and resets
@@ -566,17 +566,19 @@ who may come in and who owns a device, not who owns a font. Tables
   `docker exec -it fontsync python -m backend.cli reset-password <email>`.
 - **Login** is rate-limited (5 failures per minute per IP and per email) and
   answers the same for an unknown email and a wrong password.
-- **Migration**: while `FONTSYNC_TOKEN` is set, it keeps working everywhere with
-  admin rights, so existing Macs keep syncing; remove it from `.env` once every
-  Mac has signed in with an account.
+- **No instance token**: the former shared `FONTSYNC_TOKEN` opens nothing any
+  more (the server only logs that it can be removed from `.env`), and the agent
+  ignores, then drops, a `server.token` key left in its config.
+- **Maintenance** (`FONTSYNC_MAINTENANCE=true`, used by the restore script):
+  device sessions and `device-login` get 503 while web sessions keep working,
+  so the admin can audit before the Macs write anything; `/health` reports it.
 
 ## 5. Backend API (FastAPI)
 
 > **Auth (accounts, §4.6):** all of `/api/*`, the SSE stream and the WebSocket require
 > an identity: a **web session** (`HttpOnly`, `SameSite=Strict` cookie
 > `fontsync_session`, set by `POST /api/auth/login`), a **device token**
-> (`Authorization: Bearer`, from `POST /api/auth/device-login`), or, while it is
-> still set, the **legacy instance token** `FONTSYNC_TOKEN` (`Bearer`, admin rights).
+> (`Authorization: Bearer`, from `POST /api/auth/device-login`).
 > Only `GET /health`, the SPA and the entry points of `/api/auth` listed in
 > `backend.auth.PUBLIC_API_PATHS` are public. `/api/*` is checked by an ASGI middleware
 > (`AuthMiddleware`) that answers 401 **before the request body is read**, then again by
@@ -927,8 +929,8 @@ No more WebSocket on the agent side (no backoff reconnection, no « on-restorati
 
 `~/.fontsync/config.yaml` file (cf. [`agent/config.py`](agent/config.py)):
 - `server.url`: URL of the FontSync server
-- `server.token`: **shared instance token** (= `FONTSYNC_TOKEN`), sent in `Authorization: Bearer`
-- `server.device_token`: reserved for a future **per-device** auth (cloud / long term), **unused** in v1
+- `server.device_token`: this Mac's **device token** (from `fontsync-agent login` or the app), sent in `Authorization: Bearer`
+- `server.account_email`: the account the Mac is signed in to (display only)
 - `server.device_id`: device identifier (received at registration, **persisted**)
 - `scan.directories`: managed directories (default `~/Library/Fonts`, `/Library/Fonts`)
 - `scan.ignore_patterns`: patterns to ignore (default `.*`, `System*`)
@@ -1099,7 +1101,7 @@ fontsync/
 │
 ├── agent/
 │   ├── __main__.py                    # CLI entry point (sync/listen/setup/teardown/status/doctor)
-│   ├── config.py                      # Read/write config.yaml (url, token, device_id)
+│   ├── config.py                      # Read/write config.yaml (url, device token, device_id)
 │   ├── discovery.py                   # Font discovery (Core Text macOS + directories)
 │   ├── scanner.py                     # Scan + hashing of font directories
 │   ├── hashing.py                     # SHA-256 hash of files
@@ -1157,7 +1159,7 @@ fontsync/
 
 ### Technical decisions
 
-- **Auth = accounts** (admin + members) sharing **one** font library, one session per browser or Mac (§4.6); the legacy `FONTSYNC_TOKEN` stays accepted during the migration
+- **Auth = accounts** (admin + members) sharing **one** font library, one session per browser or Mac (§4.6); no shared instance token
 - **SQLite** as the database (single-user); Postgres reserved for a possible multi-user (long term)
 - **Soft delete** (`deleted_at`) for all deletions
 - **UUID** for all PKs (portable SQLAlchemy type)

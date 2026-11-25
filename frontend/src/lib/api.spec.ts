@@ -17,20 +17,7 @@ describe("apiFetch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("ajoute l'en-tête Bearer quand un token hérité est connu", async () => {
-    useAuthStore().token = "secret";
-    const fetchMock = fetchReturning(200);
-    vi.stubGlobal("fetch", fetchMock);
-
-    await apiFetch("/api/stats");
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(new Headers(init.headers).get("Authorization")).toBe(
-      "Bearer secret",
-    );
-  });
-
-  it("n'ajoute pas d'en-tête Bearer en l'absence de token", async () => {
+  it("n'ajoute jamais d'en-tête Bearer : la session passe par le cookie", async () => {
     const fetchMock = fetchReturning(200);
     vi.stubGlobal("fetch", fetchMock);
 

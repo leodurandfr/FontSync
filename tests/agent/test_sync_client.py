@@ -66,7 +66,7 @@ def test_client_configured_with_base_url_and_default_headers() -> None:
 
 def test_client_sets_bearer_header_when_token_present() -> None:
     """P1.3 : le token partagé d'instance part en `Authorization: Bearer`."""
-    config = AgentConfig(server_url="http://nas.local:8080/", server_token="sek-1")
+    config = AgentConfig(server_url="http://nas.local:8080/", device_token="sek-1")
     client = SyncClient(
         config, transport=httpx.MockTransport(lambda r: httpx.Response(200))
     )
@@ -83,7 +83,7 @@ def test_bearer_header_is_sent_on_each_request() -> None:
         seen["auth"] = request.headers.get("authorization")
         return httpx.Response(201, json={"id": "dev-1", "name": "Mac"})
 
-    config = AgentConfig(server_url="http://nas.local:8080/", server_token="sek-2")
+    config = AgentConfig(server_url="http://nas.local:8080/", device_token="sek-2")
     client = SyncClient(
         config, sleep=lambda _d: None, transport=httpx.MockTransport(handler)
     )
@@ -353,19 +353,3 @@ def test_http_status_error_is_not_retried() -> None:
         client.close()
 
     assert calls["n"] == 1
-
-
-def test_device_token_wins_over_the_legacy_instance_token() -> None:
-    """Un Mac connecté à un compte s'authentifie avec son jeton d'appareil."""
-    config = AgentConfig(
-        server_url="http://nas.local:8080/",
-        server_token="legacy",
-        device_token="device-tok",
-    )
-    client = SyncClient(
-        config, transport=httpx.MockTransport(lambda r: httpx.Response(200))
-    )
-    try:
-        assert client._client.headers["authorization"] == "Bearer device-tok"
-    finally:
-        client.close()

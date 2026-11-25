@@ -23,9 +23,6 @@ _PASSWORD = Field(..., min_length=1, max_length=PASSWORD_MAX_LENGTH)
 class SetupRequest(CamelModel):
     email: str = _EMAIL
     password: str = _NEW_PASSWORD
-    legacy_token: str | None = Field(None, max_length=512)
-    """Requis si `FONTSYNC_TOKEN` est défini : prouve que la personne qui crée
-    l'admin d'un serveur déjà installé en est bien le propriétaire."""
 
 
 class LoginRequest(CamelModel):
@@ -91,7 +88,7 @@ class UserResponse(CamelModel):
 
 
 class MeResponse(CamelModel):
-    """L'identité de la requête. `user` est vide pour le token hérité."""
+    """L'identité de la requête."""
 
     kind: str
     role: str
@@ -102,9 +99,6 @@ class MeResponse(CamelModel):
 class AuthStatus(CamelModel):
     setup_required: bool
     """Aucun compte n'existe : l'interface propose de créer l'admin."""
-    setup_needs_legacy_token: bool
-    """Un `FONTSYNC_TOKEN` est défini : la création de l'admin le demande."""
-    legacy_token_enabled: bool
     me: MeResponse | None = None
 
 

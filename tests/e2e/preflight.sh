@@ -25,8 +25,9 @@
 #   PORT         port serveur            (défaut : 8080)
 #   HOST         interface d'écoute      (défaut : 127.0.0.1 ; pour un 2e Mac,
 #                l'IP tailnet de ce Mac plutôt que 0.0.0.0)
-#   FONTSYNC_TOKEN  token partagé par le serveur et les agents (défaut en
-#                loopback : fontsync-dev ; hors loopback : aléatoire, affiché)
+#   FONTSYNC_DEV_EMAIL / FONTSYNC_DEV_PASSWORD  compte de dev partagé par le
+#                serveur (qui le crée) et les agents (qui s'y connectent) ;
+#                hors loopback, mot de passe aléatoire affiché une fois
 #   NO_FRONTEND  =1 pour ne pas lancer Vite (banc serveur + 2 agents seulement)
 
 set -euo pipefail
@@ -49,19 +50,16 @@ esac
 python_bin="$repo_root/.venv/bin/python"
 [ -x "$python_bin" ] || python_bin="python3"
 
-# Un seul token pour le serveur ET les agents (sinon les agents partent sans
-# token et reçoivent 401). Hors loopback, jamais le token public du dépôt ; le
-# serveur retire les espaces autour du token, la comparaison aussi.
-token_seen="$("$python_bin" -c 'import os; print(os.environ.get("FONTSYNC_TOKEN", "").strip())')"
+# Un seul compte pour le serveur ET les agents : le serveur le crée, les agents
+# s'y connectent. Hors loopback, jamais le mot de passe public du dépôt.
 case "$host" in
-  127.*|localhost|::1|\[::1\])
-    export FONTSYNC_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}" ;;
+  127.*|localhost|::1|\[::1\]) ;;
   *)
     echo "ATTENTION : HOST=$host expose le serveur hors de cette machine." >&2
-    if [ -z "$token_seen" ] || [ "$token_seen" = "fontsync-dev" ]; then
-      FONTSYNC_TOKEN="$("$python_bin" -c 'import secrets; print(secrets.token_urlsafe(32))')"
-      export FONTSYNC_TOKEN
-      echo "    token aléatoire de cette session : $FONTSYNC_TOKEN" >&2
+    if [ -z "${FONTSYNC_DEV_PASSWORD:-}" ] || [ "$FONTSYNC_DEV_PASSWORD" = "fontsync-dev-password" ]; then
+      FONTSYNC_DEV_PASSWORD="$("$python_bin" -c 'import secrets; print(secrets.token_urlsafe(18))')"
+      export FONTSYNC_DEV_PASSWORD
+      echo "    mot de passe de cette session (${FONTSYNC_DEV_EMAIL:-dev@example.com}) : $FONTSYNC_DEV_PASSWORD" >&2
     fi ;;
 esac
 
@@ -135,6 +133,7 @@ cat <<EOF
 ================== Banc E2E prêt ==================
  Serveur   : $server_url${lan_ip:+   (LAN : http://$lan_ip:$port)}
  Frontend  : http://localhost:8765      (proxy → $server_url)
+ Compte    : ${FONTSYNC_DEV_EMAIL:-dev@example.com} / ${FONTSYNC_DEV_PASSWORD:-fontsync-dev-password}   (créé si la base est neuve)
  Agents    : A et B en 'listen' (devices isolés sous $dev_root/{A,B})
  Logs      : $log_dir/{server,frontend,agent-A,agent-B}.log
 

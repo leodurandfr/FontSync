@@ -29,7 +29,7 @@ from backend.maintenance.restore import RestoreError, restore_snapshot
 from backend.services.backup import write_snapshot
 from backend.services.font_importer import import_font
 from backend.services.storage import FilesystemStorage
-from tests.backend.conftest import AUTH_HEADERS
+from tests.backend.conftest import API_TOKEN, AUTH_HEADERS, seed_session
 from tests.backend.test_premigrate import _config
 
 
@@ -142,7 +142,7 @@ async def _import(
 
 @pytest.mark.asyncio
 async def test_restored_db_boots_app(
-    file_db: Path, tmp_path: Path, font_factory, _api_token
+    file_db: Path, tmp_path: Path, font_factory
 ) -> None:
     storage = FilesystemStorage(base_path=str(tmp_path / "fonts"))
     await _import(file_db, storage, font_factory, ["Alpha", "Beta", "Gamma"])
@@ -162,6 +162,8 @@ async def test_restored_db_boots_app(
         async with maker() as session:
             yield session
 
+    async with maker() as db:
+        await seed_session(db, API_TOKEN)
     app.dependency_overrides[get_db] = _db
     try:
         async with AsyncClient(

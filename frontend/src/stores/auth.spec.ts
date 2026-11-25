@@ -13,8 +13,6 @@ function json(body: unknown, status = 200): Response {
 function status(partial: Partial<AuthStatus>): AuthStatus {
   return {
     setupRequired: false,
-    setupNeedsLegacyToken: false,
-    legacyTokenEnabled: false,
     me: null,
     ...partial,
   };
@@ -87,19 +85,18 @@ describe("auth store (comptes)", () => {
     expect(auth.isAdmin).toBe(false);
   });
 
-  it("envoie le token hérité mémorisé à la vérification", async () => {
+  it("oublie un ancien token d'instance mémorisé, sans jamais l'envoyer", async () => {
     localStorage.setItem("fontsync_token", "abc");
     setActivePinia(createPinia());
     const fetchMock = vi.fn().mockResolvedValue(json(status({})));
     vi.stubGlobal("fetch", fetchMock);
     await useAuthStore().refresh();
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer abc");
+    expect(localStorage.getItem("fontsync_token")).toBeNull();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit?];
+    expect(new Headers(init?.headers).has("Authorization")).toBe(false);
   });
 
-  it("connexion réussie : oublie le token hérité", async () => {
-    localStorage.setItem("fontsync_token", "abc");
-    setActivePinia(createPinia());
+  it("connexion réussie : l'application s'affiche", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -109,8 +106,6 @@ describe("auth store (comptes)", () => {
     );
     const auth = useAuthStore();
     await auth.login("admin@example.com", "motdepasse-long");
-    expect(auth.token).toBeNull();
-    expect(localStorage.getItem("fontsync_token")).toBeNull();
     expect(auth.phase).toBe("ready");
   });
 

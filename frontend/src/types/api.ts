@@ -312,9 +312,9 @@ export interface User {
   sessionCount: number;
 }
 
-/** Identité de la requête. `user` est vide pour le token d'instance hérité. */
+/** Identité de la requête. */
 export interface Me {
-  kind: "web" | "device" | "legacy";
+  kind: "web" | "device";
   role: Role;
   user: User | null;
   deviceId: string | null;
@@ -322,8 +322,6 @@ export interface Me {
 
 export interface AuthStatus {
   setupRequired: boolean;
-  setupNeedsLegacyToken: boolean;
-  legacyTokenEnabled: boolean;
   me: Me | null;
 }
 

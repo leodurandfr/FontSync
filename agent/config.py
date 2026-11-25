@@ -1,7 +1,7 @@
 """Lecture et gestion de la configuration de l'agent FontSync.
 
 La config (`~/.fontsync/config.yaml`) est le **seul** état persistant de l'agent
-avec le cache de hash : elle porte l'identité du device (`device_id`/token)
+avec le cache de hash : elle porte l'identité du device (`device_id`, jeton)
 établie au premier `register`, ainsi que les préférences de scan/sync. Tout le
 reste de l'agent est stateless (cf. PLAN.md).
 
@@ -12,8 +12,6 @@ Schéma YAML :
       device_token: …        # jeton d'appareil, obtenu par `fontsync-agent
                               #   login` (email + mot de passe) ou par l'app Mac
       account_email: …       # le compte de ce jeton (affichage seulement)
-      token: …               # HÉRITÉ : token d'instance (= FONTSYNC_TOKEN côté
-                              #   serveur), utilisé seulement sans device_token
       device_id: …           # persisté après le 1er enregistrement
     scan:
       directories: [...]
@@ -25,11 +23,11 @@ Schéma YAML :
       auto_pull: false        # le serveur fait foi ; ceci n'est que le défaut
       auto_push: true         #   envoyé au premier `register`
 
-Les deux « tokens » : depuis les comptes, l'agent s'authentifie avec son
-**jeton d'appareil** (`server.device_token`), propre à ce Mac et à son compte,
-révocable seul depuis l'interface web. Le **token d'instance** hérité
-(`server.token`, = `FONTSYNC_TOKEN`) n'est envoyé qu'à défaut, le temps de la
-migration (`auth_token`).
+L'agent s'authentifie avec son **jeton d'appareil** (`server.device_token`),
+obtenu en se connectant avec l'email et le mot de passe d'un compte, propre à
+ce Mac et révocable seul depuis l'interface web. Une ancienne clé
+`server.token` (token d'instance d'avant les comptes) est ignorée, et disparaît
+à la prochaine écriture.
 """
 
 from __future__ import annotations
@@ -116,8 +114,6 @@ class AgentConfig:
     """
 
     server_url: str = "http://localhost:8080"
-    # HÉRITÉ : token partagé d'instance, envoyé seulement sans `device_token`.
-    server_token: str | None = None
     # Jeton d'appareil (compte), envoyé en `Authorization: Bearer`.
     device_token: str | None = None
     # Compte du jeton d'appareil : affichage seulement (`status`, app Mac).
@@ -137,12 +133,11 @@ class AgentConfig:
 
     @property
     def auth_token(self) -> str | None:
-        """Le secret envoyé en `Authorization: Bearer`.
+        """Le secret envoyé en `Authorization: Bearer` : le jeton d'appareil.
 
-        Le jeton d'appareil d'abord ; le token d'instance hérité seulement à
-        défaut (migration). `None` : en-tête omis.
+        `None` : en-tête omis (pas encore connecté à un compte).
         """
-        return self.device_token or self.server_token or None
+        return self.device_token or None
 
     @classmethod
     def load(cls) -> AgentConfig:
@@ -168,7 +163,6 @@ class AgentConfig:
 
         return cls(
             server_url=server.get("url", defaults.server_url),
-            server_token=server.get("token", defaults.server_token),
             device_token=server.get("device_token", defaults.device_token),
             account_email=server.get("account_email", defaults.account_email),
             device_id=server.get("device_id", defaults.device_id),
@@ -185,15 +179,14 @@ class AgentConfig:
         """Persiste la configuration dans ~/.fontsync/config.yaml.
 
         Écriture atomique (`os.replace`) : un crash en cours d'écriture ne peut
-        pas corrompre l'identité persistée (`device_id`/token). Le fichier est
-        restreint à l'utilisateur (0600) car il porte un token.
+        pas corrompre l'identité persistée (`device_id`, jeton). Le fichier est
+        restreint à l'utilisateur (0600) car il porte le jeton d'appareil.
         """
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
         data = {
             "server": {
                 "url": self.server_url,
-                "token": self.server_token,
                 "device_token": self.device_token,
                 "account_email": self.account_email,
                 "device_id": self.device_id,

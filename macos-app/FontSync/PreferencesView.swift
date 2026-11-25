@@ -24,9 +24,8 @@ struct PreferencesView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var loaded = false
-    /// Compte actuellement enregistré (ou `nil` : token d'instance hérité / rien).
+    /// Compte actuellement enregistré (`nil` : pas encore connecté).
     @State private var connectedEmail: String?
-    @State private var usesLegacyToken = false
 
     /// Retour utilisateur de la connexion.
     @State private var serverFeedback: Feedback?
@@ -41,13 +40,6 @@ struct PreferencesView: View {
             Section("Compte") {
                 if let connectedEmail {
                     LabeledContent("Connecté en tant que") { Text(connectedEmail) }
-                } else if usesLegacyToken {
-                    Text(
-                        "Ce Mac utilise encore le token d'instance. Connectez-vous "
-                            + "avec votre compte pour le remplacer."
-                    )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
                 }
 
                 TextField("URL", text: $urlString, prompt: Text("http://nas.local:8080"))
@@ -140,7 +132,6 @@ struct PreferencesView: View {
         urlString = config.serverURL?.absoluteString ?? ""
         email = config.accountEmail ?? ""
         connectedEmail = config.deviceToken == nil ? nil : config.accountEmail
-        usesLegacyToken = config.deviceToken == nil && config.token != nil
     }
 
     /// Chemin d'installation, abrégé avec `~` comme le Finder l'affiche.
@@ -182,7 +173,6 @@ struct PreferencesView: View {
                 password = ""
                 let config = AppConfig.load()
                 connectedEmail = config.accountEmail
-                usesLegacyToken = false
                 serverFeedback = .success("Connecté — \(count) police(s).")
                 model.refresh()
             } catch {

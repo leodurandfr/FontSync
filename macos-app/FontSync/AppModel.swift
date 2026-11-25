@@ -141,7 +141,7 @@ final class AppModel: ObservableObject {
     /// observé lors de cette sonde :
     /// - **polices synchronisées** quand le total serveur augmente (pull/install) ;
     /// - **erreur de sync** quand une connexion qui marchait vient de tomber
-    ///   (injoignable) ou d'être rejetée (token invalide). On exige `previous ==
+    ///   (injoignable) ou d'être rejetée (session révoquée). On exige `previous ==
     ///   .connected` pour ne notifier qu'une *interruption* réelle, pas un
     ///   serveur déjà éteint au lancement ni une sonde offline répétée.
     private func notifyTransition(from previous: ConnectionState) {
