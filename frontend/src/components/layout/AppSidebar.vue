@@ -231,40 +231,40 @@ function startResize(e: PointerEvent) {
 
       <!-- Footer -->
       <!--
-        Actions empilées comme les entrées de la nav (une par ligne) : sur une
-        seule rangée, « Upload », « Settings » et le thème étaient trop serrés.
+        Une seule rangée d'icônes (libellé en infobulle + aria-label) : le bas
+        du panneau prend le moins de hauteur possible.
       -->
       <div
-        class="flex flex-shrink-0 flex-col gap-0.5 border-t border-separator px-3 py-3"
+        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-2"
       >
         <UploadDialog>
           <button
             type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            class="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            :title="t('sidebar.upload')"
+            :aria-label="t('sidebar.upload')"
           >
             <Upload class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[12px]">{{ t("sidebar.upload") }}</span>
           </button>
         </UploadDialog>
 
-        <div class="flex items-center gap-1">
-          <RouterLink
-            :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
-            class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
-            :class="
-              onSettings
-                ? 'bg-accent font-medium text-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-            "
-          >
-            <Settings class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[12px]">{{
-              t("sidebar.settings")
-            }}</span>
-          </RouterLink>
+        <RouterLink
+          :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
+          class="flex size-8 items-center justify-center rounded-md transition-colors"
+          :class="
+            onSettings
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          "
+          :title="t('sidebar.settings')"
+          :aria-label="t('sidebar.settings')"
+        >
+          <Settings class="size-3.5" :stroke-width="1.5" />
+        </RouterLink>
 
-          <ThemeToggle />
-        </div>
+        <div class="flex-1" />
+
+        <ThemeToggle />
       </div>
 
       <!-- Resize handle -->
