@@ -218,6 +218,7 @@ Machines registered with the server.
 | `agent_version` | VARCHAR(20) | |
 | `last_seen_at` | DateTime (tz) | Last agent sync activity (delta, push, pull) — basis of `syncOverdue` |
 | `font_directories` | JSON | Watched directories |
+| `capabilities` | JSON | Capabilities announced by the agent at each `register` (`full-declaration`, `deactivate`, `uninstall`); `NULL` for an agent that announces none. Informational: nothing is gated on it yet |
 | `auto_pull` | BOOLEAN | Auto-install new fonts from the server (default `false`) |
 | `auto_push` | BOOLEAN | Auto-push local fonts to the server (default `true`) |
 | `propagate_deletions` | BOOLEAN | Apply *other* devices' deletions here, i.e. uninstall (default `false`) — cf. §4.4. Does **not** gate this device's own disappearances being recorded |
@@ -602,7 +603,7 @@ who may come in and who owns a device, not who owns a font. Tables
 
 | Method | Endpoint | Description |
 |---------|----------|-------------|
-| `POST` | `/api/devices/register` | Register a device — keyed on `device_id`, hostname only as a fallback |
+| `POST` | `/api/devices/register` | Register a device — keyed on `device_id`, hostname only as a fallback; stores the announced `capabilities` (replaced on every call) |
 | `GET` | `/api/devices` | List the devices, with `isOnline` (SSE presence) and `syncOverdue` (no agent pass for 30 min) |
 | `PATCH` | `/api/devices/{id}` | Update (name, `auto_pull`, `auto_push`, `propagate_deletions`…) |
 | `POST` | `/api/devices/{id}/merge` | Absorb duplicate devices, keeping their font registry |

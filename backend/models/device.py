@@ -30,6 +30,10 @@ class Device(UUIDPrimaryKey, Base):
     # (convention `CLAUDE.md`). `register_device` le ranime.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     font_directories: Mapped[dict | None] = mapped_column(JSON)
+    # Capacités annoncées par l'agent à chaque register (B-32) : stockées et
+    # exposées, rien n'en dépend encore. Un agent qui ne les envoie pas (≤ 0.1.2)
+    # les remet à NULL — une capacité ne survit pas au retour d'un ancien agent.
+    capabilities: Mapped[list | None] = mapped_column(JSON)
     auto_pull: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_push: Mapped[bool] = mapped_column(Boolean, default=True)
     # Participation de cet appareil à la **propagation des suppressions**, dans
