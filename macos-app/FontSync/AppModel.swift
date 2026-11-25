@@ -19,7 +19,7 @@ enum ConnectionState: Equatable {
         case .unknown: return "Vérification…"
         case .notConfigured: return "Non configuré"
         case .connected: return "Connecté"
-        case .unauthorized: return "Token invalide"
+        case .unauthorized: return "Connexion refusée"
         case .offline: return "Serveur injoignable"
         }
     }
@@ -118,7 +118,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let client = ServerClient(baseURL: baseURL, token: config.token)
+        let client = ServerClient(baseURL: baseURL, token: config.authToken)
         let previousConnection = connection
         Task { @MainActor in
             defer { isRefreshing = false }

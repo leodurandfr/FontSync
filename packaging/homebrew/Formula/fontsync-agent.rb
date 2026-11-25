@@ -98,7 +98,7 @@ class FontsyncAgent < Formula
 
         fontsync-agent setup
 
-      La configuration vit dans ~/.fontsync/config.yaml (server.url + server.token).
+      Connectez ce Mac à votre compte : fontsync-agent login --server http://<nas>:8080
       Pour retirer les LaunchAgents : `fontsync-agent teardown`.
     EOS
   end

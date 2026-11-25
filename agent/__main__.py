@@ -15,6 +15,7 @@ Invocations équivalentes : `fontsync-agent <commande>` (console entry point du
 paquet, cf. pyproject.toml) ou `python -m agent <commande>`.
 
 Commandes (architecture cible, cf. PLAN.md) :
+- `login`    : connecte ce Mac à un compte (email + mot de passe → jeton d'appareil).
 - `sync`     : synchronisation ponctuelle stateless (déclenchée par launchd ou `listen`).
 - `listen`   : flux SSE longue durée qui relance `sync` à chaque signal serveur.
 - `setup`    : génère les plists et (re)charge les LaunchAgents launchd (macOS).
@@ -41,6 +42,18 @@ def main(argv: list[str] | None = None) -> int:
         help="attendre la fin d'un sync en cours au lieu de se retirer (appels interactifs)",
     )
     sub.add_parser("listen", help="Flux SSE qui relance `sync` à chaque signal")
+    login_parser = sub.add_parser(
+        "login", help="Connecte ce Mac à un compte (email + mot de passe)"
+    )
+    login_parser.add_argument(
+        "--server", help="URL du serveur (sinon celle de la config)"
+    )
+    login_parser.add_argument("--email", help="email du compte (sinon demandé)")
+    login_parser.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="lire le mot de passe sur l'entrée standard (scripts)",
+    )
     setup_parser = sub.add_parser(
         "setup", help="Installe et charge les LaunchAgents (macOS)"
     )
@@ -68,6 +81,15 @@ def main(argv: list[str] | None = None) -> int:
         from agent.listen_command import main as listen_main
 
         return listen_main()
+
+    if args.command == "login":
+        from agent.login_command import main as login_main
+
+        return login_main(
+            server=args.server,
+            email=args.email,
+            password_stdin=args.password_stdin,
+        )
 
     if args.command == "setup":
         from agent import launchd_setup

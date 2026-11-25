@@ -353,3 +353,19 @@ def test_http_status_error_is_not_retried() -> None:
         client.close()
 
     assert calls["n"] == 1
+
+
+def test_device_token_wins_over_the_legacy_instance_token() -> None:
+    """Un Mac connecté à un compte s'authentifie avec son jeton d'appareil."""
+    config = AgentConfig(
+        server_url="http://nas.local:8080/",
+        server_token="legacy",
+        device_token="device-tok",
+    )
+    client = SyncClient(
+        config, transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
+    try:
+        assert client._client.headers["authorization"] == "Bearer device-tok"
+    finally:
+        client.close()

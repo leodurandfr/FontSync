@@ -5,14 +5,13 @@
 # multi-arch publiée sur ghcr.io (amd64 + arm64) → aucun build local requis.
 #
 # Démarrage rapide :
-#   1. Générer les deux secrets dans un fichier .env à côté de ce compose :
-#        (set -C; printf 'FONTSYNC_TOKEN=%s\nWATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env)
-#      (FONTSYNC_TOKEN protège l'API ; WATCHTOWER_TOKEN sert au bouton
-#      « Mettre à jour » — les deux sont exigés au démarrage.) La commande
-#      refuse d'écraser un .env existant : déjà installé, gardez votre
-#      FONTSYNC_TOKEN (tous les Mac l'utilisent) et ajoutez seulement
-#      WATCHTOWER_TOKEN=….
+#   1. Générer le secret du bouton « Mettre à jour » dans un fichier .env à
+#      côté de ce compose :
+#        (set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
+#      La commande refuse d'écraser un .env existant : déjà installé, gardez
+#      votre FONTSYNC_TOKEN tant que des Mac l'utilisent encore.
 #   2. docker compose -f docker-compose.nas.yml up -d
+#   3. Ouvrir http://<ip-du-nas>:8080 et créer le compte administrateur.
 #
 # ⚠️  HTTP en clair : à réserver au LAN, ou à placer derrière un reverse-proxy
 #     TLS (cf. README, section « Transport & sécurité réseau »).
@@ -26,9 +25,11 @@ services:
     ports:
       - "8080:8000"          # hôte:conteneur — ajustez le port hôte si occupé
     environment:
-      # Secret d'instance protégeant tout /api/*, SSE et WS. Obligatoire ici :
-      # le compose refuse de démarrer s'il n'est pas défini (voir .env).
-      FONTSYNC_TOKEN: ${FONTSYNC_TOKEN:?Définissez FONTSYNC_TOKEN (ex. dans un fichier .env)}
+      # HÉRITÉ : token d'instance d'avant les comptes (droits admin). Vide sur
+      # une nouvelle installation : l'API s'ouvre par compte, et le premier
+      # écran crée l'administrateur. Sur une installation existante, gardez-le
+      # dans .env le temps que chaque Mac se connecte avec un compte.
+      FONTSYNC_TOKEN: ${FONTSYNC_TOKEN:-}
       DATABASE_URL: sqlite+aiosqlite:////data/fontsync.db
       STORAGE_BACKEND: filesystem
       FONT_STORAGE_PATH: /fonts

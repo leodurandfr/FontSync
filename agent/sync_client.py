@@ -74,10 +74,10 @@ class SyncClient:
             "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
             "Accept": "application/json",
         }
-        # Token partagé d'instance (P1.3) : authentifie toutes les requêtes REST.
-        # Absent → en-tête omis (serveur sans auth en dev / avant configuration).
-        if config.server_token:
-            headers["Authorization"] = f"Bearer {config.server_token}"
+        # Jeton d'appareil (ou token d'instance hérité) : authentifie toutes les
+        # requêtes REST. Absent → en-tête omis (avant configuration).
+        if config.auth_token:
+            headers["Authorization"] = f"Bearer {config.auth_token}"
         self._client = httpx.Client(
             base_url=config.server_url.rstrip("/"),
             timeout=REQUEST_TIMEOUT,

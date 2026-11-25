@@ -9,10 +9,11 @@ Schéma YAML :
 
     server:
       url: http://…
-      token: …               # token partagé d'instance (= FONTSYNC_TOKEN côté
-                              #   serveur) → envoyé en `Authorization: Bearer`
-      device_token: …        # réservé à une future auth PAR-DEVICE (Phase 7 /
-                              #   cloud) ; distinct du token d'instance ci-dessus
+      device_token: …        # jeton d'appareil, obtenu par `fontsync-agent
+                              #   login` (email + mot de passe) ou par l'app Mac
+      account_email: …       # le compte de ce jeton (affichage seulement)
+      token: …               # HÉRITÉ : token d'instance (= FONTSYNC_TOKEN côté
+                              #   serveur), utilisé seulement sans device_token
       device_id: …           # persisté après le 1er enregistrement
     scan:
       directories: [...]
@@ -24,11 +25,11 @@ Schéma YAML :
       auto_pull: false        # le serveur fait foi ; ceci n'est que le défaut
       auto_push: true         #   envoyé au premier `register`
 
-Sémantique des deux « tokens » (cf. PLAN-PUBLICATION.md P1.3) : pour le v1
-self-hosted, **un seul token d'instance** (`server.token`) suffit — c'est le
-secret partagé qui authentifie *toutes* les requêtes vers le serveur. Le
-`device_token` par-device reste réservé à une éventuelle auth fine en mode
-cloud (Phase 7) et n'est pas utilisé pour l'authentification HTTP du v1.
+Les deux « tokens » : depuis les comptes, l'agent s'authentifie avec son
+**jeton d'appareil** (`server.device_token`), propre à ce Mac et à son compte,
+révocable seul depuis l'interface web. Le **token d'instance** hérité
+(`server.token`, = `FONTSYNC_TOKEN`) n'est envoyé qu'à défaut, le temps de la
+migration (`auth_token`).
 """
 
 from __future__ import annotations
@@ -115,10 +116,12 @@ class AgentConfig:
     """
 
     server_url: str = "http://localhost:8080"
-    # Token partagé d'instance, envoyé en `Authorization: Bearer` (cf. P1.3).
+    # HÉRITÉ : token partagé d'instance, envoyé seulement sans `device_token`.
     server_token: str | None = None
-    # Réservé à une future auth par-device (cloud / Phase 7), pas l'auth HTTP v1.
+    # Jeton d'appareil (compte), envoyé en `Authorization: Bearer`.
     device_token: str | None = None
+    # Compte du jeton d'appareil : affichage seulement (`status`, app Mac).
+    account_email: str | None = None
     device_id: str | None = None
     directories: list[str] = field(
         default_factory=lambda: list(DEFAULT_MACOS_DIRECTORIES)
@@ -131,6 +134,15 @@ class AgentConfig:
     )
     auto_push: bool = True
     auto_pull: bool = False
+
+    @property
+    def auth_token(self) -> str | None:
+        """Le secret envoyé en `Authorization: Bearer`.
+
+        Le jeton d'appareil d'abord ; le token d'instance hérité seulement à
+        défaut (migration). `None` : en-tête omis.
+        """
+        return self.device_token or self.server_token or None
 
     @classmethod
     def load(cls) -> AgentConfig:
@@ -158,6 +170,7 @@ class AgentConfig:
             server_url=server.get("url", defaults.server_url),
             server_token=server.get("token", defaults.server_token),
             device_token=server.get("device_token", defaults.device_token),
+            account_email=server.get("account_email", defaults.account_email),
             device_id=server.get("device_id", defaults.device_id),
             directories=scan.get("directories", defaults.directories),
             ingest_directories=scan.get(
@@ -182,6 +195,7 @@ class AgentConfig:
                 "url": self.server_url,
                 "token": self.server_token,
                 "device_token": self.device_token,
+                "account_email": self.account_email,
                 "device_id": self.device_id,
             },
             "scan": {

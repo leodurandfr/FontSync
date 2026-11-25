@@ -94,10 +94,10 @@ def _stream_signals(config: AgentConfig, device_id: str) -> "Iterator[None]":
         "Accept": "text/event-stream",
         "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
     }
-    # Token partagé d'instance (P1.2) : en-tête `Authorization`, seule voie
-    # acceptée sur /api, flux SSE compris (P1-5e).
-    if config.server_token:
-        headers["Authorization"] = f"Bearer {config.server_token}"
+    # Jeton d'appareil (ou token d'instance hérité) : en-tête `Authorization`,
+    # seule voie acceptée sur /api, flux SSE compris (P1-5e).
+    if config.auth_token:
+        headers["Authorization"] = f"Bearer {config.auth_token}"
     with httpx.stream("GET", url, timeout=timeout, headers=headers) as resp:
         resp.raise_for_status()
         logger.info("Flux SSE connecté (%s)", url)
@@ -315,6 +315,19 @@ def trigger_sync(
     return run(config)
 
 
+def _reload_auth(config: AgentConfig) -> AgentConfig:
+    """`config` avec les identifiants actuels du fichier (jeton, URL)."""
+    try:
+        fresh = AgentConfig.load()
+    except Exception:  # fichier illisible : on garde ce qu'on avait
+        logger.warning("Config illisible, identifiants précédents conservés.")
+        return config
+    config.server_url = fresh.server_url
+    config.server_token = fresh.server_token
+    config.device_token = fresh.device_token
+    return config
+
+
 def run_listen(
     config: AgentConfig,
     *,
@@ -339,7 +352,12 @@ def run_listen(
     stop = stop or threading.Event()
     if signals_factory is None:
         device_id = _resolve_device_id(config)
-        signals_factory = lambda: _stream_signals(config, device_id)  # noqa: E731
+        # Config relue à chaque connexion : se connecter à un compte (app Mac,
+        # `fontsync-agent login`) change le jeton sans redémarrer ce process, et
+        # l'ancien token d'instance peut être retiré du serveur entre-temps.
+        signals_factory = lambda: _stream_signals(  # noqa: E731
+            _reload_auth(config), device_id
+        )
 
     q: "queue.Queue[None]" = queue.Queue()
     producer = threading.Thread(

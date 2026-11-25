@@ -78,3 +78,15 @@ def test_setup_passes_allow_dev_python(monkeypatch: pytest.MonkeyPatch) -> None:
     cli.main(["setup"])
 
     assert seen == [True, False]
+
+
+def test_login_command_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent import login_command
+
+    calls: list[dict] = []
+    monkeypatch.setattr(login_command, "main", lambda **kw: calls.append(kw) or 0)
+
+    assert cli.main(["login", "--server", "http://nas:8080", "--email", "a@b.c"]) == 0
+    assert calls == [
+        {"server": "http://nas:8080", "email": "a@b.c", "password_stdin": False}
+    ]
