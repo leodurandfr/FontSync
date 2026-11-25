@@ -31,6 +31,7 @@ from backend.models.font import (
     deletion_unconfirmed_clause,
     is_deletion_confirmed,
 )
+from backend.models.font_removal import FontRemoval
 from backend.routers.fonts import delete_font, restore_font
 from backend.routers.sync import delta_sync
 from backend.schemas.sync import DeltaSyncRequest, DeviceFontEntry
@@ -92,6 +93,34 @@ async def _delta(client: AsyncClient, device_id: str, hashes: list[str]) -> dict
     return resp.json()
 
 
+async def _my_removals(client: AsyncClient) -> list[dict]:
+    resp = await client.get("/api/me/removals", headers=AUTH_HEADERS)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _hold_unconfirmed(font_id: str) -> None:
+    """Remet une suppression de corbeille « en attente d'arbitrage ».
+
+    Ces quarantaines retenues n'apparaissent plus d'elles-mêmes (une disparition
+    sur un Mac est désormais un retrait personnel), mais une base d'avant en
+    contient : les garde-fous qui les protègent doivent tenir.
+    """
+    import uuid
+
+    from backend.database import get_db
+    from backend.main import app
+
+    gen = app.dependency_overrides[get_db]()
+    session = await gen.__anext__()
+    try:
+        font = await session.get(Font, uuid.UUID(font_id))
+        font.deletion_confirmed = False
+        await session.commit()
+    finally:
+        await gen.aclose()
+
+
 # ---------- Helpers modèle (tests unitaires) ----------
 
 
@@ -102,6 +131,11 @@ async def _make_device(db, *, propagate: bool = True, hostname: str = "mac") -> 
     db.add(device)
     await db.flush()
     return device
+
+
+async def _removals(db) -> dict:
+    rows = await db.execute(select(FontRemoval.font_id, FontRemoval.confirmed))
+    return dict(rows.all())
 
 
 async def _make_font(db, storage, font_factory, family: str) -> Font:
@@ -404,6 +438,7 @@ async def test_auto_purge_respects_retention(db, storage, font_factory) -> None:
 
 @pytest.mark.asyncio
 async def test_disappeared_font_is_quarantined(db, storage, font_factory) -> None:
+    """Disparue d'un Mac : retrait personnel, la bibliothèque n'y perd rien."""
     device = await _make_device(db)
     font = await _make_font(db, storage, font_factory, "Local")
     await register_device_font(device.id, font.id, "/Users/x/Local.ttf", db)
@@ -414,7 +449,8 @@ async def test_disappeared_font_is_quarantined(db, storage, font_factory) -> Non
     detection = await detect_local_deletions(device.id, {other.file_hash}, db)
 
     assert [f.id for f in detection.quarantined] == [font.id]
-    assert font.deletion_confirmed is True
+    assert await _removals(db) == {font.id: True}
+    assert font.deleted_at is None
     assert other.deleted_at is None
 
 
@@ -485,8 +521,8 @@ async def test_mass_disappearance_quarantines_without_propagating(
 ) -> None:
     """Le cas réel : 625 fichiers disparus d'un coup lors d'un nettoyage manuel.
 
-    Les polices sortent de la bibliothèque — récupérables d'un clic — mais aucune
-    autre machine ne les désinstalle tant que l'utilisateur n'a pas confirmé.
+    Le retrait est enregistré (rien n'est réinstallé) mais aucun autre Mac ne
+    désinstalle tant que l'utilisateur n'a pas confirmé.
     """
     monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 3)
     device = await _make_device(db)
@@ -504,20 +540,58 @@ async def test_mass_disappearance_quarantines_without_propagating(
 
     assert detection.quarantined == []
     assert len(detection.pending) == 6
-    assert all(f.deletion_confirmed is False for f in fonts)
+    assert await _removals(db) == {f.id: False for f in fonts}
+    assert all(f.deleted_at is None for f in fonts)
 
 
 @pytest.mark.asyncio
 async def test_pending_quarantine_is_not_propagated(db, storage, font_factory) -> None:
-    """Une quarantaine en attente n'apparaît pas dans `to_uninstall`."""
+    """Un retrait en attente : ni réinstallé, ni désinstallé ailleurs."""
     font = await _make_font(db, storage, font_factory, "Held")
+    db.add(
+        FontRemoval(
+            user_id=None,
+            font_id=font.id,
+            removed_at=datetime.now(timezone.utc),
+            confirmed=False,
+        )
+    )
+    await db.commit()
+    holder = await _make_device(db, hostname="holder")
+    other = await _make_device(db, hostname="other")
+
+    held = await compute_delta(
+        [DeviceFontEntry(hash=font.file_hash, filename="Held.ttf")],
+        db,
+        device_id=holder.id,
+        propagate_deletions=True,
+    )
+    empty = await compute_delta(
+        [DeviceFontEntry(hash="a" * 64, filename="x.ttf")],
+        db,
+        device_id=other.id,
+        propagate_deletions=True,
+    )
+
+    assert held.to_uninstall == []
+    assert empty.missing_on_device == []
+
+
+@pytest.mark.asyncio
+async def test_library_trash_never_uninstalls(db, storage, font_factory) -> None:
+    """La corbeille de la bibliothèque ne retire la police du Mac de personne.
+
+    Ni l'admin ni personne d'autre ne décide de ce qui quitte le Mac d'un
+    compte : seul son propriétaire, en supprimant la police chez lui.
+    """
+    font = await _make_font(db, storage, font_factory, "Trashed")
     font.deleted_at = datetime.now(timezone.utc)
-    font.deletion_confirmed = False
+    font.deletion_confirmed = True
     await db.commit()
     device = await _make_device(db)
 
     delta = await compute_delta(
-        [DeviceFontEntry(hash=font.file_hash, filename="Held.ttf")],
+        [DeviceFontEntry(hash=font.file_hash, filename="Trashed.ttf")],
         db,
         device_id=device.id,
         propagate_deletions=True,
@@ -525,16 +599,23 @@ async def test_pending_quarantine_is_not_propagated(db, storage, font_factory) -
 
     assert delta.to_uninstall == []
     assert delta.deleted_on_server == 1
+    assert delta.unknown_to_server == []
 
 
 @pytest.mark.asyncio
 async def test_to_uninstall_requires_the_device_setting(
     db, storage, font_factory
 ) -> None:
-    """Sans le réglage, la machine apprend la suppression mais n'efface rien."""
+    """Sans le réglage, le Mac garde la police que son compte a retirée ailleurs."""
     font = await _make_font(db, storage, font_factory, "Told")
-    font.deleted_at = datetime.now(timezone.utc)
-    font.deletion_confirmed = True
+    db.add(
+        FontRemoval(
+            user_id=None,
+            font_id=font.id,
+            removed_at=datetime.now(timezone.utc),
+            confirmed=True,
+        )
+    )
     await db.commit()
     device = await _make_device(db)
     entries = [DeviceFontEntry(hash=font.file_hash, filename="Told.ttf")]
@@ -545,8 +626,48 @@ async def test_to_uninstall_requires_the_device_setting(
     on = await compute_delta(entries, db, device_id=device.id, propagate_deletions=True)
 
     assert off.to_uninstall == []
-    assert off.deleted_on_server == 1
     assert [ref.file_hash for ref in on.to_uninstall] == [font.file_hash]
+
+
+@pytest.mark.asyncio
+async def test_removal_only_reaches_the_same_owner(db, storage, font_factory) -> None:
+    """Le retrait de Léa ne touche jamais le Mac de Tom, admin ou pas."""
+    from backend.services.accounts import create_user
+
+    lea = await create_user(
+        db, email="lea@example.com", password="motdepasse-lea", role="member"
+    )
+    tom = await create_user(
+        db, email="tom@example.com", password="motdepasse-tom", role="admin"
+    )
+    font = await _make_font(db, storage, font_factory, "Personal")
+    db.add(
+        FontRemoval(
+            user_id=lea.id,
+            font_id=font.id,
+            removed_at=datetime.now(timezone.utc),
+            confirmed=True,
+        )
+    )
+    await db.commit()
+    lea_mac = await _make_device(db, hostname="lea")
+    tom_mac = await _make_device(db, hostname="tom")
+    held = [DeviceFontEntry(hash=font.file_hash, filename="Personal.ttf")]
+    other = [DeviceFontEntry(hash="b" * 64, filename="x.ttf")]
+
+    lea_delta = await compute_delta(
+        held, db, device_id=lea_mac.id, propagate_deletions=True, owner_user_id=lea.id
+    )
+    tom_delta = await compute_delta(
+        held, db, device_id=tom_mac.id, propagate_deletions=True, owner_user_id=tom.id
+    )
+    tom_pull = await compute_delta(
+        other, db, device_id=tom_mac.id, propagate_deletions=True, owner_user_id=tom.id
+    )
+
+    assert [ref.file_hash for ref in lea_delta.to_uninstall] == [font.file_hash]
+    assert tom_delta.to_uninstall == []
+    assert [ref.file_hash for ref in tom_pull.missing_on_device] == [font.file_hash]
 
 
 def test_propagation_limit_takes_the_strictest_bound(monkeypatch) -> None:
@@ -571,7 +692,7 @@ def test_propagation_limit_takes_the_strictest_bound(monkeypatch) -> None:
 async def test_delta_quarantines_then_asks_other_device_to_uninstall(
     api_client: AsyncClient, font_factory
 ) -> None:
-    """Deux machines : l'une perd la police, l'autre reçoit l'ordre de l'effacer."""
+    """Deux Mac du même compte : l'un perd la police, l'autre la désinstalle."""
     laptop = await _register_device(api_client, hostname="laptop")
     desktop = await _register_device(api_client, hostname="desktop")
     for device_id in (laptop, desktop):
@@ -601,9 +722,20 @@ async def test_delta_quarantines_then_asks_other_device_to_uninstall(
     delta_desktop = await _delta(api_client, desktop, [file_hash])
     assert [ref["fileHash"] for ref in delta_desktop["toUninstall"]] == [file_hash]
 
+    # Retrait personnel : la bibliothèque partagée la garde.
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
-    assert trash["total"] == 1
-    assert trash["items"][0]["deletionConfirmed"] is True
+    assert trash["total"] == 0
+    listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
+    assert listing.json()["total"] == 2
+    removals = await _my_removals(api_client)
+    assert [(r["fontId"], r["confirmed"]) for r in removals] == [
+        (pushed["fontId"], True)
+    ]
+    assert removals[0]["sourceDeviceName"] == "Mac de test"
+
+    # Le desktop applique : il ne la déclare plus, rien de nouveau n'est retiré.
+    await _delta(api_client, desktop, ["c" * 64])
+    assert len(await _my_removals(api_client)) == 1
 
 
 @pytest.mark.asyncio
@@ -647,15 +779,12 @@ async def test_restore_after_propagated_delete_does_not_loop(
 async def test_restore_after_propagated_delete_survives_redeclaration(
     api_client: AsyncClient, font_factory
 ) -> None:
-    """Variante du canari précédent, celle que la réconciliation (L1) rend possible.
+    """Corbeille puis restauration : le Mac qui la détient la garde du début à la fin.
 
-    Ici l'appareil n'a PAS encore désinstallé au moment de la suppression : il
-    redéclare le fichier une dernière fois, la réconciliation lui recrée alors
-    une association SUR LA TOMBE (§3.1 — c'est le geste qui protège son
-    fichier). Il désinstalle *ensuite*, sur la foi de `toUninstall`. Si
-    `restore_font` ne nettoyait pas cette association fraîchement recréée, le
-    sync suivant verrait une police active, associée, non déclarée : re-mise en
-    quarantaine, la boucle qu'aucun clic ne casse.
+    La réconciliation recrée une association SUR LA TOMBE quand l'appareil
+    redéclare le fichier (c'est le geste qui protège son fichier) ; restaurer la
+    nettoie. Le Mac ne reçoit jamais d'ordre de désinstallation : la corbeille
+    n'en donne pas.
     """
     laptop = await _register_device(api_client, hostname="laptop")
     await api_client.patch(
@@ -670,21 +799,20 @@ async def test_restore_after_propagated_delete_survives_redeclaration(
 
     await api_client.delete(f"/api/fonts/{gone['fontId']}", headers=AUTH_HEADERS)
 
-    # L'appareil n'a pas encore réagi : il déclare toujours le fichier tombé.
     delta = await _delta(api_client, laptop, [gone["fileHash"], kept["fileHash"]])
-    assert [ref["fileHash"] for ref in delta["toUninstall"]] == [gone["fileHash"]]
+    assert delta["toUninstall"] == []
+    assert delta["unknownToServer"] == []
 
     resp = await api_client.post(
         f"/api/fonts/{gone['fontId']}/restore", headers=AUTH_HEADERS
     )
     assert resp.status_code == 200, resp.text
 
-    # Il applique enfin la désinstallation reçue plus haut : il ne le déclare
-    # plus.
-    delta = await _delta(api_client, laptop, [kept["fileHash"]])
-    assert [ref["fileHash"] for ref in delta["missingOnDevice"]] == [gone["fileHash"]]
+    delta = await _delta(api_client, laptop, [gone["fileHash"], kept["fileHash"]])
+    assert delta["alreadySynced"] == 2
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
     assert trash["total"] == 0
+    assert await _my_removals(api_client) == []
 
 
 @pytest.mark.asyncio
@@ -696,7 +824,7 @@ async def test_local_deletion_is_recorded_without_the_setting(
     C'est la moitié qui manquait : conditionner l'écoute à `propagate_deletions`
     rendait toute suppression locale impossible (le serveur ne concluait rien,
     la police restait offerte au pull, `auto_pull` la réinstallait). Enregistrer
-    ne détruit rien : la police part en corbeille, récupérable.
+    ne détruit rien : c'est un retrait personnel, annulable.
     """
     laptop = await _register_device(api_client, hostname="laptop")
     gone = await _push(api_client, laptop, font_factory(family="Gone"), "Gone.ttf")
@@ -706,12 +834,71 @@ async def test_local_deletion_is_recorded_without_the_setting(
 
     delta = await _delta(api_client, laptop, [kept["fileHash"]])
 
-    # Sortie de la bibliothèque, et plus jamais re-proposée au pull.
+    # Plus jamais re-proposée au pull de ce compte…
     assert [ref["fileHash"] for ref in delta["missingOnDevice"]] == []
+    assert [r["fontId"] for r in await _my_removals(api_client)] == [gone["fontId"]]
+    # …mais toujours dans la bibliothèque partagée.
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
-    assert listing.json()["total"] == 1
+    assert listing.json()["total"] == 2
     trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
-    assert [item["fileHash"] for item in trash["items"]] == [gone["fileHash"]]
+    assert trash["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_undoing_a_removal_offers_the_font_again(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Annuler le retrait : le Mac peut de nouveau l'installer."""
+    laptop = await _register_device(api_client, hostname="laptop")
+    gone = await _push(api_client, laptop, font_factory(family="Back"), "Back.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+    await _delta(api_client, laptop, [kept["fileHash"]])
+
+    resp = await api_client.delete(
+        f"/api/me/removals/{gone['fontId']}", headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 204, resp.text
+
+    delta = await _delta(api_client, laptop, [kept["fileHash"]])
+    assert [ref["fileHash"] for ref in delta["missingOnDevice"]] == [gone["fileHash"]]
+    assert await _my_removals(api_client) == []
+    again = await api_client.delete(
+        f"/api/me/removals/{gone['fontId']}", headers=AUTH_HEADERS
+    )
+    assert again.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reinstalling_by_hand_cancels_the_removal(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Remettre la police sur un de ses Mac, c'est revenir sur le retrait."""
+    laptop = await _register_device(api_client, hostname="laptop")
+    gone = await _push(api_client, laptop, font_factory(family="Again"), "Again.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
+    await _delta(api_client, laptop, [kept["fileHash"]])
+    assert len(await _my_removals(api_client)) == 1
+
+    await _delta(api_client, laptop, [gone["fileHash"], kept["fileHash"]])
+
+    assert await _my_removals(api_client) == []
+
+
+@pytest.mark.asyncio
+async def test_a_mac_that_kept_the_font_does_not_cancel_the_removal(
+    api_client: AsyncClient, font_factory
+) -> None:
+    """Le Mac qui n'accepte pas les suppressions la garde — sans rien annuler."""
+    laptop = await _register_device(api_client, hostname="laptop")
+    desktop = await _register_device(api_client, hostname="desktop")
+    gone = await _push(api_client, laptop, font_factory(family="Kept1"), "K1.ttf")
+    kept = await _push(api_client, laptop, font_factory(family="Kept2"), "K2.ttf")
+    await _delta(api_client, desktop, [gone["fileHash"]])
+    await _delta(api_client, laptop, [kept["fileHash"]])
+
+    await _delta(api_client, desktop, [gone["fileHash"]])
+
+    assert len(await _my_removals(api_client)) == 1
 
 
 @pytest.mark.asyncio
@@ -731,13 +918,12 @@ async def test_deletion_recorded_here_is_not_applied_there(
     # Le desktop la détient : il la déclare.
     await _delta(api_client, desktop, [pushed["fileHash"]])
 
-    # Le laptop la perd → quarantaine propageable (sous le seuil).
+    # Le laptop la perd → retrait confirmé (sous le seuil).
     await _delta(api_client, laptop, [kept["fileHash"]])
 
     # Le desktop la détient toujours, mais n'a pas opté : on ne lui demande rien.
     delta_desktop = await _delta(api_client, desktop, [pushed["fileHash"]])
     assert delta_desktop["toUninstall"] == []
-    assert delta_desktop["deletedOnServer"] == 1
 
 
 @pytest.mark.asyncio
@@ -747,23 +933,26 @@ async def test_confirming_pending_resumes_propagation(
     monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
     monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
     laptop = await _register_device(api_client, hostname="laptop")
+    desktop = await _register_device(api_client, hostname="desktop")
     await api_client.patch(
-        f"/api/devices/{laptop}",
+        f"/api/devices/{desktop}",
         headers=AUTH_HEADERS,
         json={"propagateDeletions": True},
     )
     data = font_factory(family="Held")
     pushed = await _push(api_client, laptop, data, "Held.ttf")
+    await _delta(api_client, desktop, [pushed["fileHash"]])
 
     await _delta(api_client, laptop, ["a" * 64])
-    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
-    assert trash["pendingConfirmation"] == 1
+    assert [r["confirmed"] for r in await _my_removals(api_client)] == [False]
+    delta = await _delta(api_client, desktop, [pushed["fileHash"]])
+    assert delta["toUninstall"] == []
 
-    resp = await api_client.post("/api/fonts/trash/confirm", headers=AUTH_HEADERS)
+    resp = await api_client.post("/api/me/removals/confirm", headers=AUTH_HEADERS)
     assert resp.status_code == 200, resp.text
     assert resp.json()["confirmed"] == 1
 
-    delta = await _delta(api_client, laptop, [pushed["fileHash"]])
+    delta = await _delta(api_client, desktop, [pushed["fileHash"]])
     assert [ref["fileHash"] for ref in delta["toUninstall"]] == [pushed["fileHash"]]
 
 
@@ -922,12 +1111,11 @@ async def test_machine_offline_at_deletion_does_not_resurrect_on_return(
 ) -> None:
     """La machine éteinte au moment de la suppression revient : rien ne renaît.
 
-    C'est le scénario qui *justifie* la pierre tombale, et le seul que les tests
-    ne jouaient pas — tous font re-déclarer la machine immédiatement après la
-    suppression. Ici elle est absente au moment du geste, détient toujours le
-    fichier, et redéclare bien plus tard. Trois issues sont possibles et deux
-    sont fausses : la repousser (résurrection), l'ignorer (la police reste sur
-    son disque sans que personne ne le sache). La bonne est la troisième.
+    C'est le scénario qui *justifie* la pierre tombale. Ici elle est absente au
+    moment du geste, détient toujours le fichier, et redéclare bien plus tard.
+    Elle ne doit ni la repousser (résurrection), ni recevoir l'ordre de
+    l'effacer (la corbeille ne décide pas pour son Mac) : elle la garde, et la
+    bibliothèque ne la reprend pas.
     """
     laptop = await _register_device(api_client, hostname="laptop")
     await api_client.patch(
@@ -947,8 +1135,8 @@ async def test_machine_offline_at_deletion_does_not_resurrect_on_return(
 
     # 1. Jamais reproposée au push : c'est le maillon qui bouclait.
     assert delta["unknownToServer"] == []
-    # 2. On lui demande de l'effacer, elle a opté pour.
-    assert [ref["fileHash"] for ref in delta["toUninstall"]] == [gone["fileHash"]]
+    # 2. Son fichier reste à elle.
+    assert delta["toUninstall"] == []
     # 3. Et si elle poussait quand même, l'empreinte refuse.
     assert (await _push(api_client, laptop, data, "Away.ttf"))["refusedDeleted"] is True
 
@@ -1019,13 +1207,10 @@ async def test_delete_font_clears_every_association(db, storage, font_factory) -
 async def test_confirming_pending_spares_the_living_library(
     api_client: AsyncClient, font_factory, monkeypatch
 ) -> None:
-    """Confirmer ne touche que la corbeille — et parle bien aux **autres** machines.
+    """Confirmer ses retraits ne touche ni la bibliothèque, ni la corbeille.
 
-    Deux garanties en un scénario, parce qu'elles se tiennent : `/trash/confirm`
-    est global (ni identifiant, ni appareil, ni date dans sa requête) et c'est le
-    seul geste du produit capable de faire disparaître un fichier ailleurs. Le
-    seul test qui l'exerçait n'avait qu'un appareil, donc ne prouvait pas la
-    seconde moitié ; et aucun n'observait ce qu'il advient des polices vivantes.
+    Et parle bien aux **autres** Mac du compte : c'est le seul geste capable de
+    faire disparaître un fichier ailleurs.
     """
     monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
     monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
@@ -1047,22 +1232,22 @@ async def test_confirming_pending_spares_the_living_library(
 
     # Le laptop perd deux polices d'un coup : au-delà du seuil → retenues.
     await _delta(api_client, laptop, [alive["fileHash"]])
-    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
-    assert trash["pendingConfirmation"] == 2
+    pending = await _my_removals(api_client)
+    assert sorted(r["fontId"] for r in pending if not r["confirmed"]) == sorted(
+        [alpha["fontId"], beta["fontId"]]
+    )
+    # Retenues : le desktop ne perd rien.
+    delta = await _delta(api_client, desktop, [alpha["fileHash"], beta["fileHash"]])
+    assert delta["toUninstall"] == []
 
-    resp = await api_client.post("/api/fonts/trash/confirm", headers=AUTH_HEADERS)
+    resp = await api_client.post("/api/me/removals/confirm", headers=AUTH_HEADERS)
     assert resp.status_code == 200, resp.text
     assert resp.json()["confirmed"] == 2
 
-    # La police vivante n'a pas bougé — ni son état, ni le verrou que `confirm`
-    # écrit. C'est le canari du jour où une clause oubliée porterait sur toute
-    # la bibliothèque au lieu des seules quarantaines : elle se verrait ici.
-    still = await api_client.get(f"/api/fonts/{alive['fontId']}", headers=AUTH_HEADERS)
-    assert still.status_code == 200, still.text
-    assert still.json()["deletedAt"] is None
-    assert still.json()["deletionConfirmed"] is False
     listing = await api_client.get("/api/fonts", headers=AUTH_HEADERS)
-    assert listing.json()["total"] == 1
+    assert listing.json()["total"] == 3
+    trash = (await api_client.get("/api/fonts/trash", headers=AUTH_HEADERS)).json()
+    assert trash["total"] == 0
 
     # Et la seconde machine reçoit enfin l'ordre — c'est tout l'objet du geste.
     delta = await _delta(api_client, desktop, [alpha["fileHash"], beta["fileHash"]])
@@ -1106,23 +1291,21 @@ async def test_more_than_one_batch_of_disappearances(
 
 @pytest.mark.asyncio
 async def test_emptying_the_trash_spares_unconfirmed_deletions(
-    api_client: AsyncClient, font_factory, monkeypatch
+    api_client: AsyncClient, font_factory
 ) -> None:
     """Vider n'emporte pas ce qui attend un arbitrage — et le dit.
 
-    Retirer le fichier d'une quarantaine retenue trancherait la question à la
-    place de l'utilisateur, dans le sens irréversible : sans fichier, la police
-    n'est plus restaurable. Elle reste donc en corbeille, et la réponse porte le
-    décompte — un vidage qui laisse des lignes sans l'expliquer passe pour un bug.
+    Retirer le fichier d'une quarantaine retenue (héritée d'avant les retraits
+    personnels) trancherait la question à la place de l'utilisateur, dans le
+    sens irréversible : sans fichier, la police n'est plus restaurable. Elle
+    reste donc en corbeille, et la réponse porte le décompte.
     """
-    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
-    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
     laptop = await _register_device(api_client, hostname="laptop")
     held = await _push(api_client, laptop, font_factory(family="Held"), "Held.ttf")
     kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
-    # Une suppression manuelle, elle, est confirmée dès l'origine.
     await api_client.delete(f"/api/fonts/{kept['fontId']}", headers=AUTH_HEADERS)
-    await _delta(api_client, laptop, ["a" * 64])
+    await api_client.delete(f"/api/fonts/{held['fontId']}", headers=AUTH_HEADERS)
+    await _hold_unconfirmed(held["fontId"])
 
     resp = await api_client.post("/api/fonts/trash/empty", headers=AUTH_HEADERS)
 
@@ -1139,18 +1322,17 @@ async def test_emptying_the_trash_spares_unconfirmed_deletions(
 
 @pytest.mark.asyncio
 async def test_purging_an_unconfirmed_deletion_is_refused(
-    api_client: AsyncClient, font_factory, monkeypatch
+    api_client: AsyncClient, font_factory
 ) -> None:
     """L'autre chemin vers le même fichier : la purge unitaire, refusée aussi.
 
     Deux portes mènent au stockage (`/trash/empty` et `/{id}/purge`) ; verrouiller
     l'une et pas l'autre ne verrouille rien.
     """
-    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 0)
-    monkeypatch.setattr(settings, "deletion_propagation_min_fonts", 0)
     laptop = await _register_device(api_client, hostname="laptop")
     held = await _push(api_client, laptop, font_factory(family="Held"), "Held.ttf")
-    await _delta(api_client, laptop, ["a" * 64])
+    await api_client.delete(f"/api/fonts/{held['fontId']}", headers=AUTH_HEADERS)
+    await _hold_unconfirmed(held["fontId"])
 
     resp = await api_client.post(
         f"/api/fonts/{held['fontId']}/purge", headers=AUTH_HEADERS
@@ -1597,27 +1779,25 @@ class _CapturingManager:
 async def test_quarantine_emits_single_message(
     api_client: AsyncClient, font_factory, monkeypatch
 ) -> None:
-    """50 polices disparues d'un coup : UN message fonts.deleted de 50 ids, et
-    non 50 diffusions (qui retenaient la réponse et faisaient 50 passes)."""
+    """Un retrait ne change pas la bibliothèque : aucun message au frontend, un
+    seul signal de re-sync aux autres appareils (pas un par police)."""
     from backend.routers import sync as sync_router
 
+    monkeypatch.setattr(settings, "deletion_propagation_max_fonts", 100)
+    monkeypatch.setattr(settings, "deletion_propagation_max_ratio", 100.0)
     laptop = await _register_device(api_client, hostname="laptop")
-    pushed = [
+    for i in range(50):
         await _push(
             api_client, laptop, font_factory(family=f"Gone {i:02d}"), f"g{i}.ttf"
         )
-        for i in range(50)
-    ]
     kept = await _push(api_client, laptop, font_factory(family="Kept"), "Kept.ttf")
 
     events: list[tuple[str, object]] = []
     monkeypatch.setattr(sync_router, "ws_manager", _CapturingManager(events))
     await _delta(api_client, laptop, [kept["fileHash"]])
 
-    ws_messages = [m for kind, m in events if kind == "ws"]
-    assert [m["type"] for m in ws_messages] == ["fonts.deleted"]  # type: ignore[index]
-    ids = ws_messages[0]["data"]["ids"]  # type: ignore[index]
-    assert sorted(ids) == sorted(p["fontId"] for p in pushed)
+    assert [k for k, _ in events if k == "ws"] == []
+    assert events == [("sse", laptop)]
 
 
 @pytest.mark.asyncio

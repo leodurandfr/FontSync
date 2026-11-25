@@ -35,6 +35,7 @@ from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font, deletion_confirmed_clause
 from backend.models.font_family import FontFamily, FontFamilyMember
+from backend.models.font_removal import FontRemoval
 from backend.models.harvested_fingerprint import HarvestedFingerprint
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,7 @@ async def _delete_fonts(db: AsyncSession, font_ids: list[uuid.UUID]) -> None:
         delete(FontFamilyMember).where(FontFamilyMember.font_id.in_(font_ids))
     )
     await db.execute(delete(DeviceFont).where(DeviceFont.font_id.in_(font_ids)))
+    await db.execute(delete(FontRemoval).where(FontRemoval.font_id.in_(font_ids)))
     await db.execute(delete(Font).where(Font.id.in_(font_ids)))
 
     if touched_family_ids:

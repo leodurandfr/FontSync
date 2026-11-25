@@ -21,6 +21,7 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import AccountSection from "@/components/settings/AccountSection.vue";
 import DevicesSection from "@/components/settings/DevicesSection.vue";
+import RemovalsSection from "@/components/settings/RemovalsSection.vue";
 import UsersSection from "@/components/settings/UsersSection.vue";
 import { useWsStore } from "@/stores/ws";
 import { useAuthStore } from "@/stores/auth";
@@ -218,6 +219,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
 
       <!-- Appareils -->
       <DevicesSection />
+      <RemovalsSection />
 
       <!-- Server info -->
       <section>

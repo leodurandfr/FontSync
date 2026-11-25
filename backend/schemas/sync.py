@@ -64,15 +64,17 @@ class DeltaSyncResponse(CamelModel):
     deleted_on_server: int = 0
     """Nombre de fonts du device connues du serveur mais supprimées.
 
-    Compte informatif (log agent) : il inclut celles que cet appareil ne
-    désinstalle pas, faute d'avoir activé la propagation.
+    Compte informatif (log agent) : la corbeille de la bibliothèque ne
+    désinstalle jamais rien, l'appareil garde ces fichiers.
     """
 
     to_uninstall: list[FontRef] = []
     """Fonts à désinstaller de cet appareil.
 
-    Vide tant que `propagate_deletions` est désactivé sur l'appareil, et
-    n'inclut jamais une quarantaine en attente de confirmation.
+    Uniquement des polices que **le propriétaire de l'appareil** a supprimées
+    sur un autre de ses Mac (retrait personnel confirmé). Vide tant que
+    `propagate_deletions` est désactivé sur l'appareil ; jamais une police mise
+    en corbeille par l'admin, jamais un retrait en attente de confirmation.
     """
 
     to_deactivate: list[FontRef] = []

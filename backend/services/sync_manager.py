@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
+from backend.models.font_removal import FontRemoval, removal_scope
 from backend.models.harvested_fingerprint import HarvestedFingerprint
 from backend.schemas.sync import DeltaSyncResponse, DeviceFontEntry, FontRef
 
@@ -54,6 +55,7 @@ async def compute_delta(
     *,
     device_id: uuid.UUID,
     propagate_deletions: bool = False,
+    owner_user_id: uuid.UUID | None = None,
 ) -> DeltaSyncResponse:
     """Compare les fonts de l'agent avec celles du serveur.
 
@@ -74,9 +76,16 @@ async def compute_delta(
         device_id: appareil qui synchronise — sert à lire son propre état
             `device_fonts.active` (`to_deactivate` est strictement local à ce
             couple (device, font), jamais dérivé d'un autre appareil).
-        propagate_deletions: l'appareil applique-t-il les suppressions du
-            serveur ? Si non, `to_uninstall` reste vide (on renvoie quand même
-            le décompte `deleted_on_server`, purement informatif).
+        propagate_deletions: l'appareil applique-t-il les retraits faits sur
+            les autres Mac de son compte ? Si non, `to_uninstall` reste vide.
+        owner_user_id: propriétaire de l'appareil : ses retraits personnels
+            (`FontRemoval`) ne sont plus proposés au pull, et nourrissent
+            `to_uninstall`. `None` = groupe des appareils sans compte.
+
+    La corbeille de la bibliothèque ne désinstalle **jamais** rien : retirer une
+    police de la bibliothèque partagée ne la retire du Mac de personne. Seul un
+    retrait fait par le compte lui-même, sur un de ses Mac, peut en désinstaller
+    une sur ses autres Mac.
 
     Returns:
         DeltaSyncResponse avec unknown_to_server, missing_on_device,
@@ -127,29 +136,41 @@ async def compute_delta(
     # qu'elle détient) sans jamais être offerte au push.
     unknown_to_server = list(ingestible_hashes - known_hashes)
 
+    # Retraits personnels du compte : police connue (rien à pousser), jamais
+    # reproposée au pull, désinstallée seulement une fois confirmée.
+    removal_rows = await db.execute(
+        select(Font.file_hash, FontRemoval.confirmed)
+        .join(FontRemoval, FontRemoval.font_id == Font.id)
+        .where(removal_scope(owner_user_id))
+    )
+    removed: dict[str, bool] = {}
+    for file_hash, confirmed in removal_rows.all():
+        removed[file_hash] = removed.get(file_hash, False) or confirmed
+
     # Fonts sur le serveur mais pas sur le device → à puller. Les formats web
     # (WOFF/WOFF2) sont stockés et prévisualisables mais jamais installés : ne
     # jamais les proposer, sinon l'agent les tire sans pouvoir les déclarer.
     missing_on_device = [
         _to_ref(active_map[h])
-        for h in active_hashes - device_hashes
+        for h in active_hashes - device_hashes - set(removed)
         if (active_map[h].file_format or "").lower() not in NON_INSTALLABLE_FORMATS
     ]
 
     # Fonts en commun → simple comptage (aucune écriture)
     already_synced = len(device_hashes & active_hashes)
 
-    # Fonts que le device détient encore alors qu'elles sont tombées. Une
-    # quarantaine en attente de confirmation n'en fait jamais partie : tant que
-    # l'utilisateur n'a pas tranché, personne ne perd son fichier.
+    # Fonts que le device détient encore alors qu'elles sont tombées de la
+    # bibliothèque : décompte purement informatif. L'appareil les garde.
     deleted_here = [deleted_map[h] for h in device_hashes & set(deleted_map)]
-    # Jamais une police que l'appareil ne détient que dans une couche que
-    # FontSync ne gère pas (/Library/Fonts) : il n'a pas à y toucher.
+    # Retraits confirmés du compte que ce Mac détient encore, dans une couche
+    # gérée (jamais /Library/Fonts). Un retrait en attente de confirmation n'en
+    # fait jamais partie : tant que l'utilisateur n'a pas tranché, personne ne
+    # perd son fichier.
     to_uninstall = (
         [
-            _to_ref(row)
-            for row in deleted_here
-            if row.deletion_confirmed and row.file_hash in ingestible_hashes
+            _to_ref(active_map.get(h) or deleted_map[h])
+            for h in ingestible_hashes & (set(active_map) | set(deleted_map))
+            if removed.get(h)
         ]
         if propagate_deletions
         else []

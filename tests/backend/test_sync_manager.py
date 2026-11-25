@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
+from backend.models.font_removal import FontRemoval
 from backend.schemas.sync import DeviceFontEntry
 from backend.services.font_importer import import_font
 from backend.services.sync_manager import compute_delta
@@ -256,8 +257,14 @@ async def test_to_uninstall_skips_non_ingestible_only_holder(
 
     data = font_factory(family="Gone Shared")
     font, _ = await import_font("gone.ttf", data, storage, db)
-    font.deleted_at = datetime.now(timezone.utc)
-    font.deletion_confirmed = True
+    db.add(
+        FontRemoval(
+            user_id=None,
+            font_id=font.id,
+            removed_at=datetime.now(timezone.utc),
+            confirmed=True,
+        )
+    )
     await db.commit()
 
     delta = await compute_delta(
@@ -393,13 +400,19 @@ async def test_explicit_ingestible_library_fonts_still_offered(api_client) -> No
 async def test_to_uninstall_keeps_hash_also_held_in_managed_layer(
     db, storage, font_factory
 ) -> None:
-    """Même police dans ~/Library/Fonts ET /Library/Fonts : la copie gérée reste
-    à désinstaller (l'agent ne touche que ~/Library/Fonts et disabled/)."""
+    """Même police retirée dans ~/Library/Fonts ET /Library/Fonts : la copie gérée
+    reste à désinstaller (l'agent ne touche que ~/Library/Fonts et disabled/)."""
     from datetime import datetime, timezone
 
     font, _ = await import_font("both.ttf", font_factory(family="Both"), storage, db)
-    font.deleted_at = datetime.now(timezone.utc)
-    font.deletion_confirmed = True
+    db.add(
+        FontRemoval(
+            user_id=None,
+            font_id=font.id,
+            removed_at=datetime.now(timezone.utc),
+            confirmed=True,
+        )
+    )
     await db.commit()
 
     delta = await compute_delta(
