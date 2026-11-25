@@ -3,32 +3,34 @@ import { ref } from "vue";
 export type Theme = "light" | "dark" | "system";
 
 /**
- * Palette de couleurs : paire de complémentaires franches (sidebar de la
- * couleur principale, accent de la complémentaire) appliquée à toute l'interface.
- * d'origine. Les teintes vivent dans `assets/index.css` (`[data-palette]`).
+ * Couleur d'accentuation, comme sur macOS : l'interface reste neutre et seule
+ * la sélection (élément actif, boutons principaux, interrupteurs) prend la
+ * couleur choisie. `neutral` garde l'accent noir/blanc d'origine. Les valeurs
+ * vivent dans `assets/index.css` (`[data-palette]`).
  */
 export const PALETTES = [
   "neutral",
-  "red",
-  "green",
-  "purple",
-  "yellow",
   "blue",
+  "purple",
+  "pink",
+  "red",
   "orange",
+  "yellow",
+  "green",
 ] as const;
 export type Palette = (typeof PALETTES)[number];
 
-/** Couleurs de la pastille : couleur principale (fond) et complémentaire (rond). */
-export const PALETTE_SWATCH: Record<Palette, { main: string; accent: string }> =
-  {
-    neutral: { main: "#e9eaec", accent: "#111111" },
-    red: { main: "#d42434", accent: "#00a04a" },
-    green: { main: "#00a04a", accent: "#d42434" },
-    purple: { main: "#8e2a8a", accent: "#ffda1a" },
-    yellow: { main: "#ffda1a", accent: "#22449a" },
-    blue: { main: "#22449a", accent: "#f06424" },
-    orange: { main: "#f06424", accent: "#22449a" },
-  };
+/** Couleur de la pastille de chaque palette (identique à son accent). */
+export const PALETTE_SWATCH: Record<Palette, string> = {
+  neutral: "#8e8e93",
+  blue: "#007aff",
+  purple: "#9a4fd6",
+  pink: "#e8457e",
+  red: "#e5383e",
+  orange: "#f2810f",
+  yellow: "#f5c400",
+  green: "#34a853",
+};
 
 const STORAGE_KEY = "fontsync_theme";
 const PALETTE_KEY = "fontsync_palette";

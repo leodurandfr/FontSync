@@ -38,6 +38,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
 
   /* Tokens proto-spécifiques */
   --color-brand: var(--brand);
@@ -162,83 +164,51 @@
 }
 
 /*
- * Palettes de couleurs (sélecteur en bas de la sidebar, réglages) : des paires
- * de complémentaires franches. La sidebar prend la couleur principale, l'accent
- * (élément actif, bouton de vue, boutons principaux) sa complémentaire. Sans `data-palette` sur <html> :
- * interface neutre d'origine.
+ * Couleur d'accentuation (sélecteur en bas de la sidebar, réglages), comme sur
+ * macOS : fonds, textes et bordures restent neutres ; seuls la sélection, les
+ * boutons principaux, les interrupteurs et le focus prennent la couleur.
+ * Sans `data-palette` sur <html> : accent noir/blanc d'origine.
  */
-[data-palette="red"] {
-  --p-sidebar: #d42434;
-  --p-sidebar-fg: #ffffff;
-  --p-accent: #00a04a;
-  --p-accent-fg: #ffffff;
-}
-[data-palette="green"] {
-  --p-sidebar: #00a04a;
-  --p-sidebar-fg: #ffffff;
-  --p-accent: #d42434;
-  --p-accent-fg: #ffffff;
-}
-[data-palette="purple"] {
-  --p-sidebar: #8e2a8a;
-  --p-sidebar-fg: #ffffff;
-  --p-accent: #ffda1a;
-  --p-accent-fg: #1a1a1a;
-}
-[data-palette="yellow"] {
-  --p-sidebar: #ffda1a;
-  --p-sidebar-fg: #1a1a1a;
-  --p-accent: #22449a;
-  --p-accent-fg: #ffffff;
+:root {
+  --selection: var(--accent);
+  --selection-foreground: var(--accent-foreground);
 }
 [data-palette="blue"] {
-  --p-sidebar: #22449a;
-  --p-sidebar-fg: #ffffff;
-  --p-accent: #f06424;
-  --p-accent-fg: #ffffff;
+  --p: #007aff;
+  --p-fg: #ffffff;
+}
+[data-palette="purple"] {
+  --p: #9a4fd6;
+  --p-fg: #ffffff;
+}
+[data-palette="pink"] {
+  --p: #e8457e;
+  --p-fg: #ffffff;
+}
+[data-palette="red"] {
+  --p: #e5383e;
+  --p-fg: #ffffff;
 }
 [data-palette="orange"] {
-  --p-sidebar: #f06424;
-  --p-sidebar-fg: #ffffff;
-  --p-accent: #22449a;
-  --p-accent-fg: #ffffff;
+  --p: #f2810f;
+  --p-fg: #ffffff;
 }
-/*
- * Deux couleurs, rien d'autre : toutes les surfaces (fond, cartes, sidebar,
- * menus) prennent la couleur principale pure, et tout ce qui est actif ou
- * tracé (sélection, boutons, filets, focus) sa complémentaire pure. Le texte
- * est blanc ou noir selon le fond. Aucune teinte intermédiaire, et le rendu
- * est le même en clair et en sombre.
- */
+[data-palette="yellow"] {
+  --p: #f5c400;
+  --p-fg: #111111;
+}
+[data-palette="green"] {
+  --p: #34a853;
+  --p-fg: #ffffff;
+}
 :root[data-palette],
-:root.dark[data-palette],
-[data-palette] [data-surface="sidebar"],
-.dark[data-palette] [data-surface="sidebar"] {
-  --background: var(--p-sidebar);
-  --foreground: var(--p-sidebar-fg);
-  --card: var(--p-sidebar);
-  --card-foreground: var(--p-sidebar-fg);
-  --popover: var(--p-sidebar);
-  --popover-foreground: var(--p-sidebar-fg);
-  --primary: var(--p-accent);
-  --primary-foreground: var(--p-accent-fg);
-  --secondary: var(--p-sidebar);
-  --secondary-foreground: var(--p-sidebar-fg);
-  --muted: var(--p-sidebar);
-  --muted-foreground: var(--p-sidebar-fg);
-  --foreground-subtle: var(--p-sidebar-fg);
-  --accent: var(--p-accent);
-  --accent-foreground: var(--p-accent-fg);
-  --border: var(--p-accent);
-  --input: var(--p-accent);
-  --ring: var(--p-accent);
-  --brand: var(--p-accent);
-  --separator: var(--p-accent);
-  --panel-border: var(--p-accent);
-  --font-preview: var(--p-sidebar);
-  --segment-track: var(--p-accent);
-  --segment-thumb: var(--p-sidebar);
-  --destructive: var(--p-accent);
+:root.dark[data-palette] {
+  --primary: var(--p);
+  --primary-foreground: var(--p-fg);
+  --selection: var(--p);
+  --selection-foreground: var(--p-fg);
+  --ring: var(--p);
+  --brand: var(--p);
 }
 
 @layer base {
