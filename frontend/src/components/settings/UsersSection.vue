@@ -1,22 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Check, Copy, Loader2, UserPlus } from "lucide-vue-next";
+import { Check, Copy, Link, Loader2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Panel } from "@/components/ui/panel";
 import { SectionLabel } from "@/components/ui/section-label";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { apiJson } from "@/lib/api";
 import { useLocale } from "@/composables/useLocale";
 import { useAuthStore } from "@/stores/auth";
 import type { Invitation, InvitationCreated, Role, User } from "@/types/api";
 
 /**
- * Administration des comptes (admin seulement) : ajout par lien d'invitation
- * ou création directe, rôle, désactivation, nouveau mot de passe.
+ * Administration des comptes (admin seulement) : ajout par lien d'invitation,
+ * rôle, désactivation, nouveau mot de passe.
  */
 const { t } = useI18n();
 const { dateLocale } = useLocale();
@@ -28,12 +26,7 @@ const users = ref<User[]>([]);
 const invitations = ref<Invitation[]>([]);
 const errorMsg = ref<string | null>(null);
 
-const adding = ref(false);
-const addMode = ref<"invite" | "create">("invite");
-const addEmail = ref("");
-const addPassword = ref("");
-const addRole = ref<Role>("member");
-const addBusy = ref(false);
+const inviteBusy = ref(false);
 const inviteLink = ref<string | null>(null);
 const copied = ref(false);
 
@@ -63,44 +56,24 @@ function formatDate(iso: string): string {
   });
 }
 
-function openAdd() {
-  adding.value = true;
-  inviteLink.value = null;
-  addEmail.value = "";
-  addPassword.value = "";
-  addRole.value = "member";
+/** Un lien à partager, rien d'autre : l'invité y saisit son email. */
+async function createInvite() {
   errorMsg.value = null;
-}
-
-async function submitAdd() {
-  errorMsg.value = null;
-  if (addMode.value === "create" && addPassword.value.length < MIN_PASSWORD) {
-    errorMsg.value = t("auth.errors.passwordTooShort", { n: MIN_PASSWORD });
-    return;
-  }
-  addBusy.value = true;
+  inviteBusy.value = true;
   try {
-    if (addMode.value === "invite") {
-      const created = await apiJson<InvitationCreated>(
-        "/api/invitations",
-        "POST",
-        { email: addEmail.value.trim(), role: addRole.value },
-      );
-      // Le jeton voyage dans le fragment : jamais envoyé au serveur ni journalisé.
-      inviteLink.value = `${window.location.origin}/invite#${created.token}`;
-    } else {
-      await apiJson("/api/users", "POST", {
-        email: addEmail.value.trim(),
-        password: addPassword.value,
-        role: addRole.value,
-      });
-      adding.value = false;
-    }
+    const created = await apiJson<InvitationCreated>(
+      "/api/invitations",
+      "POST",
+      {},
+    );
+    // Le jeton voyage dans le fragment : jamais envoyé au serveur ni journalisé.
+    inviteLink.value = `${window.location.origin}/invite#${created.token}`;
+    copied.value = false;
     await load();
   } catch (err) {
     errorMsg.value = (err as Error).message;
   } finally {
-    addBusy.value = false;
+    inviteBusy.value = false;
   }
 }
 
@@ -150,14 +123,6 @@ async function submitReset(user: User) {
   );
   if (!errorMsg.value) resetFor.value = null;
 }
-
-function onModeChange(value: unknown) {
-  if (value === "invite" || value === "create") addMode.value = value;
-}
-
-function onRoleChange(value: unknown) {
-  if (value === "admin" || value === "member") addRole.value = value;
-}
 </script>
 
 <template>
@@ -166,110 +131,36 @@ function onRoleChange(value: unknown) {
     <Panel class="space-y-5 p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="text-[13px] text-muted-foreground">{{ t("users.desc") }}</p>
-        <Button v-if="!adding" variant="outline" size="sm" @click="openAdd">
-          <UserPlus class="mr-2 h-4 w-4" />
-          {{ t("users.add") }}
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="inviteBusy"
+          @click="createInvite"
+        >
+          <Loader2 v-if="inviteBusy" class="mr-2 h-4 w-4 animate-spin" />
+          <Link v-else class="mr-2 h-4 w-4" />
+          {{ t("users.createInvite") }}
         </Button>
       </div>
 
-      <!-- Ajout : lien d'invitation ou création directe -->
+      <!-- Lien fraîchement créé : à copier et envoyer -->
       <div
-        v-if="adding"
-        class="space-y-3 rounded-lg border border-separator p-4"
+        v-if="inviteLink"
+        class="space-y-2 rounded-lg border border-separator p-4"
       >
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          :model-value="addMode"
-          @update:model-value="onModeChange"
-        >
-          <ToggleGroupItem value="invite">{{
-            t("users.modeInvite")
-          }}</ToggleGroupItem>
-          <ToggleGroupItem value="create">{{
-            t("users.modeCreate")
-          }}</ToggleGroupItem>
-        </ToggleGroup>
-        <p class="text-[13px] text-muted-foreground">
-          {{
-            addMode === "invite" ? t("users.inviteDesc") : t("users.createDesc")
-          }}
-        </p>
-
-        <div v-if="inviteLink" class="space-y-2">
-          <p class="text-[13px]">{{ t("users.inviteLink") }}</p>
-          <div class="flex gap-2">
-            <code
-              class="min-w-0 flex-1 truncate rounded-lg border border-separator bg-muted/50 px-3 py-2 font-mono text-[12px]"
-              >{{ inviteLink }}</code
-            >
-            <Button variant="outline" size="sm" @click="copyLink">
-              <Check v-if="copied" class="mr-2 h-4 w-4" />
-              <Copy v-else class="mr-2 h-4 w-4" />
-              {{ copied ? t("users.copied") : t("users.copy") }}
-            </Button>
-          </div>
-          <Button variant="ghost" size="sm" @click="adding = false">
-            {{ t("users.confirm") }}
+        <p class="text-[13px]">{{ t("users.inviteLink") }}</p>
+        <div class="flex gap-2">
+          <code
+            class="min-w-0 flex-1 truncate rounded-lg border border-separator bg-muted/50 px-3 py-2 font-mono text-[12px]"
+            >{{ inviteLink }}</code
+          >
+          <Button variant="outline" size="sm" @click="copyLink">
+            <Check v-if="copied" class="mr-2 h-4 w-4" />
+            <Copy v-else class="mr-2 h-4 w-4" />
+            {{ copied ? t("users.copied") : t("users.copy") }}
           </Button>
         </div>
-
-        <form v-else class="grid max-w-sm gap-3" @submit.prevent="submitAdd">
-          <div class="space-y-1.5">
-            <Label for="add-email">{{ t("auth.email") }}</Label>
-            <Input
-              id="add-email"
-              v-model="addEmail"
-              type="email"
-              autocomplete="off"
-              required
-            />
-          </div>
-          <div v-if="addMode === 'create'" class="space-y-1.5">
-            <Label for="add-password">{{ t("auth.password") }}</Label>
-            <Input
-              id="add-password"
-              v-model="addPassword"
-              type="password"
-              autocomplete="new-password"
-              required
-            />
-          </div>
-          <div class="space-y-1.5">
-            <Label>{{ t("users.role") }}</Label>
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              :model-value="addRole"
-              @update:model-value="onRoleChange"
-            >
-              <ToggleGroupItem value="member">{{
-                t("account.roleMember")
-              }}</ToggleGroupItem>
-              <ToggleGroupItem value="admin">{{
-                t("account.roleAdmin")
-              }}</ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-          <div class="flex gap-2">
-            <Button type="submit" size="sm" :disabled="addBusy">
-              <Loader2 v-if="addBusy" class="mr-2 h-4 w-4 animate-spin" />
-              {{
-                addMode === "invite"
-                  ? t("users.createInvite")
-                  : t("users.createAccount")
-              }}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              @click="adding = false"
-            >
-              {{ t("users.cancel") }}
-            </Button>
-          </div>
-        </form>
+        <p class="text-xs text-muted-foreground">{{ t("users.inviteDesc") }}</p>
       </div>
 
       <p v-if="errorMsg" class="text-[13px] text-destructive" role="alert">
@@ -370,7 +261,14 @@ function onRoleChange(value: unknown) {
             class="flex items-center justify-between gap-3 px-3 py-2"
           >
             <div class="min-w-0">
-              <p class="truncate text-[13px]">{{ invitation.email }}</p>
+              <p class="truncate text-[13px]">
+                {{
+                  invitation.email ??
+                  t("users.linkCreated", {
+                    date: formatDate(invitation.createdAt),
+                  })
+                }}
+              </p>
               <p class="text-xs text-muted-foreground">
                 {{
                   t("users.expires", { date: formatDate(invitation.expiresAt) })

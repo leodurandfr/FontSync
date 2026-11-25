@@ -342,7 +342,8 @@ export interface AuthSession {
 
 export interface Invitation {
   id: string;
-  email: string;
+  /** Seulement pour une ancienne invitation ; sinon l'invité saisit le sien. */
+  email: string | null;
   role: Role;
   createdAt: string;
   expiresAt: string;

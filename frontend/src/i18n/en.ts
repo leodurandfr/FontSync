@@ -111,7 +111,8 @@ export default {
     setupSubtitle: "Create the administrator account for this server.",
     loginSubtitle: "Sign in to continue.",
     tokenSubtitle: "Sign in with the instance token (former method).",
-    inviteSubtitle: "Choose the password for {email}.",
+    inviteSubtitle: "Create your account: your email and a password.",
+    inviteSubtitleFixed: "Choose the password for {email}.",
     email: "Email",
     password: "Password",
     newPassword: "Password",
@@ -178,7 +179,6 @@ export default {
   users: {
     title: "Accounts",
     desc: "Every account shares the same library. Each one manages its own Macs.",
-    add: "Add someone",
     you: "you",
     disabled: "Disabled",
     devices: "{n} Mac | {n} Mac | {n} Macs",
@@ -189,17 +189,11 @@ export default {
     resetPassword: "Reset password",
     resetPasswordDesc:
       "Every session of {email} will be signed out. Send them the new password.",
-    addTitle: "Add someone",
-    modeInvite: "Send a link",
-    modeCreate: "Create the account",
     inviteDesc:
-      "They choose their password when opening the link (valid 7 days).",
-    createDesc:
-      "You choose the password and send it to them. They can change it afterwards.",
-    role: "Role",
-    createInvite: "Create link",
-    createAccount: "Create account",
+      "They enter their email and choose a password. The link works once and stays valid for 7 days.",
+    createInvite: "Create an invitation link",
     inviteLink: "Invitation link, to copy and send:",
+    linkCreated: "Link created on {date}",
     copy: "Copy",
     copied: "Copied",
     pending: "Pending invitations",

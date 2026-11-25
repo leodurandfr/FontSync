@@ -294,14 +294,19 @@ async def accept_invitation(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    """Crée le compte de l'invité avec le mot de passe qu'il choisit, et le connecte."""
+    """Crée le compte de l'invité avec l'email et le mot de passe qu'il choisit,
+    et le connecte."""
     invitation = await _live_invitation(db, body.token)
-    if await get_user_by_email(db, invitation.email) is not None:
+    email = invitation.email or body.email
+    if not email:
+        raise HTTPException(status_code=422, detail="Email requis.")
+    email = normalize_email(email)
+    if await get_user_by_email(db, email) is not None:
         raise HTTPException(
             status_code=409, detail="Un compte existe déjà pour cet email."
         )
     user = await create_user(
-        db, email=invitation.email, password=body.password, role=invitation.role
+        db, email=email, password=body.password, role=invitation.role
     )
     invitation.used_at = utcnow()
     token = await create_session(
