@@ -35,8 +35,37 @@ struct PreferencesView: View {
     @State private var agentFeedback: Feedback?
     @State private var agentBusy = false
 
+    @StateObject private var launchAtLogin = LaunchAtLogin()
+
     var body: some View {
         Form {
+            Section("Général") {
+                Toggle(
+                    "Ouvrir FontSync à l'ouverture de session",
+                    isOn: Binding(
+                        get: { launchAtLogin.isEnabled || launchAtLogin.needsApproval },
+                        set: { launchAtLogin.set($0) }
+                    )
+                )
+                .help(
+                    "Affiche l'icône FontSync dans la barre des menus dès la connexion. "
+                        + "La synchronisation des polices tourne de toute façon, app ouverte ou non."
+                )
+                if launchAtLogin.needsApproval {
+                    HStack {
+                        Text("macOS attend votre accord dans Réglages Système.")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Ouvrir les Éléments de connexion") {
+                            launchAtLogin.openLoginItemsSettings()
+                        }
+                    }
+                }
+                if let error = launchAtLogin.lastError {
+                    Text(error).foregroundStyle(.red)
+                }
+            }
+
             Section("Compte") {
                 if let connectedEmail {
                     LabeledContent("Connecté en tant que") { Text(connectedEmail) }
@@ -111,7 +140,10 @@ struct PreferencesView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear(perform: loadFields)
+        .onAppear {
+            loadFields()
+            launchAtLogin.refresh()
+        }
     }
 
     // MARK: - Champs
