@@ -15,6 +15,7 @@ import SidebarNavButton from "./SidebarNavButton.vue";
 import ThemeToggle from "./ThemeToggle.vue";
 import WindowControls from "./WindowControls.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
+import { useAuthStore } from "@/stores/auth";
 import { useLayoutStore } from "@/stores/layout";
 import { useFamiliesStore } from "@/stores/families";
 import { useFamilyFiltersStore } from "@/stores/familyFilters";
@@ -39,6 +40,7 @@ const CATEGORIES = [
 ] as const;
 
 const onSettings = computed(() => route.path.startsWith("/settings"));
+const auth = useAuthStore();
 const onTrash = computed(() => route.path.startsWith("/trash"));
 const onDuplicates = computed(() => route.path.startsWith("/duplicates"));
 
@@ -151,7 +153,9 @@ function startResize(e: PointerEvent) {
           -->
           <span
             class="truncate text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity duration-100 ease-in-out"
-            :class="layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'"
+            :class="
+              layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'
+            "
           >
             FontSync
           </span>
@@ -189,35 +193,37 @@ function startResize(e: PointerEvent) {
           @click="selectCategory(cat)"
         />
 
-        <SectionLabel class="px-2 pb-1.5 pt-4">{{
-          t("sidebar.manage")
-        }}</SectionLabel>
-        <RouterLink
-          :to="onDuplicates ? { name: 'fonts' } : { name: 'duplicates' }"
-          class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
-          :class="
-            onDuplicates
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-          "
-        >
-          <Copy class="size-3.5" :stroke-width="1.5" />
-          <span class="truncate text-[11px]">{{
-            t("sidebar.duplicates")
-          }}</span>
-        </RouterLink>
-        <RouterLink
-          :to="onTrash ? { name: 'fonts' } : { name: 'trash' }"
-          class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
-          :class="
-            onTrash
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-          "
-        >
-          <Trash2 class="size-3.5" :stroke-width="1.5" />
-          <span class="truncate text-[11px]">{{ t("sidebar.trash") }}</span>
-        </RouterLink>
+        <template v-if="auth.isAdmin">
+          <SectionLabel class="px-2 pb-1.5 pt-4">{{
+            t("sidebar.manage")
+          }}</SectionLabel>
+          <RouterLink
+            :to="onDuplicates ? { name: 'fonts' } : { name: 'duplicates' }"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            :class="
+              onDuplicates
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            "
+          >
+            <Copy class="size-3.5" :stroke-width="1.5" />
+            <span class="truncate text-[11px]">{{
+              t("sidebar.duplicates")
+            }}</span>
+          </RouterLink>
+          <RouterLink
+            :to="onTrash ? { name: 'fonts' } : { name: 'trash' }"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            :class="
+              onTrash
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            "
+          >
+            <Trash2 class="size-3.5" :stroke-width="1.5" />
+            <span class="truncate text-[11px]">{{ t("sidebar.trash") }}</span>
+          </RouterLink>
+        </template>
       </nav>
 
       <!-- Footer -->

@@ -33,9 +33,9 @@ is_loopback() {
   esac
 }
 
-# Token d'instance FIXE en loopback : sinon `auth.py` en génère un aléatoire à
-# chaque boot, qu'il faudrait re-saisir dans le TokenGate du frontend et
-# re-passer au script de snapshot. Hors loopback, le token public du dépôt
+# Token d'instance (hérité) FIXE en loopback : les agents de dev et le script de
+# snapshot s'en servent sans compte. L'interface web, elle, se connecte par
+# compte (création de l'admin au premier lancement). Hors loopback, le token public du dépôt
 # ouvrirait l'API à tout le réseau : refusé, et un token aléatoire le remplace
 # quand aucun n'est fourni.
 # Le serveur retire les espaces autour du token (`str.strip()`, `backend/auth.py`) :

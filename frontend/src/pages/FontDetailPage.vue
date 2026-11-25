@@ -32,6 +32,7 @@ import DeviceInstallSheet from "@/components/fonts/DeviceInstallSheet.vue";
 import { apiFetch } from "@/lib/api";
 import { downloadFromApi } from "@/lib/download";
 import { useLocale } from "@/composables/useLocale";
+import { useAuthStore } from "@/stores/auth";
 import { useDevicesStore } from "@/stores/devices";
 import { useFontsStore } from "@/stores/fonts";
 import type { Font, FamilyMember, FontFamilyDetail } from "@/types/api";
@@ -40,6 +41,7 @@ const props = defineProps<{ id: string }>();
 
 const { t, te } = useI18n();
 const { dateLocale } = useLocale();
+const auth = useAuthStore();
 const devicesStore = useDevicesStore();
 const fontsStore = useFontsStore();
 const router = useRouter();
@@ -452,6 +454,7 @@ onUnmounted(() => {
             </Button>
 
             <Button
+              v-if="auth.isAdmin"
               variant="ghost"
               size="icon"
               :aria-label="t('fontDetail.trash')"
