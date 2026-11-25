@@ -141,3 +141,13 @@ def test_ci_has_weekly_schedule() -> None:
     # The schedule only audits: tests are not re-run, nothing is published.
     for name in ("backend", "frontend"):
         assert "schedule" in str(ci["jobs"][name].get("if", ""))
+
+
+def test_image_scan_passes_a_lowercase_reference() -> None:
+    """`github.repository` keeps its capitals (leodurandfr/FontSync); an image
+    reference must be lowercase, or Trivy refuses it and the scan never runs."""
+    scan = _load("docker-publish.yml")["jobs"]["image-scan"]
+    runs = "\n".join(str(s.get("run", "")) for s in scan["steps"])
+    assert "trivy" in runs
+    assert '"${IMAGE,,}"' in runs
+    assert '"$IMAGE"' not in runs

@@ -169,6 +169,11 @@ export interface Device {
    * qu'envoyer et installer, les activer ne doit pas devenir destructeur.
    */
   propagateDeletions: boolean;
+  /**
+   * Capacités annoncées par l'agent à son dernier register (B-32) ; null pour
+   * un agent qui n'en annonce pas. Informatif : rien n'en dépend encore.
+   */
+  capabilities?: string[] | null;
   createdAt: string;
   /** Présence « en ligne » (connexion SSE `listen` active), calculée serveur. */
   isOnline?: boolean;

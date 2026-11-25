@@ -122,6 +122,26 @@ def test_register_device_posts_payload_and_returns_json() -> None:
     assert data["autoPull"] is True
 
 
+def test_register_announces_agent_capabilities() -> None:
+    """B-32 : l'agent annonce ce qu'il sait faire. Le serveur les stocke sans en
+    dépendre encore : aucun comportement n'est conditionné ici (P1-6b)."""
+    from agent.capabilities import CAPABILITIES
+
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"id": "dev-1", "name": "Mac"})
+
+    with _client(handler) as client:
+        client.register_device()
+
+    assert seen["body"]["capabilities"] == list(CAPABILITIES)  # type: ignore[index]
+    assert set(CAPABILITIES) == {"full-declaration", "deactivate", "uninstall"}
+
+
 def test_delta_sync_builds_camelcase_entries() -> None:
     captured: dict[str, object] = {}
 
