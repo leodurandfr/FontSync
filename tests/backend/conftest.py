@@ -19,6 +19,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from backend.auth import Principal
 from backend.config import settings
 from backend.database import get_db
 from backend.main import app
@@ -176,18 +177,39 @@ def _test_hosts_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # ---------- Client API complet (routeurs montés, auth armée) ----------
 
-API_TOKEN = "test-secret-token"
+# Jeton de session d'un admin de test, à la forme exacte d'un jeton émis
+# (`services.accounts.new_token` : 43 caractères URL-safe). Les tests passent
+# par la même voie qu'un vrai client : `Authorization: Bearer <session>`.
+API_TOKEN = "test-admin-session-token-000000000000000000"
+assert len(API_TOKEN) == 43
 AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
+TEST_ADMIN_EMAIL = "test-admin@example.com"
 
 
-@pytest.fixture
-def _api_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "fontsync_token", API_TOKEN)
+async def seed_session(
+    db: AsyncSession,
+    token: str,
+    *,
+    email: str = TEST_ADMIN_EMAIL,
+    role: str = "admin",
+) -> None:
+    """Crée un compte (sans mot de passe utilisable) et une session web dont le
+    secret est `token`. Sert aux tests qui ont besoin d'une identité sans
+    rejouer la connexion."""
+    from backend.models.user import AuthSession, User
+    from backend.services.accounts import hash_token
+
+    user = User(email=email, password_hash="!", role=role)
+    db.add(user)
+    await db.flush()
+    db.add(AuthSession(user_id=user.id, token_hash=hash_token(token), kind="web"))
+    await db.commit()
 
 
 @pytest_asyncio.fixture
-async def api_client(tmp_path, _api_token) -> AsyncGenerator[AsyncClient, None]:
-    """Client ASGI sur l'app réelle : DB in-memory + stockage isolé.
+async def bare_api_client(tmp_path) -> AsyncGenerator[AsyncClient, None]:
+    """Client ASGI sur l'app réelle, sans aucun compte (nouvelle installation) :
+    DB in-memory + stockage isolé.
 
     Le stockage est surchargé pour les **deux** routeurs qui l'injectent (fonts
     et sync) : un vidage de corbeille écrit par l'un et lu par l'autre doit voir
@@ -229,4 +251,44 @@ async def api_client(tmp_path, _api_token) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def api_client(bare_api_client: AsyncClient) -> AsyncClient:
+    """`bare_api_client` avec un admin dont la session est `AUTH_HEADERS`."""
+    async for db in app.dependency_overrides[get_db]():
+        await seed_session(db, API_TOKEN)
+    return bare_api_client
+
+
+# Identité admin pour les appels directs aux routeurs (sans passer par HTTP).
+ADMIN_PRINCIPAL = Principal(kind="web", role="admin")
+
+
+@pytest_asyncio.fixture
+async def auth_db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """Base in-memory branchée sur l'app réelle, avec l'admin de `AUTH_HEADERS`.
+
+    Pour les tests qui appellent l'app sans `api_client` (ASGI brut, WebSocket)
+    mais ont besoin d'une identité valide.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    async with maker() as db:
+        await seed_session(db, API_TOKEN)
+    yield maker
+    app.dependency_overrides.pop(get_db, None)
     await engine.dispose()

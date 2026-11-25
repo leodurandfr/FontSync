@@ -53,7 +53,6 @@ def test_persists_device_id_and_token(_isolated_config: Path) -> None:
 def test_full_round_trip_preserves_all_fields(_isolated_config: Path) -> None:
     cfg = AgentConfig(
         server_url="http://nas.local:9000",
-        server_token="instance-secret",
         device_token="tok",
         device_id="dev",
         directories=["/a", "/b"],
@@ -94,25 +93,21 @@ def test_ingest_directories_absent_from_yaml_falls_back_to_default(
     assert cfg.ingest_directories == AgentConfig().ingest_directories
 
 
-def test_persists_server_token(_isolated_config: Path) -> None:
-    """P1.3 : le token partagé d'instance survit à save()→load()."""
-    cfg = AgentConfig.load()
-    cfg.server_token = "instance-secret"
-    cfg.save()
-
-    assert AgentConfig.load().server_token == "instance-secret"
-    # Distinct du device_token (auth par-device, réservée au cloud / Phase 7).
-    assert AgentConfig.load().device_token is None
-
-
-def test_server_token_loaded_from_yaml_key(_isolated_config: Path) -> None:
-    """La clé YAML est bien `server.token` (pas `server.server_token`)."""
+def test_former_instance_token_is_ignored_then_dropped(_isolated_config: Path) -> None:
+    """Une ancienne clé `server.token` (d'avant les comptes) n'authentifie plus
+    rien, et disparaît du fichier à la première écriture."""
     _isolated_config.parent.mkdir(parents=True, exist_ok=True)
     _isolated_config.write_text(
-        yaml.safe_dump({"server": {"token": "tok-x"}}), encoding="utf-8"
+        yaml.safe_dump({"server": {"token": "tok-x", "device_id": "dev"}}),
+        encoding="utf-8",
     )
 
-    assert AgentConfig.load().server_token == "tok-x"
+    cfg = AgentConfig.load()
+    assert cfg.auth_token is None
+    assert cfg.device_id == "dev"
+    cfg.save()
+    saved = yaml.safe_load(_isolated_config.read_text(encoding="utf-8"))
+    assert "token" not in saved["server"]
 
 
 def test_auto_pull_default_consistent_between_dataclass_and_load(

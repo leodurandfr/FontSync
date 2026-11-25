@@ -38,15 +38,14 @@ private struct DeviceLoginRequest: Encodable {
 
 /// Client HTTP minimal vers le serveur FontSync.
 ///
-/// Porte le jeton d'appareil (ou, hérité, le token d'instance) en
-/// `Authorization: Bearer` sur `/api/*`. Utilisé par le menu pour vérifier la connectivité et le nombre de
+/// Porte le jeton d'appareil en `Authorization: Bearer` sur `/api/*`. Utilisé par le menu pour vérifier la connectivité et le nombre de
 /// fonts ; la fenêtre webview (P3.2) charge l'UI web directement.
 struct ServerClient {
     let baseURL: URL
     let token: String?
 
     /// Récupère le nombre total de fonts. Sert aussi de sonde de connectivité
-    /// (et de validité du token) : un succès ⇒ « connecté ».
+    /// (et de validité du jeton) : un succès ⇒ « connecté ».
     func fetchTotalFonts() async throws -> Int {
         let url = baseURL.appendingPathComponent("api/stats")
         var request = URLRequest(url: url)
@@ -144,8 +143,7 @@ enum AccountConnection {
     /// Se connecte (ou vérifie la connexion existante) puis enregistre la config.
     ///
     /// - Mot de passe saisi : échange email + mot de passe contre un jeton
-    ///   d'appareil, vérifie qu'il ouvre bien l'API, puis l'enregistre (l'ancien
-    ///   token d'instance est retiré du fichier).
+    ///   d'appareil, vérifie qu'il ouvre bien l'API, puis l'enregistre.
     /// - Mot de passe vide, même serveur, jeton déjà présent : vérifie seulement
     ///   ce jeton, sans ouvrir une nouvelle session.
     ///

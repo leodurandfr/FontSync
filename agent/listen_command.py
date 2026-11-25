@@ -94,7 +94,7 @@ def _stream_signals(config: AgentConfig, device_id: str) -> "Iterator[None]":
         "Accept": "text/event-stream",
         "User-Agent": f"fontsync-agent/{AGENT_VERSION}",
     }
-    # Jeton d'appareil (ou token d'instance hérité) : en-tête `Authorization`,
+    # Jeton d'appareil : en-tête `Authorization`,
     # seule voie acceptée sur /api, flux SSE compris (P1-5e).
     if config.auth_token:
         headers["Authorization"] = f"Bearer {config.auth_token}"
@@ -323,7 +323,6 @@ def _reload_auth(config: AgentConfig) -> AgentConfig:
         logger.warning("Config illisible, identifiants précédents conservés.")
         return config
     config.server_url = fresh.server_url
-    config.server_token = fresh.server_token
     config.device_token = fresh.device_token
     return config
 
@@ -353,8 +352,7 @@ def run_listen(
     if signals_factory is None:
         device_id = _resolve_device_id(config)
         # Config relue à chaque connexion : se connecter à un compte (app Mac,
-        # `fontsync-agent login`) change le jeton sans redémarrer ce process, et
-        # l'ancien token d'instance peut être retiré du serveur entre-temps.
+        # `fontsync-agent login`) change le jeton sans redémarrer ce process.
         signals_factory = lambda: _stream_signals(  # noqa: E731
             _reload_auth(config), device_id
         )

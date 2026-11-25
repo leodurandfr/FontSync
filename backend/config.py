@@ -7,13 +7,12 @@ class Settings(BaseSettings):
     storage_backend: str = "filesystem"
     font_storage_path: str = "/data/fonts"
 
-    # Token d'instance HÉRITÉ (d'avant les comptes). Défini, il reste accepté
-    # partout avec les droits admin, le temps que chaque Mac passe à son jeton
-    # d'appareil ; on le retire du `.env` ensuite. Vide (nouvelle installation)
-    # = seuls les comptes ouvrent l'API (cf. `backend.auth`).
-    fontsync_token: str = ""
-
     # ---------- Comptes ----------
+
+    # Maintenance (restauration d'une sauvegarde) : les Mac sont refusés (503)
+    # tant qu'elle est active, l'interface web reste ouverte aux comptes pour
+    # l'audit. Posée par `scripts/restore-from-backup.sh`, retirée à la fin.
+    fontsync_maintenance: bool = False
 
     # Création du premier admin sans passer par l'interface (installation
     # scriptée). Lus au démarrage, seulement si aucun compte n'existe ; ignorés

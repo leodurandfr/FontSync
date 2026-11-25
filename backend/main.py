@@ -11,6 +11,7 @@
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -19,7 +20,7 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from backend.auth import AuthMiddleware, legacy_token, require_auth
+from backend.auth import AuthMiddleware, require_auth
 from backend.config import settings
 from backend.database import async_session
 from backend.host_guard import HostGuardMiddleware
@@ -55,8 +56,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Au boot : premier admin éventuel, purge de corbeille, sauvegardes.
 
     `FONTSYNC_ADMIN_EMAIL`/`_PASSWORD` créent le premier admin si aucun compte
-    n'existe (installation scriptée). Le token d'instance hérité, s'il est
-    défini, est signalé : il ne sert plus qu'à la transition vers les comptes.
+    n'existe (installation scriptée). Un ancien `FONTSYNC_TOKEN` encore
+    défini est signalé : il n'ouvre plus rien.
 
     La purge automatique de la corbeille ne tourne que si une rétention est
     configurée — désactivée par défaut : rien ne supprime de fichier tout seul
@@ -70,10 +71,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await bootstrap_admin_from_env(db)
     except Exception:  # noqa: BLE001 — une base pas encore migrée ne doit pas tuer le boot
         logger.exception("Création du premier admin depuis l'environnement impossible.")
-    if legacy_token() is not None:
-        logger.warning(
-            "FONTSYNC_TOKEN est défini : il reste accepté avec les droits admin. "
-            "Retirez-le du .env une fois chaque Mac connecté avec un compte."
+    if os.environ.get("FONTSYNC_TOKEN", "").strip():
+        logger.info(
+            "FONTSYNC_TOKEN est encore défini mais n'est plus utilisé : "
+            "seuls les comptes ouvrent l'accès. Vous pouvez le retirer du .env."
         )
 
     background_tasks = [
@@ -148,8 +149,9 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, str | bool]:
+    """Public. `maintenance` : les Mac sont refusés (restauration en cours)."""
+    return {"status": "ok", "maintenance": settings.fontsync_maintenance}
 
 
 # Politiques de cache du SPA. Sans en-tête explicite, un cache HTTP a le droit

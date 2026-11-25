@@ -34,7 +34,7 @@ def test_evil_host_with_port_is_rejected(client: TestClient) -> None:
     assert client.get("/health", headers={"Host": f"{EVIL}:8070"}).status_code == 400
 
 
-@pytest.mark.usefixtures("_api_token")
+@pytest.mark.usefixtures("auth_db")
 def test_websocket_handshake_with_evil_host_is_refused() -> None:
     # websocket_connect ignores base_url: the Host comes from an absolute URL.
     client = TestClient(app)
@@ -44,7 +44,7 @@ def test_websocket_handshake_with_evil_host_is_refused() -> None:
     assert excinfo.value.code == 1008
 
 
-@pytest.mark.usefixtures("_api_token")
+@pytest.mark.usefixtures("auth_db")
 def test_websocket_handshake_with_allowed_host_still_works() -> None:
     client = TestClient(app)
     url = f"ws://localhost:8070/ws/client?token={API_TOKEN}"

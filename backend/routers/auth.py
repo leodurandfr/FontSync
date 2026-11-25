@@ -19,10 +19,8 @@ from backend.auth import (
     SESSION_COOKIE,
     Principal,
     _bearer,
-    legacy_token,
     require_auth,
     resolve_principal,
-    token_is_valid,
 )
 from backend.config import settings
 from backend.database import get_db
@@ -158,8 +156,6 @@ async def auth_status(
     no_users = await count_users(db) == 0
     return AuthStatus(
         setup_required=no_users,
-        setup_needs_legacy_token=no_users and legacy_token() is not None,
-        legacy_token_enabled=legacy_token() is not None,
         me=await _me(db, principal) if principal else None,
     )
 
@@ -173,24 +169,15 @@ async def setup_admin(
 ) -> MeResponse:
     """Crée le premier compte, administrateur. Refusé dès qu'un compte existe.
 
-    Sur un serveur déjà installé (`FONTSYNC_TOKEN` défini), le token est exigé :
-    sinon la première personne à ouvrir la page d'un serveur exposé en
-    deviendrait l'admin. Les appareils existants sont rattachés à ce compte.
+    La première personne à ouvrir la page devient l'admin : à faire dès
+    l'installation (ou par `FONTSYNC_ADMIN_EMAIL`/`_PASSWORD`). Les appareils
+    existants sont rattachés à ce compte.
     """
     async with _setup_lock:
         if await count_users(db) > 0:
             raise HTTPException(
                 status_code=409, detail="Un administrateur existe déjà."
             )
-        if legacy_token() is not None:
-            presented = body.legacy_token or _bearer(
-                request.headers.get("authorization")
-            )
-            if not token_is_valid(presented):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Token d'instance (FONTSYNC_TOKEN) manquant ou invalide.",
-                )
         user = await create_user(
             db, email=body.email, password=body.password, role=ROLE_ADMIN
         )

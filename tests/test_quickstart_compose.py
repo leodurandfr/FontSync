@@ -2,8 +2,8 @@
 
 `docker-compose.nas.yml` exige `WATCHTOWER_TOKEN` (`${WATCHTOWER_TOKEN:?…}`) ;
 le README, l'en-tête du compose et le pas-à-pas Synology doivent l'écrire, sans
-quoi `docker compose up` refuse de démarrer en suivant la doc. `FONTSYNC_TOKEN`
-n'est plus demandé : une nouvelle installation s'ouvre par compte.
+quoi `docker compose up` refuse de démarrer en suivant la doc. Aucun autre
+secret n'est demandé : l'accès se fait par compte.
 On exécute la ligne du README dans un dossier jetable, puis `docker compose
 config` sur une copie du compose (ignoré sans CLI docker).
 """
@@ -85,8 +85,8 @@ def test_readme_quickstart_env_satisfies_the_nas_compose(tmp_path: Path) -> None
             ["bash", "-c", line], cwd=tmp_path, check=True, env={"PATH": SHELL_PATH}
         )
     written = (tmp_path / ".env").read_text().splitlines()
-    # Depuis les comptes, une nouvelle installation n'a plus de token
-    # d'instance : l'API s'ouvre par compte, créé au premier accès.
+    # Seul secret : celui du bouton « Mettre à jour ». L'accès se fait par
+    # compte, créé au premier accès.
     assert [ln.split("=", 1)[0] for ln in written] == ["WATCHTOWER_TOKEN"]
     tokens = [ln.split("=", 1)[1] for ln in written]
     assert all(len(t) >= 32 for t in tokens)
@@ -154,14 +154,14 @@ def test_all_quickstarts_use_the_same_env_command() -> None:
 def test_quickstart_never_overwrites_an_existing_env(
     tmp_path: Path, shell: str
 ) -> None:
-    """Relancer la commande sur une installation existante écraserait le
-    FONTSYNC_TOKEN que des Mac utilisent peut-être encore : elle doit refuser."""
+    """Relancer la commande sur une installation existante écraserait son
+    .env (et le secret de mise à jour qu'il porte) : elle doit refuser."""
     if shutil.which(shell, path=SHELL_PATH) is None:
         pytest.skip(f"{shell} absent")
     if shutil.which("openssl", path=SHELL_PATH) is None:
         pytest.skip("openssl absent")
     env_file = tmp_path / ".env"
-    env_file.write_text("FONTSYNC_TOKEN=keep-me\n")
+    env_file.write_text("WATCHTOWER_TOKEN=keep-me\n")
     for line in readme_env_commands():
         result = subprocess.run(
             [shell, "-c", line],
@@ -172,4 +172,4 @@ def test_quickstart_never_overwrites_an_existing_env(
             env={"PATH": SHELL_PATH},
         )
         assert result.returncode != 0
-    assert env_file.read_text() == "FONTSYNC_TOKEN=keep-me\n"
+    assert env_file.read_text() == "WATCHTOWER_TOKEN=keep-me\n"

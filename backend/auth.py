@@ -1,4 +1,4 @@
-"""Authentification : comptes, sessions par connexion, token d'instance hérité.
+"""Authentification : comptes et sessions par connexion.
 
 Qui peut appeler l'API (`Principal`) :
 
@@ -7,10 +7,7 @@ Qui peut appeler l'API (`Principal`) :
   le WebSocket navigateur s'authentifie par ce même cookie ;
 - **jeton d'appareil** : `Authorization: Bearer <jeton>`, obtenu par
   `POST /api/auth/device-login` (app Mac, agent). Un par machine, sans
-  expiration, révocable seul, lié à UN appareil (`assert_device_access`) ;
-- **token d'instance hérité** (`FONTSYNC_TOKEN`) : s'il est défini, il reste
-  accepté en `Bearer` avec les droits admin, le temps que chaque Mac passe à son
-  jeton d'appareil. Le retirer du `.env` le coupe.
+  expiration, révocable seul, lié à UN appareil (`assert_device_access`).
 
 Une session web peut aussi être présentée en `Bearer` (client d'API, tests).
 
@@ -29,7 +26,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import secrets
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -49,7 +45,6 @@ from backend.services.accounts import resolve_session
 logger = logging.getLogger(__name__)
 
 SESSION_COOKIE = "fontsync_session"
-KIND_LEGACY = "legacy"
 
 # Routes `/api/*` servies sans identité. Exactes, jamais par préfixe : une route
 # ajoutée sous `/api/auth/` reste protégée tant qu'on ne l'a pas listée ici.
@@ -67,12 +62,25 @@ PUBLIC_API_PATHS = frozenset(
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# Connexion d'un Mac : refusée elle aussi pendant la maintenance.
+_DEVICE_LOGIN_PATH = "/api/auth/device-login"
+MAINTENANCE_DETAIL = "Serveur en maintenance : les Mac se reconnecteront ensuite."
+
+
+def refused_for_maintenance(principal: Principal | None) -> bool:
+    """Pendant une maintenance (`FONTSYNC_MAINTENANCE`), les Mac attendent."""
+    return (
+        settings.fontsync_maintenance
+        and principal is not None
+        and principal.kind == SESSION_DEVICE
+    )
+
 
 @dataclass(frozen=True)
 class Principal:
     """Qui fait la requête."""
 
-    kind: str  # "web" | "device" | "legacy"
+    kind: str  # "web" | "device"
     role: str
     user_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
@@ -84,36 +92,6 @@ class Principal:
         le disque d'un Mac, sans expiration ; il ne doit pas pouvoir gérer les
         comptes ni vider la corbeille, même celui d'un admin."""
         return self.role == ROLE_ADMIN and self.kind != SESSION_DEVICE
-
-
-LEGACY_PRINCIPAL = Principal(kind=KIND_LEGACY, role=ROLE_ADMIN)
-
-
-# ---------- Token d'instance hérité ----------
-
-
-def legacy_token() -> str | None:
-    """`FONTSYNC_TOKEN` s'il est défini (et non blanc), sinon `None`.
-
-    Lu à chaque appel : les tests surchargent `settings.fontsync_token`.
-    """
-    configured = (settings.fontsync_token or "").strip()
-    return configured or None
-
-
-def token_is_valid(token: str | None) -> bool:
-    """Compare un jeton au token d'instance hérité, en temps constant.
-
-    Sur octets UTF-8 : `compare_digest` lève TypeError sur une chaîne non ASCII
-    (un en-tête arbitraire donnait 500 au lieu de 401).
-    """
-    expected = legacy_token()
-    if not token or expected is None:
-        return False
-    return secrets.compare_digest(
-        token.encode("utf-8", "surrogatepass"),
-        expected.encode("utf-8", "surrogatepass"),
-    )
 
 
 # ---------- Résolution ----------
@@ -174,8 +152,6 @@ async def resolve_principal(
 ) -> Principal | None:
     """Identité portée par un `Bearer` (prioritaire) ou le cookie de session."""
     if bearer:
-        if token_is_valid(bearer):
-            return LEGACY_PRINCIPAL
         if not looks_like_session_token(bearer):
             return None
         found = await resolve_session(db, bearer, kinds=(SESSION_WEB, SESSION_DEVICE))
@@ -198,9 +174,7 @@ async def principal_for_app(
     app: ASGIApp | None, *, bearer: str | None, cookie: str | None
 ) -> Principal | None:
     """`resolve_principal` hors injection : n'ouvre la base que si un jeton de
-    session plausible est présenté (le token hérité se vérifie sans elle)."""
-    if bearer and token_is_valid(bearer):
-        return LEGACY_PRINCIPAL
+    session plausible est présenté."""
     candidate = bearer if bearer else cookie
     if not candidate or not looks_like_session_token(candidate):
         return None
@@ -231,6 +205,8 @@ async def require_auth(
     )
     if principal is None:
         raise _unauthorized()
+    if refused_for_maintenance(principal):
+        raise HTTPException(status_code=503, detail=MAINTENANCE_DETAIL)
     request.state.principal = principal
     return principal
 
@@ -242,8 +218,8 @@ async def require_admin(principal: Principal = Depends(require_auth)) -> Princip
 
 
 def can_access_device(principal: Principal, device: object) -> bool:
-    """Un jeton d'appareil n'agit que pour SON appareil ; un admin (ou le token
-    hérité) pour tous ; un membre pour les siens."""
+    """Un jeton d'appareil n'agit que pour SON appareil ; un admin pour tous ;
+    un membre pour les siens."""
     device_id = getattr(device, "id", None)
     if principal.kind == SESSION_DEVICE:
         return principal.device_id is not None and principal.device_id == device_id
@@ -328,6 +304,9 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
         path = _route_path(scope)
+        if settings.fontsync_maintenance and path == _DEVICE_LOGIN_PATH:
+            await _send_json(send, 503, MAINTENANCE_DETAIL)
+            return
         if not _is_api_path(path) or path in PUBLIC_API_PATHS:
             await self.app(scope, receive, send)
             return
@@ -339,6 +318,9 @@ class AuthMiddleware:
         )
         if principal is None:
             await _send_json(send, 401, "Authentification requise.")
+            return
+        if refused_for_maintenance(principal):
+            await _send_json(send, 503, MAINTENANCE_DETAIL)
             return
 
         if cookie and scope.get("method", "GET") not in _SAFE_METHODS:
@@ -366,8 +348,8 @@ class AuthMiddleware:
 def websocket_token(websocket: WebSocket) -> str | None:
     """Jeton présenté en query `token` ou en `Authorization: Bearer`.
 
-    Le navigateur passe par le cookie de session ; ces deux voies restent pour
-    le token hérité et les clients hors navigateur.
+    Le navigateur passe par le cookie de session ; ces deux voies servent aux
+    clients hors navigateur (jeton d'appareil).
     """
     qp = websocket.query_params.get("token")
     if qp:

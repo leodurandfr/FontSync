@@ -21,7 +21,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
-from backend.auth import LEGACY_PRINCIPAL
 from backend.config import settings
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
@@ -42,7 +41,7 @@ from backend.services.deletion_propagation import (
 from backend.services.font_importer import import_font
 from backend.services.sync_manager import compute_delta, register_device_font
 from backend.services.trash import purge_expired, purge_font
-from tests.backend.conftest import AUTH_HEADERS
+from tests.backend.conftest import ADMIN_PRINCIPAL, AUTH_HEADERS
 
 # ---------- Helpers API ----------
 
@@ -1046,7 +1045,7 @@ async def test_empty_declaration_skips_reconciliation(
     await db.commit()
 
     await delta_sync(
-        DeltaSyncRequest(device_id=device.id, fonts=[]), db, LEGACY_PRINCIPAL
+        DeltaSyncRequest(device_id=device.id, fonts=[]), db, ADMIN_PRINCIPAL
     )
 
     assert await _association_count(db, tomb.id) == 1
@@ -1075,7 +1074,7 @@ async def test_suspicious_declaration_skips_reconciliation(
             fonts=[DeviceFontEntry(hash=newcomer.file_hash, filename="Newcomer.ttf")],
         ),
         db,
-        LEGACY_PRINCIPAL,
+        ADMIN_PRINCIPAL,
     )
 
     # Retenue (pending), pas conclue — et rien d'autre n'a bougé : le nouvel

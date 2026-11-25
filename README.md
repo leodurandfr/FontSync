@@ -22,8 +22,8 @@ collection.
 ```
    Mac (user)                                     FontSync server (NAS, Docker)
  ┌───────────────────────────┐                 ┌──────────────────────────────────┐
- │ FontSync app (menu bar)    │── HTTP+token ──►│ FastAPI + SQLite + storage        │
- │  • status / sync / prefs   │                 │  • /api/* protected by token      │
+ │ FontSync app (menu bar)    │── HTTP+login ──►│ FastAPI + SQLite + storage        │
+ │  • status / sync / prefs   │                 │  • /api/* behind accounts         │
  │  • webview window ─────────┼─── web UI ─────►│  • serves the web UI (SPA)        │
  │  • manages the agent (launchd) │             │  • SSE “re-sync” → agents         │
  │      │                                       │  • migrations at boot             │
@@ -48,8 +48,7 @@ On the NAS (or any Docker host):
 
 ```bash
 # Generate the Update-button secret into a new .env. It refuses to overwrite
-# an existing .env: already installed? Keep your FONTSYNC_TOKEN line as long
-# as a Mac still uses it.
+# an existing .env: already installed? Keep it as it is.
 (set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
 
 # Fetch the example compose file and start
@@ -146,30 +145,19 @@ tokens), but over plain HTTP they travel **in the clear** — readable by anyone
 on the network path.
 
 > ⚠️ **Never expose FontSync directly on the Internet over HTTP.** On an untrusted
-> network, **always** place a TLS reverse proxy in front of the server: the
-> token and all traffic must travel encrypted. This is the standard approach on a
+> network, **always** place a TLS reverse proxy in front of the server:
+> passwords and all traffic must travel encrypted. This is the standard approach on a
 > NAS (Synology, etc.).
 
-### The instance token (`FONTSYNC_TOKEN`)
+### Accounts
 
-The token protects all of `/api/*`, the SSE stream (`/api/agent/<device>/events`), and the
-WebSockets (`/ws/*`). Set it via the container’s environment:
-
-```yaml
-environment:
-  FONTSYNC_TOKEN: "<a long, random secret>"
-```
-
-It is now the **legacy** way in: the server also has **accounts** (an
-administrator created on first access, then invited members, one session per
-browser or Mac). While the token is set, it keeps working with admin rights so
-that existing Macs keep syncing; the agent reads it from its config
-(`server.token`). If it is **not** set, only accounts open the API. To generate it:
-
-```bash
-openssl rand -base64 32
-# or: python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+Accounts protect all of `/api/*`, the SSE stream (`/api/agent/<device>/events`)
+and the WebSockets (`/ws/*`). The first person to open the web interface
+creates the **administrator** account (or set `FONTSYNC_ADMIN_EMAIL` /
+`FONTSYNC_ADMIN_PASSWORD` to create it at startup); the administrator then
+invites the others with a link. Each browser and each Mac has its own session,
+which its owner can revoke (Settings → My sessions). There is no shared token
+to keep or copy.
 
 ### TLS reverse proxy — Caddy
 
@@ -235,7 +223,7 @@ an IP, `localhost`, `*.local`, `*.ts.net` or a listed name are refused with HTTP
 | **`unable to open database file` at server boot** | The DB volume isn’t mounted as writable. Check the `db:/data` volume in the compose file. |
 
 The server exposes `GET /health` (unauthenticated) for probes; everything else
-under `/api/*` requires the token.
+under `/api/*` requires a signed-in session.
 
 ---
 

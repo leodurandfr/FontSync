@@ -23,8 +23,10 @@
 #   FONTSYNC_DEV_ROOT    racine des profils (défaut : <repo>/.dev)
 #   FONTSYNC_SERVER_URL  serveur ciblé      (défaut : http://localhost:8080)
 #   FONTSYNC_PROFILE     profil par défaut quand il est omis (défaut : A)
-#   FONTSYNC_TOKEN       token d'instance partagé (= côté serveur) ; injecté
-#                        dans la config du profil (défaut : null = pas d'auth)
+#   FONTSYNC_DEV_EMAIL     compte avec lequel le profil se connecte s'il n'a
+#   FONTSYNC_DEV_PASSWORD  pas encore de jeton d'appareil (défaut :
+#                          dev@example.com / fontsync-dev-password, le compte
+#                          que `run-server.sh` crée en loopback)
 
 set -euo pipefail
 
@@ -37,7 +39,7 @@ fi
 # Profil optionnel : si le 1er argument est une commande agent connue, on
 # n'attend pas de profil et on retombe sur FONTSYNC_PROFILE (défaut « A »).
 case "$1" in
-  sync | listen | setup | teardown | status)
+  sync | listen | setup | teardown | status | login)
     profile="${FONTSYNC_PROFILE:-A}"
     ;;
   *)
@@ -71,7 +73,6 @@ if [ ! -f "$config" ]; then
   cat > "$config" <<YAML
 server:
   url: ${FONTSYNC_SERVER_URL:-http://localhost:8080}
-  token: ${FONTSYNC_TOKEN:-null}
   device_token: null
   device_id: null
 scan:
@@ -86,10 +87,9 @@ YAML
   chmod 600 "$config"
 fi
 
-# Config existante : l'URL et le token fournis par l'appelant (preflight, qui
-# peut tirer un nouveau token à chaque lancement) priment sur ceux écrits la
-# première fois, sinon l'agent garde un token périmé et reçoit 401.
-if [ -n "${FONTSYNC_TOKEN:-}" ] || [ -n "${FONTSYNC_SERVER_URL:-}" ]; then
+# Config existante : l'URL fournie par l'appelant (preflight) prime sur celle
+# écrite la première fois.
+if [ -n "${FONTSYNC_SERVER_URL:-}" ]; then
   "$python_bin" - "$config" <<'PY'
 import os
 import sys
@@ -105,10 +105,7 @@ server = data.get("server")
 if not isinstance(server, dict):  # `server:` empty or malformed: rebuild it
     server = {}
     data["server"] = server
-if os.environ.get("FONTSYNC_TOKEN"):
-    server["token"] = os.environ["FONTSYNC_TOKEN"]
-if os.environ.get("FONTSYNC_SERVER_URL"):
-    server["url"] = os.environ["FONTSYNC_SERVER_URL"]
+server["url"] = os.environ["FONTSYNC_SERVER_URL"]
 with open(path, "w", encoding="utf-8") as handle:
     yaml.safe_dump(data, handle, sort_keys=False)
 PY
@@ -116,4 +113,21 @@ fi
 
 echo "[dev] profil=$profile  home=$profile_dir  fonts=$profile_fonts" >&2
 cd "$repo_root"
+
+# Profil pas encore connecté : il se connecte au compte de dev, comme l'app Mac
+# le fait depuis son assistant (le jeton d'appareil reste ensuite dans sa config).
+if [ "${1:-}" != "login" ] && ! "$python_bin" - "$config" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = yaml.safe_load(handle) or {}
+server = data.get("server") if isinstance(data, dict) else None
+sys.exit(0 if isinstance(server, dict) and server.get("device_token") else 1)
+PY
+then
+  printf '%s\n' "${FONTSYNC_DEV_PASSWORD:-fontsync-dev-password}" \
+    | "$python_bin" -m agent login --email "${FONTSYNC_DEV_EMAIL:-dev@example.com}" --password-stdin
+fi
 exec "$python_bin" -m agent "$@"

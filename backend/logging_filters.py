@@ -9,9 +9,9 @@
 # You should have received a copy of the license with this program (see LICENSE),
 # or at <https://www.gnu.org/licenses/>.
 
-"""Logging filters keeping the instance token out of uvicorn's logs.
+"""Logging filters keeping session tokens out of uvicorn's logs.
 
-The browser WebSocket carries the token as `?token=…` (any other `?token=`
+A WebSocket client may carry its token as `?token=…` (any other `?token=`
 on /api is refused, but a client may still send one),
 and uvicorn logs the full path with its query string (`uvicorn.error` for
 WebSocket handshakes, `uvicorn.access` for HTTP requests).

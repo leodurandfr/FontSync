@@ -18,10 +18,10 @@ from pathlib import Path
 import httpx
 import pytest
 
+from tests.backend.conftest import API_TOKEN as TOKEN
 from tests.backend.conftest import build_ttf
 
 REPO = Path(__file__).resolve().parents[2]
-TOKEN = "test-secret-token"
 
 LAUNCHER = """
 import asyncio, sys
@@ -33,9 +33,13 @@ from backend.main import app
 from backend.services.ws_manager import ws_manager
 
 async def create_schema():
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from tests.backend.conftest import seed_session
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    async with async_sessionmaker(engine)() as db:
+        await seed_session(db, sys.argv[2])
     await engine.dispose()
 
 asyncio.run(create_schema())
@@ -69,12 +73,11 @@ def server(tmp_path: Path):  # type: ignore[no-untyped-def]
         **os.environ,
         "DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path / 'db.sqlite'}",
         "FONT_STORAGE_PATH": str(tmp_path / "fonts"),
-        "FONTSYNC_TOKEN": TOKEN,
         "ALLOWED_HOSTS": "",
         "BACKUP_DIR": "",
     }
     proc = subprocess.Popen(
-        [sys.executable, "-c", LAUNCHER, str(port)],
+        [sys.executable, "-c", LAUNCHER, str(port), TOKEN],
         cwd=REPO,
         env=env,
         stdout=subprocess.DEVNULL,

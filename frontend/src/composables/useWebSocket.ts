@@ -16,12 +16,8 @@ let isManualClose = false;
 
 function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const base = `${proto}//${window.location.host}/ws/client`;
-  // La session navigateur passe par son cookie. Seul le token d'instance
-  // hérité, qu'un handshake navigateur ne peut pas poser en en-tête, passe en
-  // query param `?token=`.
-  const token = useAuthStore().token;
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  // La session navigateur passe par son cookie, joint d'office au handshake.
+  return `${proto}//${window.location.host}/ws/client`;
 }
 
 export function dispatch(message: WsMessage) {

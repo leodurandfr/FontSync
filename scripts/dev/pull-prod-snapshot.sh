@@ -7,9 +7,10 @@
 # On passe donc par l'API : on liste /api/fonts sur la prod, on télécharge les
 # blobs /file, et on les ré-ingère dans le serveur local via /api/fonts/upload.
 #
-#   - Côté prod : LECTURE SEULE (aucune écriture). Le token prod est lu dans le
-#     .env du NAS et n'est JAMAIS exposé côté Mac (tout curl authentifié tourne
-#     SUR le NAS via SSH).
+#   - Côté prod : LECTURE SEULE (aucune écriture de fonts). Le script se connecte
+#     avec votre compte (email + mot de passe demandés au lancement) : la session
+#     ne vit que SUR le NAS (tout curl authentifié y tourne via SSH), et elle est
+#     fermée à la fin (déconnexion).
 #   - Côté local : ingestion dans la base de dev jetable (.dev/), zéro risque.
 #
 # Les blobs téléchargés sont conservés dans .dev/snapshot/fonts/ → ré-exécutions
@@ -26,6 +27,9 @@
 # NAS_HOST, NAS_USER et NAS_PORT sont obligatoires hors --reupload (aucune
 # valeur par défaut : le dépôt est public et ne porte pas l'adresse d'une infra
 # réelle), par ex. : NAS_HOST=nas.local NAS_USER=admin NAS_PORT=22 scripts/dev/…
+# PROD_EMAIL évite de taper l'email ; le mot de passe est toujours demandé.
+# Côté local, le compte de dev de run-server.sh (FONTSYNC_DEV_EMAIL /
+# FONTSYNC_DEV_PASSWORD, défaut dev@example.com / fontsync-dev-password).
 
 set -euo pipefail
 
@@ -33,10 +37,10 @@ set -euo pipefail
 NAS_USER="${NAS_USER:-}"
 NAS_HOST="${NAS_HOST:-}"
 NAS_PORT="${NAS_PORT:-}"
-NAS_ENV="${NAS_ENV:-/volume1/docker/fontsync/.env}"
 PROD_API="${PROD_API:-http://localhost:8080}"          # vu DEPUIS le NAS (port hôte du compose)
 LOCAL_API="${LOCAL_API:-http://localhost:8080}"
-LOCAL_TOKEN="${FONTSYNC_TOKEN:-fontsync-dev}"
+LOCAL_EMAIL="${FONTSYNC_DEV_EMAIL:-dev@example.com}"
+LOCAL_PASSWORD="${FONTSYNC_DEV_PASSWORD:-fontsync-dev-password}"
 BATCH="${BATCH:-25}"                                    # fonts par requête /upload
 
 COUNT=300
@@ -74,9 +78,20 @@ ssh_ctl="/tmp/fontsync-snapshot-%r@%h:%p"
 SSH=(ssh -n -p "$NAS_PORT" -o BatchMode=yes -o ConnectTimeout=8
      -o ControlMaster=auto -o ControlPath="$ssh_ctl" -o ControlPersist=120)
 
-# Exécute un snippet bash SUR le NAS, avec le token prod sourcé dans l'env
-# (jamais imprimé). $1 = snippet.
-nas() { "${SSH[@]}" "$NAS_USER@$NAS_HOST" "set -a; . '$NAS_ENV' 2>/dev/null; set +a; $1"; }
+# Exécute un snippet bash SUR le NAS. $1 = snippet.
+nas() { "${SSH[@]}" "$NAS_USER@$NAS_HOST" "$1"; }
+
+# Corps JSON de connexion, construit en Python (échappement sûr).
+login_body() { python3 -c 'import json, sys; print(json.dumps({"email": sys.argv[1], "password": sys.stdin.read()}))' "$1"; }
+
+# Connexion locale (compte de dev) : cookie de session dans un fichier jetable.
+local_jar="$(mktemp)"
+local_login() {
+  printf '%s' "$LOCAL_PASSWORD" | login_body "$LOCAL_EMAIL" \
+    | curl -fsS -m 15 -c "$local_jar" -H 'Content-Type: application/json' \
+        --data-binary @- "$LOCAL_API/api/auth/login" >/dev/null \
+    || err "Connexion locale refusée ($LOCAL_EMAIL) — voir FONTSYNC_DEV_EMAIL / FONTSYNC_DEV_PASSWORD."
+}
 
 # --- 0. Serveur local joignable ? ---
 if ! curl -fsS -m 5 "$LOCAL_API/health" >/dev/null 2>&1; then
@@ -104,7 +119,7 @@ upload_dir() {
       i=$((i+1)); j=$((j+1))
     done
     local resp
-    resp=$(curl -fsS -m 120 -H "Authorization: Bearer $LOCAL_TOKEN" \
+    resp=$(curl -fsS -m 120 -b "$local_jar" -H "Origin: $LOCAL_API" \
                 "${args[@]}" "$LOCAL_API/api/fonts/upload" 2>/dev/null) || {
       warn "Échec d'un lot d'upload (poursuite)."; continue; }
     # Cumule les compteurs renvoyés par FontUploadResponse.
@@ -127,22 +142,51 @@ except Exception:
   log "Ingestion terminée — importées:$imported, doublons:$duplicates, erreurs:$errors"
 }
 
+cleanup() {
+  rm -f "$local_jar" "${list_file:-}" "${sel_file:-}"
+  # Session prod : déconnexion (révoque la session) puis effacement du cookie.
+  if [ -n "${nas_jar:-}" ]; then
+    nas 'curl -fsS -m 15 -b "'"$nas_jar"'" -H "Origin: '"$PROD_API"'" -X POST "'"$PROD_API"'/api/auth/logout" >/dev/null 2>&1; rm -f "'"$nas_jar"'"' || true
+  fi
+}
+trap cleanup EXIT
+
+local_login
+
 if [ "$MODE" = reupload ]; then
   log "Mode --reupload : ré-ingestion de $snap_dir (le NAS n'est pas contacté)."
   upload_dir "$snap_dir"
   exit 0
 fi
 
-# --- 1. Liste des fonts depuis la prod (sur le NAS, token jamais exposé) ---
-log "Connexion au NAS et récupération de la liste des fonts…"
+# --- 1. Connexion à la prod, avec votre compte ---
+prod_email="${PROD_EMAIL:-}"
+[ -n "$prod_email" ] || read -r -p "Email du compte FontSync (prod) : " prod_email
+read -r -s -p "Mot de passe : " prod_password; echo
+# Le corps passe par le stdin de ssh (jamais en argument : pas visible dans ps).
+nas_jar="$(printf '%s' "$prod_password" | login_body "$prod_email" \
+  | ssh -p "$NAS_PORT" -o BatchMode=yes -o ConnectTimeout=8 \
+      -o ControlMaster=auto -o ControlPath="$ssh_ctl" -o ControlPersist=120 \
+      "$NAS_USER@$NAS_HOST" \
+      'jar=$(mktemp) && chmod 600 "$jar" && curl -fsS -m 15 -c "$jar" -H "Content-Type: application/json" --data-binary @- "'"$PROD_API"'/api/auth/login" >/dev/null && echo "$jar" || { rm -f "$jar"; exit 1; }')" \
+  || err "Connexion à la prod refusée (email ou mot de passe incorrect, ou serveur injoignable)."
+unset prod_password
+
+# --- 2. Liste des fonts depuis la prod (sur le NAS, session jamais exposée) ---
+log "Récupération de la liste des fonts…"
 list_file="$(mktemp)"
-trap 'rm -f "$list_file"' EXIT
-nas 'python3 - "'"$PROD_API"'" <<'\''PY'\''
-import os, sys, json, urllib.request
-base, tok = sys.argv[1], os.environ["FONTSYNC_TOKEN"]
+nas 'python3 - "'"$PROD_API"'" "'"$nas_jar"'" <<'\''PY'\''
+import sys, json, urllib.request
+base, jar = sys.argv[1], sys.argv[2]
+# Fichier de cookies de curl : « #HttpOnly_ » préfixe les cookies HttpOnly.
+cookie = ""
+for line in open(jar):
+    parts = line.removeprefix("#HttpOnly_").rstrip("\n").split("\t")
+    if len(parts) == 7 and parts[5] == "fontsync_session":
+        cookie = parts[6]
 def page(p):
     req = urllib.request.Request(f"{base}/api/fonts?per_page=200&page={p}",
-                                 headers={"Authorization": f"Bearer {tok}"})
+                                 headers={"Cookie": f"fontsync_session={cookie}"})
     return json.load(urllib.request.urlopen(req, timeout=30))
 d = page(1); items = d["items"]
 for p in range(2, d["pages"] + 1):
@@ -152,12 +196,11 @@ for f in items:
 PY' > "$list_file"
 
 avail=$(wc -l < "$list_file" | tr -d ' ')
-[ "$avail" -gt 0 ] || err "Liste vide — vérifie le serveur prod et le token sur le NAS."
+[ "$avail" -gt 0 ] || err "Liste vide — vérifie le serveur prod et ton compte."
 log "Prod : $avail fonts disponibles."
 
-# --- 2. Sélection ---
+# --- 3. Sélection ---
 sel_file="$(mktemp)"
-trap 'rm -f "$list_file" "$sel_file"' EXIT
 if [ "$MODE" = all ]; then
   cp "$list_file" "$sel_file"
   log "Sélection : TOUTE la bibliothèque ($avail)."
@@ -171,7 +214,7 @@ else
   log "Sélection : échantillon aléatoire de $(wc -l < "$sel_file" | tr -d ' ') / $avail."
 fi
 
-# --- 3. Téléchargement des blobs (résumable : saute ce qui est déjà là) ---
+# --- 4. Téléchargement des blobs (résumable : saute ce qui est déjà là) ---
 n=$(wc -l < "$sel_file" | tr -d ' '); i=0; skipped=0
 log "Téléchargement vers $snap_dir …"
 while IFS=$'\t' read -r id fn; do
@@ -179,14 +222,14 @@ while IFS=$'\t' read -r id fn; do
   safe="${id:0:8}__$(printf '%s' "$fn" | tr '/ ' '__')"
   out="$snap_dir/$safe"
   if [ -s "$out" ]; then skipped=$((skipped+1)); else
-    nas 'curl -fsS -m 60 -H "Authorization: Bearer $FONTSYNC_TOKEN" "'"$PROD_API"'/api/fonts/'"$id"'/file"' > "$out" \
+    nas 'curl -fsS -m 60 -b "'"$nas_jar"'" "'"$PROD_API"'/api/fonts/'"$id"'/file"' > "$out" \
       || { warn "Échec téléchargement $id ($fn)"; rm -f "$out"; }
   fi
   printf "\r  %d/%d  (déjà présents:%d)" "$i" "$n" "$skipped"
 done < "$sel_file"
 echo
 
-# --- 4. Ré-ingestion locale ---
+# --- 5. Ré-ingestion locale ---
 upload_dir "$snap_dir"
 
-log "Terminé. Ouvre le frontend (http://localhost:8765) et colle le token : $LOCAL_TOKEN"
+log "Terminé. Ouvre le frontend (http://localhost:8765) et connecte-toi avec $LOCAL_EMAIL."

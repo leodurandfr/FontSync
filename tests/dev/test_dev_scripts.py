@@ -1,4 +1,4 @@
-"""Dev scripts are safe by default: no well-known token on a non-loopback interface."""
+"""Dev scripts are safe by default: no well-known password on a non-loopback interface."""
 
 from __future__ import annotations
 
@@ -45,33 +45,22 @@ def _run_server(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.10", "::"])
-def test_refuses_default_token_off_loopback(tmp_path: Path, host: str) -> None:
-    result = _run_server(tmp_path, HOST=host, FONTSYNC_TOKEN="fontsync-dev")
-    assert result.returncode != 0
-    assert "fontsync-dev" in result.stdout
+def test_refuses_default_password_off_loopback(tmp_path: Path, host: str) -> None:
+    result = _run_server(
+        tmp_path, HOST=host, FONTSYNC_DEV_PASSWORD="fontsync-dev-password"
+    )
+    assert result.returncode == 2
+    assert "fontsync-dev-password" in result.stdout
     # Refused before any migration: no database was created.
     assert not (tmp_path / "server" / "fontsync.db").exists()
 
 
-@pytest.mark.parametrize(
-    "token",
-    [
-        " fontsync-dev",
-        "fontsync-dev ",
-        "fontsync-dev\n",
-        "\tfontsync-dev",
-        # Characters Python's str.strip() removes but `tr -d '[:space:]'` keeps.
-        "\x1cfontsync-dev",
-        "fontsync-dev\x1f",
-        "\x85fontsync-dev",
-        " fontsync-dev",
-        "fontsync-dev　",
-    ],
-)
-def test_refuses_default_token_with_surrounding_whitespace(
-    tmp_path: Path, token: str
-) -> None:
-    """The server strips the token: whitespace must not slip past the check."""
-    result = _run_server(tmp_path, HOST="0.0.0.0", FONTSYNC_TOKEN=token)
-    assert result.returncode == 2
-    assert not (tmp_path / "server" / "fontsync.db").exists()
+def test_scripts_no_longer_mention_the_instance_token() -> None:
+    for script in (
+        "scripts/dev/run-server.sh",
+        "scripts/dev/run-agent.sh",
+        "scripts/dev/pull-prod-snapshot.sh",
+        "tests/e2e/preflight.sh",
+        "scripts/restore-from-backup.sh",
+    ):
+        assert "FONTSYNC_TOKEN" not in (REPO_ROOT / script).read_text(), script

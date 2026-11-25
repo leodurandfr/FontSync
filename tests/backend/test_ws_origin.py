@@ -20,15 +20,14 @@ from backend.main import app
 from backend.routers import agent_events
 from backend.routers import ws as ws_router
 from backend.services.ws_manager import WebSocketManager
+from tests.backend.conftest import API_TOKEN as TOKEN
 
-TOKEN = "test-secret-token"
 WS = f"/ws/client?token={TOKEN}"
 LOCAL = "http://localhost:8080"
 
 
 @pytest.fixture(autouse=True)
-def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "fontsync_token", TOKEN)
+def _settings(monkeypatch: pytest.MonkeyPatch, auth_db: object) -> None:
     monkeypatch.setattr(settings, "allowed_hosts", "")
     if hasattr(settings, "allowed_origins"):
         monkeypatch.setattr(settings, "allowed_origins", "")
@@ -200,6 +199,8 @@ def test_ws_accepts_origin_listed_in_allowed_origins(
 
 
 def test_ws_rejects_cookie_only() -> None:
+    """L'ancien cookie `fontsync_token` n'ouvre rien : seul le cookie de session
+    (posé par la connexion) identifie un navigateur."""
     client = TestClient(app)
     client.cookies.set("fontsync_token", TOKEN)
     assert refused(LOCAL, "/ws/client", client=client) == 1008
@@ -207,7 +208,7 @@ def test_ws_rejects_cookie_only() -> None:
 
 def test_ws_query_token_still_accepted_with_a_cookie() -> None:
     client = TestClient(app)
-    client.cookies.set("fontsync_token", "whatever")
+    client.cookies.set("fontsync_session", "whatever")
     connect(LOCAL, client=client)
 
 

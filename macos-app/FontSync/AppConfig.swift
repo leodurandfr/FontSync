@@ -16,16 +16,15 @@ import Foundation
 /// blocs `scan`/`sync`, commentaires) est préservé tel quel.
 struct AppConfig {
     var serverURL: URL?
-    /// HÉRITÉ : token d'instance (`FONTSYNC_TOKEN`), d'avant les comptes.
-    var token: String?
     /// Jeton d'appareil, obtenu en se connectant avec email + mot de passe.
     var deviceToken: String?
     /// Compte du jeton d'appareil (affichage seulement).
     var accountEmail: String?
 
     /// Le secret envoyé en `Authorization: Bearer` : le jeton d'appareil
-    /// d'abord, le token d'instance hérité seulement à défaut (comme l'agent).
-    var authToken: String? { deviceToken ?? token }
+    /// (comme l'agent). Une ancienne clé `server.token`, d'avant les comptes,
+    /// est ignorée.
+    var authToken: String? { deviceToken }
 
     /// Chemin du fichier de config, en respectant `FONTSYNC_HOME` comme l'agent.
     static var configFileURL: URL {
@@ -68,9 +67,6 @@ struct AppConfig {
         if let url = server["url"], let parsed = URL(string: url) {
             config.serverURL = parsed
         }
-        if let token = server["token"], !token.isEmpty {
-            config.token = token
-        }
         if let deviceToken = server["device_token"], !deviceToken.isEmpty {
             config.deviceToken = deviceToken
         }
@@ -80,7 +76,7 @@ struct AppConfig {
         return config
     }
 
-    /// Mini-parseur YAML limité au bloc `server:` (clés `url`, `token`, …).
+    /// Mini-parseur YAML limité au bloc `server:` (clés `url`, `device_token`, …).
     ///
     /// On n'embarque pas de lib YAML pour deux clés scalaires : on lit le bloc
     /// `server:` et ses lignes indentées `clé: valeur`. Suffisant et sans
@@ -152,7 +148,7 @@ struct AppConfig {
 
     /// Enregistre la connexion à un compte dans `~/.fontsync/config.yaml` :
     /// `server.url`, `server.device_token`, `server.account_email`, et retire
-    /// l'ancien `server.token` (le jeton d'appareil le remplace).
+    /// une éventuelle clé `server.token` d'avant les comptes, devenue inutile.
     ///
     /// L'écriture est chirurgicale : on relit le fichier existant et on remplace
     /// (ou insère) uniquement ces clés dans le bloc `server:`, en conservant le
@@ -192,7 +188,7 @@ struct AppConfig {
     }
 
     /// Cite une valeur scalaire YAML en double-guillemets (échappe `\` et `"`).
-    /// Évite tout casse-tête de quoting (`:`, `#`, espaces) pour URL et token.
+    /// Évite tout casse-tête de quoting (`:`, `#`, espaces) pour URL et jeton.
     private static func yamlQuote(_ value: String) -> String {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")

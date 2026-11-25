@@ -34,6 +34,11 @@ scripts/dev/run-server.sh
 docker compose up
 ```
 
+With option A, a fresh `.dev/` database gets a **dev administrator account**:
+`dev@example.com` / `fontsync-dev-password` (override with
+`FONTSYNC_DEV_EMAIL` / `FONTSYNC_DEV_PASSWORD`). Sign in to the web interface
+with it; the dev agents (`run-agent.sh`) sign in with it on their own.
+
 ### Server + frontend in one command ("dev:full")
 
 To start **server + frontend** together (Ctrl-C stops both):
@@ -71,7 +76,9 @@ device **profile** (`A`, `B`, …). Each profile has, under `.dev/<profile>/`:
 - its own state (config + hash cache + `disabled/`);
 - its own fonts folder (`.dev/<profile>/fonts`);
 - a **distinct hostname** → the server sees it as a separate device
-  (registration is an upsert by hostname).
+  (registration is an upsert by hostname);
+- its own device session: on first use, the profile signs in with the dev
+  account (`run-agent.sh A login` to sign it in again by hand).
 
 This relies on environment variables that are neutral in production
 (resolved in [`agent/paths.py`](agent/paths.py) and `agent/config.py`):
@@ -127,7 +134,7 @@ cd frontend && npm install && npm run dev   # proxies to localhost:8080
 ## 6. Testing with a real 2nd Mac
 
 > ⚠️ **Never on a production agent Mac.** The steps below overwrite
-> `~/.fontsync/config.yaml` (server, token, `device_id`) and, with `auto_pull`,
+> `~/.fontsync/config.yaml` (server, device token, `device_id`) and, with `auto_pull`,
 > install fonts into `~/Library/Fonts`: on a Mac that syncs with the production
 > server, that replaces its configuration and touches its real fonts. Use a
 > **dedicated macOS account** (e.g. `fontsync-e2e`) on each Mac, pointed at a
@@ -146,8 +153,9 @@ this Mac acts as the server on the LAN, and the other Mac connects its agent to 
 ```bash
 tailscale ip -4                     # this Mac's tailnet IP (or LAN IP: `ipconfig getifaddr en0`)
 HOST=<tailnet IP> scripts/dev/run-server.sh   # reuses the already-populated .dev/ database
-# Off loopback the script refuses the public `fontsync-dev` token and prints a
-# random one instead: give it to the 2nd Mac's agent below.
+# Off loopback the dev account (dev@example.com) never keeps the public
+# password: the script prints a random one for this session, to type on the
+# 2nd Mac below.
 ```
 
 macOS may ask you to allow incoming connections → accept.
@@ -160,7 +168,6 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # provides `fontsync-agent
 mkdir -p ~/.fontsync && cat > ~/.fontsync/config.yaml <<YAML
 server:
   url: http://192.0.2.172:8080        # tailnet (or LAN) IP of the 1st Mac
-  token: <token printed by run-server.sh>   # random token of that session
   device_id: null
 scan:
   directories: ['~/Library/Fonts', '/Library/Fonts']
@@ -169,6 +176,7 @@ sync:
   auto_push: true
   auto_pull: true
 YAML
+.venv/bin/fontsync-agent login --email dev@example.com   # password printed by run-server.sh
 .venv/bin/fontsync-agent sync          # pushes its fonts + pulls the server's
 .venv/bin/fontsync-agent listen        # (optional) real-time reactive sync
 ```

@@ -1,4 +1,4 @@
-"""The instance token passed as `?token=` never reaches uvicorn's logs in clear.
+"""A session token passed as `?token=` never reaches uvicorn's logs in clear.
 
 Importing `backend.main` installs a filter on `uvicorn.error` (WebSocket
 handshake lines) and `uvicorn.access` (request lines, 5-tuple args unpacked by

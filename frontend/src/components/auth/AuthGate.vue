@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { KeyRound, Loader2, Type } from "lucide-vue-next";
+import { Loader2, Type } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,7 @@ import { AuthError, useAuthStore } from "@/stores/auth";
 
 /**
  * Écran d'avant l'application : création du premier administrateur, connexion,
- * acceptation d'une invitation (`/invite#<jeton>`), ou, pour la migration,
- * connexion par le token d'instance hérité.
+ * ou acceptation d'une invitation (`/invite#<jeton>`).
  */
 const props = defineProps<{ invitationToken?: string | null }>();
 const emit = defineEmits<{ invitationDone: [] }>();
@@ -21,18 +20,15 @@ const auth = useAuthStore();
 const email = ref("");
 const password = ref("");
 const confirm = ref("");
-const legacyToken = ref("");
-const useToken = ref(false);
 const busy = ref(false);
 const errorMsg = ref<string | null>(null);
 const invitation = ref<{ email: string | null; role: string } | null>(null);
 
 const MIN_PASSWORD = 10;
 
-const mode = computed<"invite" | "setup" | "token" | "login">(() => {
+const mode = computed<"invite" | "setup" | "login">(() => {
   if (props.invitationToken) return "invite";
   if (auth.phase === "setup") return "setup";
-  if (useToken.value) return "token";
   return "login";
 });
 
@@ -44,8 +40,6 @@ const subtitle = computed(() => {
         : t("auth.inviteSubtitle");
     case "setup":
       return t("auth.setupSubtitle");
-    case "token":
-      return t("auth.tokenSubtitle");
     default:
       return t("auth.loginSubtitle");
   }
@@ -53,14 +47,6 @@ const subtitle = computed(() => {
 
 const needsNewPassword = computed(
   () => mode.value === "setup" || mode.value === "invite",
-);
-
-// Serveur déjà installé : prouver qu'on en est le propriétaire. Le token déjà
-// mémorisé par ce navigateur suffit, sans rien ressaisir.
-const showTokenField = computed(
-  () =>
-    mode.value === "token" ||
-    (mode.value === "setup" && auth.setupNeedsLegacyToken && !auth.token),
 );
 
 onMounted(async () => {
@@ -76,9 +62,7 @@ function describe(err: unknown): string {
   if (err instanceof AuthError) {
     if (err.status === 429) return t("auth.errors.tooManyAttempts");
     if (err.status === 401) {
-      return mode.value === "token"
-        ? t("auth.errors.invalidToken")
-        : t("auth.errors.badCredentials");
+      return t("auth.errors.badCredentials");
     }
     return err.message;
   }
@@ -107,9 +91,7 @@ async function submit() {
       );
       emit("invitationDone");
     } else if (mode.value === "setup") {
-      await auth.setup(email.value.trim(), password.value, legacyToken.value);
-    } else if (mode.value === "token") {
-      await auth.loginWithToken(legacyToken.value);
+      await auth.setup(email.value.trim(), password.value);
     } else {
       await auth.login(email.value.trim(), password.value);
     }
@@ -159,7 +141,7 @@ async function submit() {
           />
         </div>
 
-        <div v-if="mode !== 'token'" class="space-y-1.5">
+        <div class="space-y-1.5">
           <Label for="password">{{
             needsNewPassword ? t("auth.newPassword") : t("auth.password")
           }}</Label>
@@ -190,22 +172,6 @@ async function submit() {
           </p>
         </div>
 
-        <div v-if="showTokenField" class="space-y-1.5">
-          <Label for="token">{{ t("auth.instanceToken") }}</Label>
-          <Input
-            id="token"
-            v-model="legacyToken"
-            type="password"
-            autocomplete="off"
-            placeholder="FONTSYNC_TOKEN"
-            :disabled="busy"
-            required
-          />
-          <p v-if="mode === 'setup'" class="text-xs text-muted-foreground">
-            {{ t("auth.setupTokenHint") }}
-          </p>
-        </div>
-
         <p v-if="errorMsg" class="text-sm text-destructive" role="alert">
           {{ errorMsg }}
         </p>
@@ -226,29 +192,12 @@ async function submit() {
         </Button>
       </form>
 
-      <div
-        v-if="mode === 'login' || mode === 'token'"
-        class="space-y-2 text-center text-xs text-muted-foreground"
+      <p
+        v-if="mode === 'login'"
+        class="text-center text-xs text-muted-foreground"
       >
-        <button
-          v-if="mode === 'login' && auth.legacyTokenEnabled"
-          type="button"
-          class="inline-flex items-center gap-1.5 underline-offset-2 hover:underline"
-          @click="useToken = true"
-        >
-          <KeyRound class="h-3 w-3" />
-          {{ t("auth.useToken") }}
-        </button>
-        <button
-          v-else-if="mode === 'token'"
-          type="button"
-          class="underline-offset-2 hover:underline"
-          @click="useToken = false"
-        >
-          {{ t("auth.useAccount") }}
-        </button>
-        <p v-if="mode === 'login'">{{ t("auth.forgotPassword") }}</p>
-      </div>
+        {{ t("auth.forgotPassword") }}
+      </p>
     </div>
   </div>
 </template>

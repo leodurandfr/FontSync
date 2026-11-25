@@ -245,7 +245,7 @@ def _capture_stream_headers(monkeypatch: Any, config: AgentConfig) -> dict:
 
 def test_stream_signals_sends_bearer_header(monkeypatch: Any) -> None:
     headers = _capture_stream_headers(
-        monkeypatch, AgentConfig(server_url="http://nas:8080", server_token="sek")
+        monkeypatch, AgentConfig(server_url="http://nas:8080", device_token="sek")
     )
     assert headers["Authorization"] == "Bearer sek"
     assert headers["Accept"] == "text/event-stream"
@@ -416,16 +416,6 @@ def test_unserved_request_gets_a_second_kickstart() -> None:
     assert [c[0] for c in runner.calls].count("kickstart") == 2
 
 
-def test_stream_signals_prefers_the_device_token(monkeypatch: Any) -> None:
-    headers = _capture_stream_headers(
-        monkeypatch,
-        AgentConfig(
-            server_url="http://nas:8080", server_token="legacy", device_token="dev"
-        ),
-    )
-    assert headers["Authorization"] == "Bearer dev"
-
-
 def test_each_connection_rereads_the_token(tmp_path: Any, monkeypatch: Any) -> None:
     """Se connecter à un compte change le jeton sans redémarrer `listen`."""
     from agent import config as config_module
@@ -433,12 +423,11 @@ def test_each_connection_rereads_the_token(tmp_path: Any, monkeypatch: Any) -> N
     cfg_dir = tmp_path / ".fontsync"
     monkeypatch.setattr(config_module, "CONFIG_DIR", cfg_dir)
     monkeypatch.setattr(config_module, "CONFIG_FILE", cfg_dir / "config.yaml")
-    running = AgentConfig(server_url="http://nas:8080", server_token="legacy")
+    running = AgentConfig(server_url="http://nas:8080")
     running.save()
 
     saved = AgentConfig.load()
     saved.device_token = "fresh"
-    saved.server_token = None
     saved.save()
 
     reloaded = listen_command._reload_auth(running)

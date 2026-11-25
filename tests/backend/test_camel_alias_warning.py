@@ -21,12 +21,11 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend.config import settings
 from backend.database import get_db
 from backend.main import app
 from backend.models.base import Base
-
-_TOKEN = "test-token"
+from tests.backend.conftest import API_TOKEN as _TOKEN
+from tests.backend.conftest import seed_session
 
 
 @pytest_asyncio.fixture
@@ -36,7 +35,6 @@ async def client(
     """Client HTTP ASGI authentifié, sur une base SQLite in-memory (override)."""
     # Auth par token (P1) : tout `/api/*` exige le Bearer ; on fixe un token
     # connu et on le pose par défaut sur le client.
-    monkeypatch.setattr(settings, "fontsync_token", _TOKEN)
     engine = create_async_engine(
         "sqlite+aiosqlite://",
         poolclass=StaticPool,
@@ -62,6 +60,8 @@ async def client(
         async with session_maker() as session:
             yield session
 
+    async with session_maker() as db:
+        await seed_session(db, _TOKEN)
     app.dependency_overrides[get_db] = _override_get_db
     transport = ASGITransport(app=app)
     async with AsyncClient(

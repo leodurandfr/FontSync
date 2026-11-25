@@ -18,7 +18,7 @@ import UserNotifications
 ///   augmente entre deux sondes ⇒ de nouvelles polices ont été importées et
 ///   l'agent local les a pull/installées ;
 /// - **erreurs de sync** : une connexion qui marchait bascule vers
-///   « injoignable » / « token invalide », ou une commande `sync` directe échoue.
+///   « injoignable » / « session révoquée », ou une commande `sync` directe échoue.
 ///
 /// Les appels sont **sans-effet** hors bundle (tests, exécution CLI) : on
 /// court-circuite avant de toucher `UNUserNotificationCenter.current()`, qui
@@ -73,7 +73,7 @@ enum NotificationManager {
             identifier: "fontsync.error.offline")
     }
 
-    /// Notifie un rejet d'authentification (session de ce Mac révoquée, compte désactivé, ou token d'instance retiré).
+    /// Notifie un rejet d'authentification (session de ce Mac révoquée, compte désactivé).
     static func notifySyncUnauthorized() {
         notify(
             title: "FontSync — synchronisation interrompue",

@@ -2,24 +2,14 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import type { AuthStatus, Me } from "@/types/api";
 
-/** Token d'instance HÉRITÉ (`FONTSYNC_TOKEN`), d'avant les comptes. */
-const STORAGE_KEY = "fontsync_token";
+/** Ancienne clé du token d'instance, retirée au chargement (nettoyage). */
+const FORMER_TOKEN_KEY = "fontsync_token";
 
-function readStoredToken(): string | null {
+function forgetFormerToken() {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    localStorage.removeItem(FORMER_TOKEN_KEY);
   } catch {
-    // localStorage indisponible (mode privé, sandbox) → pas de token mémorisé.
-    return null;
-  }
-}
-
-function storeToken(value: string | null) {
-  try {
-    if (value) localStorage.setItem(STORAGE_KEY, value);
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Pas de persistance possible : la valeur reste valable pour la session.
+    // localStorage indisponible (mode privé, sandbox) : rien à nettoyer.
   }
 }
 
@@ -43,16 +33,12 @@ export class AuthError extends Error {
  * - `ready` : une identité valide, l'application s'affiche.
  *
  * La session navigateur vit dans un cookie `HttpOnly` posé par le serveur : le
- * JavaScript ne voit jamais le secret. Le token d'instance hérité reste géré
- * (en `Authorization: Bearer`) le temps de la migration ; il est oublié dès
- * qu'une vraie session est ouverte.
+ * JavaScript ne voit jamais le secret.
  */
 export const useAuthStore = defineStore("auth", () => {
-  const token = ref<string | null>(readStoredToken());
+  forgetFormerToken();
   const phase = ref<"checking" | "setup" | "login" | "ready">("checking");
   const me = ref<Me | null>(null);
-  const setupNeedsLegacyToken = ref(false);
-  const legacyTokenEnabled = ref(false);
   const unreachable = ref(false);
 
   const needsAuth = computed(() => phase.value !== "ready");
@@ -61,15 +47,7 @@ export const useAuthStore = defineStore("auth", () => {
     () => me.value?.role === "admin" && me.value.kind !== "device",
   );
 
-  function headers(extra?: HeadersInit): Headers {
-    const h = new Headers(extra);
-    if (token.value) h.set("Authorization", `Bearer ${token.value}`);
-    return h;
-  }
-
   function apply(status: AuthStatus) {
-    setupNeedsLegacyToken.value = status.setupNeedsLegacyToken;
-    legacyTokenEnabled.value = status.legacyTokenEnabled;
     me.value = status.me;
     if (status.setupRequired) phase.value = "setup";
     else if (status.me) phase.value = "ready";
@@ -79,7 +57,7 @@ export const useAuthStore = defineStore("auth", () => {
   /** Relit l'état de l'instance et l'identité courante. */
   async function refresh(): Promise<void> {
     try {
-      const res = await fetch("/api/auth/status", { headers: headers() });
+      const res = await fetch("/api/auth/status");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       unreachable.value = false;
       apply((await res.json()) as AuthStatus);
@@ -92,7 +70,7 @@ export const useAuthStore = defineStore("auth", () => {
   async function post(path: string, body: unknown): Promise<Response> {
     const res = await fetch(path, {
       method: "POST",
-      headers: headers({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -106,25 +84,14 @@ export const useAuthStore = defineStore("auth", () => {
     return res;
   }
 
-  /** Une vraie session est ouverte : le token hérité n'est plus utile ici. */
-  async function onSignedIn() {
-    token.value = null;
-    storeToken(null);
+  async function setup(email: string, password: string) {
+    await post("/api/auth/setup", { email, password });
     await refresh();
-  }
-
-  async function setup(email: string, password: string, legacyToken?: string) {
-    await post("/api/auth/setup", {
-      email,
-      password,
-      legacyToken: legacyToken || token.value || undefined,
-    });
-    await onSignedIn();
   }
 
   async function login(email: string, password: string) {
     await post("/api/auth/login", { email, password });
-    await onSignedIn();
+    await refresh();
   }
 
   async function acceptInvitation(
@@ -137,7 +104,7 @@ export const useAuthStore = defineStore("auth", () => {
       email: email || undefined,
       password,
     });
-    await onSignedIn();
+    await refresh();
   }
 
   async function lookupInvitation(
@@ -149,22 +116,8 @@ export const useAuthStore = defineStore("auth", () => {
     return res.json();
   }
 
-  /** Connexion par le token d'instance hérité (migration). */
-  async function loginWithToken(value: string) {
-    const candidate = value.trim();
-    const res = await fetch("/api/stats", {
-      headers: { Authorization: `Bearer ${candidate}` },
-    });
-    if (!res.ok) throw new AuthError(`HTTP ${res.status}`, res.status);
-    token.value = candidate;
-    storeToken(candidate);
-    await refresh();
-  }
-
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
-    token.value = null;
-    storeToken(null);
     me.value = null;
     await refresh();
   }
@@ -176,11 +129,8 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   return {
-    token,
     phase,
     me,
-    setupNeedsLegacyToken,
-    legacyTokenEnabled,
     unreachable,
     needsAuth,
     isAdmin,
@@ -189,7 +139,6 @@ export const useAuthStore = defineStore("auth", () => {
     login,
     acceptInvitation,
     lookupInvitation,
-    loginWithToken,
     logout,
     markUnauthorized,
   };

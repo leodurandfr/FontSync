@@ -22,22 +22,17 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend.config import settings
 from backend.database import get_db
 from backend.main import app
 from backend.models.base import Base
 from backend.routers import fonts as fonts_router
 from backend.services.storage import FilesystemStorage
 from backend.services.ws_manager import WebSocketManager
+from tests.backend.conftest import API_TOKEN as TOKEN
+from tests.backend.conftest import seed_session
 
-TOKEN = "test-secret-token"
 _AUTH = {"Authorization": f"Bearer {TOKEN}"}
 _MISSING_UUID = "00000000-0000-0000-0000-000000000000"
-
-
-@pytest.fixture(autouse=True)
-def _set_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "fontsync_token", TOKEN)
 
 
 @pytest.fixture
@@ -77,6 +72,8 @@ async def client(tmp_path, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
             yield session
 
     storage = FilesystemStorage(base_path=str(tmp_path / "storage"))
+    async with session_maker() as db:
+        await seed_session(db, TOKEN)
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[fonts_router.get_storage] = lambda: storage
 

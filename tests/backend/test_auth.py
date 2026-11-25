@@ -1,7 +1,7 @@
-"""Auth par token partagé d'instance (P1 — PLAN-PUBLICATION.md).
+"""Contrat de `backend.auth` bout-en-bout sur l'app réelle.
 
-Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
-- tout `/api/*` exige le token (`401` sans / avec mauvais token, `200` avec),
+L'identité est une session de compte (`conftest.seed_session`) :
+- tout `/api/*` exige une session (`401` sans / avec mauvais token, `200` avec),
   vérifié route par route par énumération de l'app (M-49) ; REST n'accepte
   que l'en-tête `Authorization` ;
 - `/health` reste public, et aucune autre route publique n'apparaît en douce ;
@@ -10,7 +10,7 @@ Vérifie le contrat de `backend.auth` bout-en-bout sur l'app réelle :
   param ou en-tête (le navigateur ne peut pas poser d'en-tête au handshake) ;
   plus de cookie, et l'Origin est contrôlé (P1-5f, test_ws_origin.py) ;
 - les quasi-égalités (préfixe, suffixe, casse, substitution) sont refusées ;
-- sans `FONTSYNC_TOKEN` (ou blanc), aucun token hérité n'ouvre l'API ;
+- l'ancien `FONTSYNC_TOKEN` n'ouvre plus rien ;
 - les seules routes `/api` publiques sont les entrées de `/api/auth`.
 """
 
@@ -28,22 +28,16 @@ from fastapi import WebSocketDisconnect
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute, iter_route_contexts
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.testclient import TestClient
 
 from backend import auth
 from backend.config import settings
-from backend.database import get_db
 from backend.main import app
-from backend.models.base import Base
 from backend.routers import agent_events
 from backend.routers import ws as ws_router
 from backend.services.ws_manager import WebSocketManager
-
-TOKEN = "test-secret-token"
+from tests.backend.conftest import API_TOKEN as TOKEN
 
 # Échantillon de GET qui répondent 200 avec le bon token. La couverture du
 # rejet, elle, s'obtient par énumération de `app.routes` (plus bas, M-49) :
@@ -61,9 +55,8 @@ SYNC_PULL_PATH = f"/api/sync/pull/{_MISSING_UUID}?device_id={_MISSING_UUID}"
 
 
 @pytest.fixture(autouse=True)
-def _set_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Token d'instance connu + repli généré réinitialisé pour l'isolation."""
-    monkeypatch.setattr(settings, "fontsync_token", TOKEN)
+def _set_token(auth_db: object) -> None:
+    """Base in-memory avec un admin dont la session est `TOKEN`."""
 
 
 @pytest.fixture(autouse=True)
@@ -81,39 +74,11 @@ def _fresh_ws_manager(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
-    """Client HTTP ASGI avec une base SQLite in-memory injectée via override."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _fk_on(dbapi_connection, _record) -> None:
-        cursor = dbapi_connection.cursor()
-        try:
-            cursor.execute("PRAGMA foreign_keys=ON")
-        finally:
-            cursor.close()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_maker = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-
-    async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
-        async with session_maker() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
+async def client(auth_db: object) -> AsyncGenerator[AsyncClient, None]:
+    """Client HTTP ASGI sur la base in-memory de `auth_db`."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-    app.dependency_overrides.clear()
-    await engine.dispose()
 
 
 def _bearer(token: str = TOKEN) -> dict[str, str]:
@@ -127,7 +92,7 @@ def _bearer(token: str = TOKEN) -> dict[str, str]:
 async def test_health_is_public(client: AsyncClient) -> None:
     resp = await client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json() == {"status": "ok", "maintenance": False}
 
 
 @pytest.mark.asyncio
@@ -230,17 +195,16 @@ def test_ws_client_rejects_cookie_only() -> None:
             pass
 
 
-# ---- Sans FONTSYNC_TOKEN : plus de token généré, seuls les comptes ouvrent ----
+# ---- L'ancien token d'instance n'ouvre plus rien ----
 
 
 @pytest.mark.asyncio
-async def test_no_token_configured_means_no_legacy_access(
+async def test_former_instance_token_opens_nothing(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "fontsync_token", "")
-    assert auth.legacy_token() is None
-    assert not auth.token_is_valid("")
-    resp = await client.get("/api/stats", headers=_bearer("anything"))
+    """Un `FONTSYNC_TOKEN` resté dans l'environnement est ignoré."""
+    monkeypatch.setenv("FONTSYNC_TOKEN", "former-instance-token")
+    resp = await client.get("/api/stats", headers=_bearer("former-instance-token"))
     assert resp.status_code == 401
 
 
@@ -385,12 +349,6 @@ def test_auth_dependencies_are_never_overridden() -> None:
 _NEAR_MISSES = [TOKEN[:-1], TOKEN + "x", TOKEN.upper(), TOKEN[1:], TOKEN[:-1] + "X"]
 
 
-@pytest.mark.parametrize("candidate", [*_NEAR_MISSES, " " + TOKEN, ""])
-def test_token_is_valid_rejects_near_misses(candidate: str) -> None:
-    assert auth.token_is_valid(TOKEN)
-    assert not auth.token_is_valid(candidate)
-
-
 @pytest.mark.asyncio
 async def test_rest_ignores_query_and_cookie_tokens(client: AsyncClient) -> None:
     """REST : en-tête seulement. Un token en query (journaux, historique) ou
@@ -401,18 +359,11 @@ async def test_rest_ignores_query_and_cookie_tokens(client: AsyncClient) -> None
     assert resp.status_code == 401
 
 
-def test_blank_configured_token_is_never_the_server_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`FONTSYNC_TOKEN="   "` vaut « absent » : une suite d'espaces n'ouvre rien."""
-    monkeypatch.setattr(settings, "fontsync_token", "   ")
-    assert auth.legacy_token() is None
-    assert not auth.token_is_valid("   ")
-
-
 @pytest.mark.asyncio
-async def test_non_ascii_token_is_rejected_not_an_error() -> None:
-    assert not auth.token_is_valid(TOKEN + "é")
+async def test_non_ascii_token_is_rejected_not_an_error(client: AsyncClient) -> None:
+    value = ("Bearer " + TOKEN[:-1] + "é").encode("latin-1")
+    resp = await client.get("/api/stats", headers={"Authorization": value})
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -455,7 +406,7 @@ def test_ws_client_rejects_near_misses(candidate: str, via: str) -> None:
     elif via == "header":
         headers = _bearer(candidate)
     else:
-        client.cookies.set("fontsync_token", candidate)
+        client.cookies.set("fontsync_session", candidate)
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect(url, headers=headers):
             pass

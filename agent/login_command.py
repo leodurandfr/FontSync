@@ -14,8 +14,7 @@
 Échange email + mot de passe contre un **jeton d'appareil**
 (`POST /api/auth/device-login`), rangé dans `server.device_token` de
 `~/.fontsync/config.yaml`. Le mot de passe n'est jamais écrit sur le disque.
-Le token d'instance hérité, s'il y en avait un, est retiré : le jeton
-d'appareil le remplace, et il se révoque seul depuis l'interface web.
+Le jeton se révoque seul depuis l'interface web.
 
 L'app Mac fait la même chose depuis son assistant ; cette commande sert aux
 installations sans app (dev, scripts).
@@ -73,17 +72,13 @@ def device_login(
     if resp.status_code == 429:
         raise LoginError("Trop d'essais. Réessayez dans une minute.")
     if resp.status_code == 404:
-        raise LoginError(
-            "Ce serveur ne connaît pas les comptes : mettez-le à jour, ou "
-            "utilisez le token d'instance (`server.token`)."
-        )
+        raise LoginError("Ce serveur ne connaît pas les comptes : mettez-le à jour.")
     if resp.status_code != 201:
         raise LoginError(f"Connexion refusée (HTTP {resp.status_code}).")
 
     body = resp.json()
     config.device_token = body["token"]
     config.account_email = body.get("user", {}).get("email") or email
-    config.server_token = None
     config.save()
     return config.account_email
 

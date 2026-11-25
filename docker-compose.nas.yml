@@ -8,10 +8,10 @@
 #   1. Générer le secret du bouton « Mettre à jour » dans un fichier .env à
 #      côté de ce compose :
 #        (set -C; printf 'WATCHTOWER_TOKEN=%s\n' "$(openssl rand -base64 32)" > .env)
-#      La commande refuse d'écraser un .env existant : déjà installé, gardez
-#      votre FONTSYNC_TOKEN tant que des Mac l'utilisent encore.
+#      La commande refuse d'écraser un .env existant.
 #   2. docker compose -f docker-compose.nas.yml up -d
-#   3. Ouvrir http://<ip-du-nas>:8080 et créer le compte administrateur.
+#   3. Ouvrir http://<ip-du-nas>:8080 et créer le compte administrateur, tout
+#      de suite : la première personne qui ouvre la page le devient.
 #
 # ⚠️  HTTP en clair : à réserver au LAN, ou à placer derrière un reverse-proxy
 #     TLS (cf. README, section « Transport & sécurité réseau »).
@@ -25,11 +25,9 @@ services:
     ports:
       - "8080:8000"          # hôte:conteneur — ajustez le port hôte si occupé
     environment:
-      # HÉRITÉ : token d'instance d'avant les comptes (droits admin). Vide sur
-      # une nouvelle installation : l'API s'ouvre par compte, et le premier
-      # écran crée l'administrateur. Sur une installation existante, gardez-le
-      # dans .env le temps que chaque Mac se connecte avec un compte.
-      FONTSYNC_TOKEN: ${FONTSYNC_TOKEN:-}
+      # Maintenance pendant une restauration (scripts/restore-from-backup.sh) :
+      # les Mac sont refusés, l'interface web reste ouverte. Vide en temps normal.
+      FONTSYNC_MAINTENANCE: ${FONTSYNC_MAINTENANCE:-false}
       DATABASE_URL: sqlite+aiosqlite:////data/fontsync.db
       STORAGE_BACKEND: filesystem
       FONT_STORAGE_PATH: /fonts

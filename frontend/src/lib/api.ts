@@ -11,9 +11,7 @@ export class UnauthorizedError extends Error {
 /**
  * `fetch` authentifié.
  *
- * La session navigateur voyage seule, dans son cookie `HttpOnly`. Le token
- * d'instance hérité, s'il est encore mémorisé, est ajouté en
- * `Authorization: Bearer`. Un `401` marque la session comme non autorisée
+ * La session navigateur voyage seule, dans son cookie `HttpOnly`. Un `401` marque la session comme non autorisée
  * (l'écran de connexion reprend la main) puis lève `UnauthorizedError`. Les autres réponses — y
  * compris les erreurs HTTP non-401 — sont renvoyées telles quelles, à charge
  * de l'appelant de vérifier `res.ok`. Le `signal` d'annulation et toutes les
@@ -24,12 +22,7 @@ export async function apiFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const auth = useAuthStore();
-  const headers = new Headers(init.headers);
-  if (auth.token) {
-    headers.set("Authorization", `Bearer ${auth.token}`);
-  }
-
-  const res = await fetch(input, { ...init, headers });
+  const res = await fetch(input, init);
 
   if (res.status === 401) {
     auth.markUnauthorized();
