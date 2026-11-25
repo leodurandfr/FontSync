@@ -24,7 +24,7 @@ defineEmits<{ click: [] }>();
       cn(
         'mb-0.5 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors',
         active
-          ? 'bg-selection font-medium text-selection-foreground'
+          ? 'bg-accent font-medium text-accent-foreground'
           : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
       )
     "
@@ -34,7 +34,7 @@ defineEmits<{ click: [] }>();
     <span
       v-if="count !== undefined"
       class="text-[11px] tabular-nums"
-      :class="active ? 'text-selection-foreground/70' : 'text-muted-foreground'"
+      :class="active ? 'text-accent-foreground/70' : 'text-muted-foreground'"
       >{{ count }}</span
     >
   </button>

@@ -230,7 +230,7 @@ function startResize(e: PointerEvent) {
             class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onDuplicates
-                ? 'bg-selection font-medium text-selection-foreground'
+                ? 'bg-accent font-medium text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
@@ -244,7 +244,7 @@ function startResize(e: PointerEvent) {
             class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onTrash
-                ? 'bg-selection font-medium text-selection-foreground'
+                ? 'bg-accent font-medium text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
@@ -258,8 +258,7 @@ function startResize(e: PointerEvent) {
       <!--
         Une seule rangée d'icônes (libellé en infobulle + aria-label) : le bas
         du panneau prend le moins de hauteur possible. Le bouton de thème
-        bascule clair/sombre ; un survol prolongé ou un appui long ouvre les
-        palettes de couleurs.
+        bascule clair/sombre.
       -->
       <div
         class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-2"
@@ -280,7 +279,7 @@ function startResize(e: PointerEvent) {
           class="flex size-8 items-center justify-center rounded-md transition-colors"
           :class="
             onSettings
-              ? 'bg-selection text-selection-foreground'
+              ? 'bg-accent text-accent-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
           "
           :title="t('sidebar.settings')"
