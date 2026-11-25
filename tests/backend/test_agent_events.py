@@ -9,6 +9,7 @@ diffuse bien `device.connected` à la première connexion SSE et
 
 import pytest
 
+from backend.auth import LEGACY_PRINCIPAL
 from backend.routers import agent_events
 from backend.services.ws_manager import WebSocketManager
 
@@ -38,7 +39,9 @@ def manager(monkeypatch) -> WebSocketManager:
 
 async def _open_stream(device_id: str):
     """Ouvre le flux et consomme le 1er event (subscribe + présence)."""
-    response = await agent_events.agent_events(device_id, _FakeRequest())
+    response = await agent_events.agent_events(
+        device_id, _FakeRequest(), LEGACY_PRINCIPAL
+    )
     gen = response.body_iterator
     first = await gen.__anext__()
     return gen, first
@@ -115,7 +118,9 @@ async def test_cancel_during_initial_broadcast_unsubscribes(monkeypatch) -> None
     monkeypatch.setattr(mgr, "broadcast_to_clients", _slow_broadcast)
     monkeypatch.setattr(agent_events, "ws_manager", mgr)
 
-    response = await agent_events.agent_events("dev-1", _FakeRequest())
+    response = await agent_events.agent_events(
+        "dev-1", _FakeRequest(), LEGACY_PRINCIPAL
+    )
     gen = response.body_iterator
     first = asyncio.ensure_future(gen.__anext__())
     await asyncio.wait_for(entered.wait(), 2)

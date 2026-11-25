@@ -7,11 +7,23 @@ class Settings(BaseSettings):
     storage_backend: str = "filesystem"
     font_storage_path: str = "/data/fonts"
 
-    # Token partagé d'instance (P1, PLAN-PUBLICATION.md). Secret unique vérifié
-    # sur tout `/api/*`. Vide → un token est généré et loggé au boot (cf.
-    # `backend.auth`) pour ne jamais démarrer un serveur ouvert. Pas de comptes
-    # utilisateurs (ça reste le mode cloud / Phase 7).
+    # Token d'instance HÉRITÉ (d'avant les comptes). Défini, il reste accepté
+    # partout avec les droits admin, le temps que chaque Mac passe à son jeton
+    # d'appareil ; on le retire du `.env` ensuite. Vide (nouvelle installation)
+    # = seuls les comptes ouvrent l'API (cf. `backend.auth`).
     fontsync_token: str = ""
+
+    # ---------- Comptes ----------
+
+    # Création du premier admin sans passer par l'interface (installation
+    # scriptée). Lus au démarrage, seulement si aucun compte n'existe ; ignorés
+    # ensuite (changer le mot de passe se fait dans l'interface ou en CLI).
+    fontsync_admin_email: str = ""
+    fontsync_admin_password: str = ""
+    # Durée d'une session navigateur sans activité. Elle glisse à l'usage.
+    web_session_days: int = Field(default=30, ge=1)
+    # Durée de validité d'un lien d'invitation.
+    invitation_days: int = Field(default=7, ge=1)
 
     # Noms d'hôte acceptés dans l'en-tête `Host` en plus des défauts (IP
     # littérales, `localhost`, `*.local`, `*.ts.net`) : liste séparée par des

@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from backend.auth import Principal, assert_device_access, require_auth
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.font import Font
@@ -67,6 +68,7 @@ async def _get_device_or_404(device_id: uuid.UUID, db: AsyncSession) -> Device:
 async def delta_sync(
     body: DeltaSyncRequest,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> DeltaSyncResponse:
     """Delta sync : compare les fonts de l'agent avec le serveur.
 
@@ -103,6 +105,7 @@ async def delta_sync(
     par `compute_delta`.
     """
     device = await _get_device_or_404(body.device_id, db)
+    assert_device_access(principal, device)
     declared = {entry.hash for entry in body.fonts}
     # Le delta est le sync lui-même : l'agent est passé (cf. `sync_overdue`).
     note_sync_activity(device)
@@ -166,6 +169,7 @@ async def push_font(
     local_path: str = Form(""),
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
+    principal: Principal = Depends(require_auth),
 ) -> PushResponse:
     """Push d'une font depuis un agent vers le serveur.
 
@@ -181,6 +185,7 @@ async def push_font(
     """
     # Vérifier que le device existe
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     # Un premier sync de milliers de polices dure plus que le seuil de retard :
     # chaque push compte comme un passage (écrit avec l'association plus bas).
     note_sync_activity(device)
@@ -270,6 +275,7 @@ async def pull_font(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
+    principal: Principal = Depends(require_auth),
 ) -> Response:
     """Retourne le fichier font pour installation par l'agent.
 
@@ -281,6 +287,7 @@ async def pull_font(
     """
     # Vérifier que le device existe
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     # Même raison que pour le push ; un pull n'écrit rien d'autre, d'où au
     # plus une écriture par minute.
     if note_sync_activity(device, min_interval=PULL_ACTIVITY_INTERVAL):

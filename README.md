@@ -156,10 +156,11 @@ environment:
   FONTSYNC_TOKEN: "<a long, random secret>"
 ```
 
-If it is **not** set, the server **generates one at startup and logs it**
-(to be retrieved from the container logs) — never an open server by default. The
-browser asks for it on first access and remembers it (`localStorage`); the agent
-reads it from its config (`server.token`). To generate it:
+It is now the **legacy** way in: the server also has **accounts** (an
+administrator created on first access, then invited members, one session per
+browser or Mac). While the token is set, it keeps working with admin rights so
+that existing Macs keep syncing; the agent reads it from its config
+(`server.token`). If it is **not** set, only accounts open the API. To generate it:
 
 ```bash
 openssl rand -base64 32

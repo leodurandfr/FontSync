@@ -18,8 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from backend.auth import Principal, require_admin
 from backend.config import settings
 from backend.schemas.system import BackupHealth, SystemInfo, UpdateResponse
 from backend.services import backup as backup_service
@@ -81,7 +82,9 @@ async def backups_health() -> BackupHealth:
 
 
 @router.post("/update", response_model=UpdateResponse, status_code=202)
-async def trigger_update() -> UpdateResponse:
+async def trigger_update(
+    _admin: Principal = Depends(require_admin),
+) -> UpdateResponse:
     """Demande à Watchtower de tirer la dernière image et de recréer FontSync.
 
     Best-effort par construction : on relaie l'ordre, on ne garantit pas qu'une

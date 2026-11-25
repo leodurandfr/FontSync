@@ -9,6 +9,8 @@ fonttools==4.60.2
 python-multipart==0.0.32
 websockets==14.1
 pydantic-settings==2.7.1
+# Hachage des mots de passe des comptes (argon2id).
+argon2-cffi==25.1.0
 aiofiles==25.1.0
 # Appel sortant vers l'API de Watchtower (mise à jour depuis l'interface).
 httpx==0.28.1

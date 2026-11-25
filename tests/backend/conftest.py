@@ -19,7 +19,6 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend import auth
 from backend.config import settings
 from backend.database import get_db
 from backend.main import app
@@ -184,7 +183,6 @@ AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 @pytest.fixture
 def _api_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "fontsync_token", API_TOKEN)
-    monkeypatch.setattr(auth, "_generated_token", None)
 
 
 @pytest_asyncio.fixture

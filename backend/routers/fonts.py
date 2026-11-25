@@ -12,6 +12,13 @@ from sqlalchemy import asc, delete, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from backend.auth import (
+    Principal,
+    assert_device_access,
+    can_access_device,
+    require_admin,
+    require_auth,
+)
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
@@ -314,6 +321,7 @@ def _to_group_schema(group: DuplicateGroup) -> DuplicateFaceGroup:
 async def resolve_duplicate_faces_endpoint(
     body: ResolveDuplicatesRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> ResolveDuplicatesResponse:
     """Envoie à la corbeille les fichiers en trop. Un seul « oui » pour tout.
 
@@ -431,6 +439,7 @@ async def list_trash(
 async def empty_trash(
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
+    _admin: Principal = Depends(require_admin),
 ) -> PurgeResponse:
     """Vide la corbeille : retire les fichiers du stockage, garde les empreintes.
 
@@ -479,6 +488,7 @@ async def empty_trash(
 @router.post("/trash/confirm", response_model=ConfirmDeletionsResponse)
 async def confirm_pending_deletions(
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> ConfirmDeletionsResponse:
     """Confirme les quarantaines retenues par le seuil : elles se propagent.
 
@@ -656,6 +666,7 @@ async def update_font(
 async def get_font_device_status(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> list[FontDeviceStatus]:
     """Retourne le statut d'installation de cette font sur chaque appareil."""
     await _get_font_or_404(font_id, db)
@@ -664,7 +675,10 @@ async def get_font_device_status(
     devices_result = await db.execute(
         select(Device).where(Device.deleted_at.is_(None)).order_by(Device.name)
     )
-    devices = devices_result.scalars().all()
+    # Un membre ne voit que ses appareils (un admin, tous).
+    devices = [
+        d for d in devices_result.scalars().all() if can_access_device(principal, d)
+    ]
 
     # Associations device_fonts pour cette font
     df_result = await db.execute(
@@ -749,6 +763,7 @@ async def install_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> dict:
     """Déclenche un re-sync de l'appareil pour qu'il récupère les fonts du serveur.
 
@@ -759,7 +774,7 @@ async def install_font_on_device(
     toute façon périodiquement / sur `WatchPaths`).
     """
     await _get_font_or_404(font_id, db)
-    await _get_device_or_404(device_id, db)
+    assert_device_access(principal, await _get_device_or_404(device_id, db))
     await ws_manager.signal_sync(str(device_id))
     return {"status": "resync_requested"}
 
@@ -778,6 +793,7 @@ async def activate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> FontDeviceStatus:
     """Réactive une police sur cet appareil (état désiré, lu au prochain delta).
 
@@ -789,6 +805,7 @@ async def activate_font_on_device(
     """
     await _get_font_or_404(font_id, db)
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     df = await _get_device_font_or_409(device_id, font_id, db)
     df.active = True
     await db.commit()
@@ -801,6 +818,7 @@ async def deactivate_font_on_device(
     font_id: uuid.UUID,
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> FontDeviceStatus:
     """Désactive une police sur cet appareil (état désiré, lu au prochain delta).
 
@@ -809,6 +827,7 @@ async def deactivate_font_on_device(
     autres appareils, elle disparaît seulement des menus polices de celui-ci."""
     await _get_font_or_404(font_id, db)
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     df = await _get_device_font_or_409(device_id, font_id, db)
     df.active = False
     await db.commit()
@@ -823,6 +842,7 @@ async def deactivate_font_on_device(
 async def delete_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> None:
     """Soft delete d'une font — une **intention**, pas une absence constatée.
 
@@ -859,6 +879,7 @@ async def purge_font_file(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
+    _admin: Principal = Depends(require_admin),
 ) -> None:
     """Retire du stockage le fichier d'une font supprimée. La ligne est gardée.
 
@@ -891,6 +912,7 @@ async def purge_font_file(
 async def restore_font(
     font_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> FontResponse:
     """Restaure une font supprimée (soft delete).
 

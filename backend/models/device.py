@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, UUIDPrimaryKey
@@ -47,6 +48,11 @@ class Device(UUIDPrimaryKey, Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Compte propriétaire. Vide pour un appareil connu d'avant les comptes : la
+    # création du premier admin les lui rattache tous (`services/accounts.py`).
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
 
     # Relations

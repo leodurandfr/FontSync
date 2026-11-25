@@ -8,11 +8,14 @@ commande `sync` à chaque signal — la sémantique de delta vit côté serveur.
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from backend.auth import Principal, can_access_device, db_session_for, require_auth
+from backend.models.device import Device
 from backend.services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -24,9 +27,36 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 _KEEPALIVE_INTERVAL = 25.0
 
 
+async def _check_listener(
+    request: Request, principal: Principal, device_id: str
+) -> None:
+    if principal.is_admin:
+        return
+    try:
+        wanted = uuid.UUID(device_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Device non trouvé.") from None
+    async with db_session_for(request.app) as db:
+        device = await db.get(Device, wanted)
+    if device is None or not can_access_device(principal, device):
+        raise HTTPException(
+            status_code=403, detail="Cet appareil ne vous appartient pas."
+        )
+
+
 @router.get("/{device_id}/events")
-async def agent_events(device_id: str, request: Request) -> StreamingResponse:
-    """Flux SSE des signaux « re-sync » pour un device."""
+async def agent_events(
+    device_id: str,
+    request: Request,
+    principal: Principal = Depends(require_auth),
+) -> StreamingResponse:
+    """Flux SSE des signaux « re-sync » pour un device.
+
+    Un jeton d'appareil n'écoute que le sien, un membre que les siens. La base
+    est lue puis relâchée avant le flux : une session tenue pendant des heures
+    par écouteur épuiserait le pool.
+    """
+    await _check_listener(request, principal, device_id)
 
     async def event_stream() -> AsyncIterator[str]:
         # Présence « en ligne » : le `listen` (SSE) a remplacé la connexion

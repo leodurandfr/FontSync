@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
+from backend.auth import LEGACY_PRINCIPAL
 from backend.config import settings
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
@@ -864,7 +865,9 @@ async def test_device_revival_restarts_the_grace_of_tombs_it_holds(
     await db.commit()
 
     await register_device(
-        DeviceRegister(device_id=b.id, name="B", hostname="b", os="macos"), db
+        DeviceRegister(device_id=b.id, name="B", hostname="b", os="macos"),
+        db,
+        LEGACY_PRINCIPAL,
     )
     await db.refresh(tomb)
     assert tomb.harvest_candidate_since is None

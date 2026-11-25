@@ -9,10 +9,18 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from backend.auth import (
+    Principal,
+    assert_device_access,
+    can_access_device,
+    require_admin,
+    require_auth,
+)
 from backend.database import get_db
 from backend.models.device import Device
 from backend.models.device_font import DeviceFont
 from backend.models.font import Font
+from backend.models.user import SESSION_DEVICE, AuthSession
 from backend.schemas.device import (
     DeviceMerge,
     DeviceMergeResponse,
@@ -60,10 +68,25 @@ def _to_response(device: Device) -> DeviceResponse:
     return resp
 
 
+def _claimable(device: Device | None, principal: Principal) -> Device | None:
+    """L'appareil trouvé, s'il peut être repris par cette identité.
+
+    Un compte ne reprend jamais l'appareil d'un autre en présentant son
+    `device_id` ou son hostname : il en obtient un nouveau. Le token hérité,
+    lui, garde le comportement d'avant les comptes.
+    """
+    if device is None or principal.user_id is None:
+        return device
+    if device.owner_user_id in (None, principal.user_id):
+        return device
+    return None
+
+
 @router.post("/register", response_model=DeviceResponse, status_code=201)
 async def register_device(
     body: DeviceRegister,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> DeviceResponse:
     """Enregistre un device ou met à jour un existant.
 
@@ -78,16 +101,22 @@ async def register_device(
     depuis l'interface) retombe sur le hostname : l'agent se ré-enregistre au
     lieu d'échouer.
     """
+    # Un jeton d'appareil déjà lié ne parle que pour SON appareil, quel que
+    # soit le `device_id` du corps.
+    wanted_id = body.device_id
+    if principal.kind == SESSION_DEVICE and principal.device_id is not None:
+        wanted_id = principal.device_id
+
     device: Device | None = None
-    if body.device_id is not None:
-        result = await db.execute(select(Device).where(Device.id == body.device_id))
-        device = result.scalar_one_or_none()
+    if wanted_id is not None:
+        result = await db.execute(select(Device).where(Device.id == wanted_id))
+        device = _claimable(result.scalar_one_or_none(), principal)
 
     if device is None:
         result = await db.execute(
             select(Device).where(Device.hostname == body.hostname)
         )
-        device = result.scalar_one_or_none()
+        device = _claimable(result.scalars().first(), principal)
 
     if device is not None:
         if device.deleted_at is not None:
@@ -139,8 +168,19 @@ async def register_device(
             auto_pull=body.auto_pull,
             auto_push=body.auto_push,
             last_seen_at=datetime.now(timezone.utc),
+            owner_user_id=principal.user_id,
         )
         db.add(device)
+
+    if device.owner_user_id is None and principal.user_id is not None:
+        device.owner_user_id = principal.user_id
+    await db.flush()
+    if principal.kind == SESSION_DEVICE and principal.session_id is not None:
+        # Premier `register` d'un jeton d'appareil : il se lie à cet appareil
+        # pour de bon (`assert_device_access` ne l'autorise plus qu'à lui).
+        session = await db.get(AuthSession, principal.session_id)
+        if session is not None and session.device_id is None:
+            session.device_id = device.id
 
     await db.commit()
     await db.refresh(device)
@@ -150,6 +190,7 @@ async def register_device(
 @router.get("", response_model=list[DeviceResponse])
 async def list_devices(
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> list[DeviceResponse]:
     """Liste tous les devices enregistrés, hors soft-supprimés."""
     result = await db.execute(
@@ -158,7 +199,8 @@ async def list_devices(
         .order_by(Device.created_at.desc())
     )
     devices = result.scalars().all()
-    return [_to_response(d) for d in devices]
+    # Un membre ne voit que ses appareils ; un admin (ou le token hérité), tous.
+    return [_to_response(d) for d in devices if can_access_device(principal, d)]
 
 
 @router.patch("/{device_id}", response_model=DeviceResponse)
@@ -166,6 +208,7 @@ async def update_device(
     device_id: uuid.UUID,
     body: DeviceUpdate,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> DeviceResponse:
     """Met à jour un device.
 
@@ -173,6 +216,7 @@ async def update_device(
     pas un passage de l'agent, et masquerait un appareil en retard.
     """
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="Aucun champ à modifier.")
@@ -188,6 +232,7 @@ async def merge_devices(
     device_id: uuid.UUID,
     body: DeviceMerge,
     db: AsyncSession = Depends(get_db),
+    _admin: Principal = Depends(require_admin),
 ) -> DeviceMergeResponse:
     """Absorbe des appareils en double dans celui-ci, puis les supprime.
 
@@ -259,6 +304,7 @@ async def merge_devices(
 async def rescan_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> dict:
     """Signale à l'appareil de se re-synchroniser (SSE).
 
@@ -269,7 +315,7 @@ async def rescan_device(
     `listen` n'est abonné, le signal est ignoré — l'appareil se resynchronise de
     toute façon périodiquement et sur `WatchPaths`.
     """
-    await _get_device_or_404(device_id, db)
+    assert_device_access(principal, await _get_device_or_404(device_id, db))
     await ws_manager.signal_sync(str(device_id))
     return {"status": "resync_requested"}
 
@@ -278,6 +324,7 @@ async def rescan_device(
 async def delete_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_auth),
 ) -> None:
     """Retire un device de l'interface — soft delete.
 
@@ -291,5 +338,6 @@ async def delete_device(
     l'agent se ré-enregistre.
     """
     device = await _get_device_or_404(device_id, db)
+    assert_device_access(principal, device)
     device.deleted_at = datetime.now(timezone.utc)
     await db.commit()

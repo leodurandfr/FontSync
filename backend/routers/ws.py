@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from backend.auth import verify_websocket_token
+from backend.auth import websocket_principal
 from backend.config import settings
 from backend.host_guard import origin_is_allowed
 from backend.services.ws_manager import ws_manager
@@ -39,9 +39,9 @@ async def ws_client(websocket: WebSocket) -> None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Auth par token (P1) : le handshake navigateur ne peut pas poser d'en-tête,
-    # donc le token arrive en query param. On refuse avant `accept`.
-    if not verify_websocket_token(websocket):
+    # Identité : cookie de session (navigateur), ou jeton en query / en-tête
+    # (token hérité, clients hors navigateur). On refuse avant `accept`.
+    if await websocket_principal(websocket) is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
