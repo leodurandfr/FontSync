@@ -39,7 +39,7 @@ const currentIcon = computed(
       <DropdownMenuItem
         v-for="opt in OPTIONS"
         :key="opt.value"
-        class="font-mono text-[11px]"
+        class="text-[13px]"
         @select="setTheme(opt.value)"
       >
         <component :is="opt.icon" class="size-3.5" :stroke-width="1.5" />

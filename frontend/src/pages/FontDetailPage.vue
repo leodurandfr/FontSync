@@ -366,7 +366,7 @@ onUnmounted(() => {
     <div v-else-if="error" class="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-10">
       <Panel class="p-12 text-center">
         <p class="text-sm text-foreground">{{ t("fontDetail.cannotLoad") }}</p>
-        <p class="mt-1 font-mono text-[10px] text-foreground-subtle">
+        <p class="mt-1 text-[12px] text-muted-foreground">
           {{ error }}
         </p>
         <div class="mt-4 flex justify-center gap-3">
@@ -390,7 +390,7 @@ onUnmounted(() => {
       <header>
         <RouterLink
           :to="{ name: 'fonts' }"
-          class="mb-5 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground-subtle transition-colors hover:text-foreground"
+          class="mb-5 inline-flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft class="size-3" :stroke-width="2" />
           {{ t("fontDetail.fonts") }}
@@ -403,7 +403,7 @@ onUnmounted(() => {
             <h1 class="truncate text-3xl font-semibold tracking-tight">
               {{ font.familyName ?? font.originalFilename }}
             </h1>
-            <div class="mt-2 flex flex-wrap items-center gap-2 font-mono">
+            <div class="mt-2 flex flex-wrap items-center gap-2">
               <span class="text-[11px] text-muted-foreground">
                 {{ font.subfamilyName ?? font.fileFormat.toUpperCase() }}
               </span>
@@ -511,7 +511,7 @@ onUnmounted(() => {
             v-model="previewText"
             type="text"
             :placeholder="t('fontDetail.inputPlaceholder')"
-            class="w-full border-b border-separator bg-transparent px-6 py-3 font-mono text-[11px] text-foreground outline-none placeholder:text-foreground-subtle"
+            class="w-full border-b border-separator bg-transparent px-6 py-3 text-[13px] text-foreground outline-none placeholder:text-foreground-subtle"
           />
           <div
             class="select-text break-words p-6"
@@ -540,7 +540,7 @@ onUnmounted(() => {
             class="flex items-baseline gap-4"
           >
             <span
-              class="w-10 shrink-0 text-right font-mono text-[10px] text-foreground-subtle"
+              class="w-10 shrink-0 text-right text-[11px] tabular-nums text-foreground-subtle"
             >
               {{ size }}px
             </span>
@@ -693,7 +693,7 @@ onUnmounted(() => {
           <span
             v-for="script in font.supportedScripts"
             :key="script"
-            class="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] capitalize text-foreground-subtle"
+            class="rounded bg-muted px-1.5 py-0.5 text-[11px] capitalize text-muted-foreground"
           >
             {{ script }}
           </span>
@@ -713,7 +713,7 @@ onUnmounted(() => {
             >
               <ChevronLeft class="h-4 w-4" />
             </Button>
-            <span class="font-mono text-[10px] text-foreground-subtle">
+            <span class="text-[12px] text-muted-foreground">
               {{ glyphPage + 1 }} / {{ totalGlyphPages }}
             </span>
             <Button

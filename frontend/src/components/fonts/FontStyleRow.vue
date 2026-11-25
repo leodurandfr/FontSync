@@ -97,7 +97,7 @@ const previewStyle = computed(() => ({
           : 'translate-y-[calc(var(--word-shift)_*_-1)]',
       ]"
     >
-      <div class="mb-1 flex items-center gap-3 font-mono">
+      <div class="mb-1 flex items-center gap-3">
         <span class="text-[11px] font-medium text-muted-foreground">{{
           styleName
         }}</span>

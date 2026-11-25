@@ -126,15 +126,13 @@ function startResize(e: PointerEvent) {
     >
       <!-- Header -->
       <!--
-        Le panneau part du haut de la fenêtre (y = 0) alors que la barre
-        flottante de droite (toolbar `h-12`) occupe y = 8 → 56. Hauteur 56px
-        avec `pt-2` : la rangée de contenu occupe le même 8 → 56 que la
-        toolbar (feux, label et bouton restent alignés sur elle) et le filet
-        du bas tombe pile sous la toolbar. `pl-7` (28px) garde les feux à leur
-        position fixe (cf. AppShell : left 28px, top 26px).
+        Même hauteur (56px) que la barre d'outils de droite, collée elle aussi
+        en haut : les deux filets du bas sont alignés. `px-5` (20px) place
+        l'espaceur des feux exactement sous les feux fixes (cf. AppShell :
+        left 20px, top 22px).
       -->
       <div
-        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator pl-7 pr-5 pt-2"
+        class="flex h-14 flex-shrink-0 items-center justify-between border-b border-separator px-5"
         data-window-drag
       >
         <div class="flex min-w-0 items-center gap-3">
@@ -157,7 +155,7 @@ function startResize(e: PointerEvent) {
             d'être déjà à pleine opacité bien avant d'y arriver.
           -->
           <span
-            class="truncate text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity duration-100 ease-in-out"
+            class="truncate text-[13px] font-semibold transition-opacity duration-100 ease-in-out"
             :class="
               layout.sidebarOpen ? 'opacity-100 delay-[90ms]' : 'opacity-0'
             "
@@ -176,7 +174,7 @@ function startResize(e: PointerEvent) {
       </div>
 
       <!-- Nav -->
-      <nav class="scrollbar-thin flex-1 overflow-y-auto px-5 py-3">
+      <nav class="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
         <SectionLabel class="px-2 pb-1.5">{{
           t("sidebar.library")
         }}</SectionLabel>
@@ -204,50 +202,50 @@ function startResize(e: PointerEvent) {
           }}</SectionLabel>
           <RouterLink
             :to="onDuplicates ? { name: 'fonts' } : { name: 'duplicates' }"
-            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onDuplicates
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-accent font-medium text-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
             <Copy class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[11px]">{{
+            <span class="truncate text-[13px]">{{
               t("sidebar.duplicates")
             }}</span>
           </RouterLink>
           <RouterLink
             :to="onTrash ? { name: 'fonts' } : { name: 'trash' }"
-            class="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
             :class="
               onTrash
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-accent font-medium text-foreground'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
           >
             <Trash2 class="size-3.5" :stroke-width="1.5" />
-            <span class="truncate text-[11px]">{{ t("sidebar.trash") }}</span>
+            <span class="truncate text-[13px]">{{ t("sidebar.trash") }}</span>
           </RouterLink>
         </template>
       </nav>
 
       <!-- Footer -->
       <div
-        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-5 py-3"
+        class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-3"
       >
         <UploadDialog>
           <button
             type="button"
-            class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent"
+            class="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-accent"
           >
             <Upload class="size-3.5" :stroke-width="1.5" />
-            <span class="text-[11px]">{{ t("sidebar.upload") }}</span>
+            <span class="text-[13px]">{{ t("sidebar.upload") }}</span>
           </button>
         </UploadDialog>
 
         <RouterLink
           :to="onSettings ? { name: 'fonts' } : { name: 'settings' }"
-          class="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors"
+          class="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
           :class="
             onSettings
               ? 'bg-accent text-accent-foreground'
@@ -255,7 +253,7 @@ function startResize(e: PointerEvent) {
           "
         >
           <Settings class="size-3.5" :stroke-width="1.5" />
-          <span class="text-[11px]">{{ t("sidebar.settings") }}</span>
+          <span class="text-[13px]">{{ t("sidebar.settings") }}</span>
         </RouterLink>
 
         <ThemeToggle />

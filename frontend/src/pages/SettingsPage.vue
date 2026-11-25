@@ -145,7 +145,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
       <header>
         <RouterLink
           :to="{ name: 'fonts' }"
-          class="mb-5 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground-subtle transition-colors hover:text-foreground"
+          class="mb-5 inline-flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft class="size-3" :stroke-width="2" />
           {{ t("common.back") }}

@@ -326,16 +326,16 @@ onBeforeUnmount(() => {
         {{ family.name }}
       </span>
       <span
-        class="hidden min-w-[80px] flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
+        class="hidden min-w-[80px] flex-shrink-0 text-[12px] text-muted-foreground sm:inline"
         >{{ category }}</span
       >
       <span
-        class="hidden flex-shrink-0 font-mono text-[10px] text-foreground-subtle sm:inline"
+        class="hidden flex-shrink-0 text-[12px] text-muted-foreground sm:inline"
         >{{ stylesLabel }}</span
       >
       <span
         v-if="format"
-        class="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-foreground-subtle sm:inline"
+        class="hidden rounded bg-muted px-1.5 py-0.5 text-[11px] uppercase text-muted-foreground sm:inline"
         >{{ format }}</span
       >
       <div
@@ -368,7 +368,7 @@ onBeforeUnmount(() => {
     >
       <!-- En-tête : nom · styles · auteur (toujours visible). -->
       <div class="px-4 pt-7 sm:px-8">
-        <div class="flex items-center gap-3 font-mono">
+        <div class="flex items-center gap-3">
           <button
             v-if="isMultiStyle"
             type="button"

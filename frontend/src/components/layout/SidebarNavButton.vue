@@ -24,16 +24,16 @@ defineEmits<{ click: [] }>();
       cn(
         'mb-0.5 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors',
         active
-          ? 'bg-primary text-primary-foreground'
+          ? 'bg-accent font-medium text-foreground'
           : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
       )
     "
     @click="$emit('click')"
   >
-    <span class="truncate text-[11px]">{{ label }}</span>
+    <span class="truncate text-[13px]">{{ label }}</span>
     <span
       v-if="count !== undefined"
-      class="text-[10px] tabular-nums opacity-50"
+      class="text-[11px] tabular-nums text-muted-foreground"
       >{{ count }}</span
     >
   </button>

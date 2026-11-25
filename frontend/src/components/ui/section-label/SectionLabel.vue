@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<Props>(), { as: "p" });
     :as-child="asChild"
     :class="
       cn(
-        'font-mono text-[9px] uppercase tracking-[0.14em] text-foreground-subtle',
+        'text-[11px] font-medium text-muted-foreground',
         props.class,
       )
     "

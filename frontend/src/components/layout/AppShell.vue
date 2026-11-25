@@ -5,7 +5,6 @@ import { useI18n } from "vue-i18n";
 import { PanelLeftOpen } from "lucide-vue-next";
 import AppSidebar from "./AppSidebar.vue";
 import WindowControls from "./WindowControls.vue";
-import { Panel } from "@/components/ui/panel";
 import { useWebSocket } from "@/composables/useWebSocket";
 import { showWindowControls } from "@/composables/useWindowControls";
 import { useSidebarMode } from "@/composables/useSidebarMode";
@@ -36,7 +35,7 @@ onUnmounted(disconnect);
   -->
   <WindowControls
     v-if="showWindowControls"
-    class="fixed left-[28px] top-[26px] z-[60]"
+    class="fixed left-[20px] top-[22px] z-[60]"
   />
 
   <!--
@@ -64,9 +63,9 @@ onUnmounted(disconnect);
     <AppSidebar />
 
     <!-- Espace réservé + réouverture (la page Fonts l'intègre dans sa toolbar) -->
-    <Panel
+    <div
       v-if="!layout.sidebarOpen && route.name !== 'fonts'"
-      class="absolute left-2 top-2 z-40 flex h-12 items-center gap-3 pl-5 pr-3"
+      class="absolute left-0 top-0 z-40 flex h-14 items-center gap-3 pl-5 pr-3"
       data-window-drag
     >
       <!-- Espaceur invisible : le vrai exemplaire, fixe, est plus haut dans ce fichier. -->
@@ -84,7 +83,7 @@ onUnmounted(disconnect);
       >
         <PanelLeftOpen class="size-4" :stroke-width="1.5" />
       </button>
-    </Panel>
+    </div>
 
     <main class="relative min-w-0 flex-1 overflow-hidden">
       <!--
