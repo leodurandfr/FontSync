@@ -20,11 +20,11 @@ export type Palette = (typeof PALETTES)[number];
 /** Couleur de la pastille affichée dans le sélecteur (= teinte de la palette). */
 export const PALETTE_SWATCH: Record<Palette, string> = {
   neutral: "#8a8a8a",
-  amber: "#c7873c",
-  sage: "#5e8c6a",
-  ocean: "#3a72b5",
-  lavender: "#7a6bc6",
-  rose: "#c75d86",
+  amber: "#f08c00",
+  sage: "#12a150",
+  ocean: "#1f6feb",
+  lavender: "#7c4dff",
+  rose: "#e8467c",
 };
 
 const STORAGE_KEY = "fontsync_theme";
