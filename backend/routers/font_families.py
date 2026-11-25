@@ -22,6 +22,7 @@ from backend.schemas.font_family import (
     AddFontsToFamily,
     FamilyMemberResponse,
     FamilySortField,
+    FontFamilyCounts,
     FontFamilyCreate,
     FontFamilyDetailResponse,
     FontFamilyListResponse,
@@ -162,6 +163,27 @@ async def list_families(
 
 
 # ---------- Fusion (avant /{family_id} pour éviter les conflits de route) ----------
+
+
+@router.get("/counts", response_model=FontFamilyCounts)
+async def count_families(db: AsyncSession = Depends(get_db)) -> FontFamilyCounts:
+    """Nombre de familles par classification, sans filtre.
+
+    Même périmètre que la liste (`GET /api/font-families` sans filtre) : la
+    barre latérale affiche ces nombres à côté de chaque catégorie.
+    """
+    result = await db.execute(
+        select(FontFamily.classification, func.count(FontFamily.id)).group_by(
+            FontFamily.classification
+        )
+    )
+    by_classification: dict[str, int] = {}
+    total = 0
+    for classification, count in result.all():
+        total += count
+        if classification:
+            by_classification[classification] = count
+    return FontFamilyCounts(total=total, by_classification=by_classification)
 
 
 @router.post("/merge", response_model=MergeResult)

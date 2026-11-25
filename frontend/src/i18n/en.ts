@@ -149,6 +149,7 @@ export default {
     thisSession: "This session",
     lastUsed: "Last active: {date}",
     revoke: "Revoke",
+    revokeOtherBrowsers: "Sign out other browsers ({n})",
     noSessions: "No other session.",
   },
   removals: {

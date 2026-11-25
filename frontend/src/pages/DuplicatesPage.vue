@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { ArrowLeft, Check, Copy, Loader2, Undo2 } from "lucide-vue-next";
+import { Check, Copy, Loader2, Undo2 } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,14 +64,6 @@ async function confirm() {
   <div class="scrollbar-thin h-full overflow-y-auto">
     <div class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-8 sm:py-10">
       <header>
-        <RouterLink
-          :to="{ name: 'fonts' }"
-          class="mb-5 inline-flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft class="size-3" :stroke-width="2" />
-          {{ t("common.back") }}
-        </RouterLink>
-
         <h1 class="text-3xl font-semibold tracking-tight">
           {{ t("duplicates.title") }}
         </h1>

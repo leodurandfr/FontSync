@@ -736,6 +736,7 @@ are **implemented** (`/api/font-families` prefix, not `/api/families`):
 | Method | Endpoint | Description |
 |---------|----------|-------------|
 | `GET` | `/api/font-families` | List (with members, filters) |
+| `GET` | `/api/font-families/counts` | Family counts, total and per classification (sidebar) |
 | `GET` | `/api/font-families/{id}` | Detail of a family |
 | `POST` | `/api/font-families` | Create |
 | `PATCH` | `/api/font-families/{id}` | Rename / edit |

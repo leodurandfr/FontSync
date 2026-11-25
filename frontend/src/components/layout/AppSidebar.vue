@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -11,7 +11,6 @@ import {
 } from "lucide-vue-next";
 import { SectionLabel } from "@/components/ui/section-label";
 import SidebarNavButton from "./SidebarNavButton.vue";
-import ThemeToggle from "./ThemeToggle.vue";
 import WindowControls from "./WindowControls.vue";
 import UploadDialog from "@/components/fonts/UploadDialog.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -42,24 +41,18 @@ const router = useRouter();
 const onSettings = computed(() => route.path.startsWith("/settings"));
 const onFonts = computed(() => route.name === "fonts");
 
-// Compteur « Toutes les fontes » : le total renvoyé par l'API suit les filtres
-// actifs (catégorie, recherche). On ne l'affiche donc que sans filtre, sinon
-// « Toutes les fontes » afficherait le nombre de fontes serif, par exemple.
-const allFontsCount = computed(() =>
-  familiesStore.initialized &&
-  !filtersStore.classification &&
-  !filtersStore.search
-    ? familiesStore.total
-    : undefined,
+// Compteurs sans filtre (toutes les fontes + chaque catégorie). Rechargés
+// quand le total de la liste change (import, suppression, synchro).
+onMounted(() => familiesStore.fetchCounts());
+watch(
+  () => familiesStore.total,
+  () => familiesStore.fetchCounts(),
 );
 
-// Ouverte directement sur une autre page (réglages, corbeille…), la liste n'a
-// pas encore été chargée : on la charge pour que le compteur soit juste.
-onMounted(() => {
-  if (!familiesStore.initialized && !familiesStore.loading) {
-    familiesStore.fetchFamilies(filtersStore.toFilters());
-  }
-});
+function categoryCount(cat: string): number | undefined {
+  const counts = familiesStore.counts;
+  return counts ? (counts.byClassification[cat] ?? 0) : undefined;
+}
 
 // Depuis une autre page, choisir une catégorie ramène à la liste des fontes
 // (sinon le filtre change en silence, sans effet visible).
@@ -209,7 +202,7 @@ function startResize(e: PointerEvent) {
         }}</SectionLabel>
         <SidebarNavButton
           :label="t('sidebar.allFonts')"
-          :count="allFontsCount"
+          :count="familiesStore.counts?.total"
           :active="onFonts && !filtersStore.classification"
           @click="selectAll"
         />
@@ -221,6 +214,7 @@ function startResize(e: PointerEvent) {
           v-for="cat in CATEGORIES"
           :key="cat"
           :label="t(`categories.${cat}`)"
+          :count="categoryCount(cat)"
           :active="onFonts && filtersStore.classification === cat"
           @click="selectCategory(cat)"
         />
@@ -261,7 +255,8 @@ function startResize(e: PointerEvent) {
       <!-- Footer -->
       <!--
         Une seule rangée d'icônes (libellé en infobulle + aria-label) : le bas
-        du panneau prend le moins de hauteur possible.
+        du panneau prend le moins de hauteur possible. Le thème se règle dans
+        les réglages uniquement.
       -->
       <div
         class="flex flex-shrink-0 items-center gap-1 border-t border-separator px-3 py-2"
@@ -290,10 +285,6 @@ function startResize(e: PointerEvent) {
         >
           <Settings class="size-3.5" :stroke-width="1.5" />
         </RouterLink>
-
-        <div class="flex-1" />
-
-        <ThemeToggle />
       </div>
 
       <!-- Resize handle -->
