@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import Field
 
@@ -24,6 +25,11 @@ class DeviceRegister(CamelModel):
     font_directories: list[str] | None = None
     auto_pull: bool = False
     auto_push: bool = True
+    capabilities: list[Annotated[str, Field(max_length=64)]] | None = Field(
+        None, max_length=32
+    )
+    """Capacités de l'agent (B-32). Absentes → NULL : chaque register remplace
+    la valeur, y compris par rien."""
 
 
 class DeviceUpdate(CamelModel):
@@ -73,6 +79,7 @@ class DeviceResponse(CamelModel):
     auto_pull: bool
     auto_push: bool
     propagate_deletions: bool = False
+    capabilities: list[str] | None = None
     created_at: datetime
     # Présence « en ligne » : calculée à la volée depuis les connexions SSE
     # `listen` (cf. routeur), pas une colonne en base.

@@ -151,6 +151,8 @@ async def register_device(
         device.os_version = body.os_version
         device.agent_version = body.agent_version
         device.font_directories = body.font_directories
+        # Remplacée à chaque register, y compris par None (agent antérieur).
+        device.capabilities = body.capabilities
         # Pas de `last_seen_at` ici : le register précède le delta, qui peut
         # échouer à chaque sync — l'appareil paraîtrait à jour sans qu'aucun
         # sync n'aboutisse (cf. `services/device_activity.py`).
@@ -162,6 +164,7 @@ async def register_device(
             os_version=body.os_version,
             agent_version=body.agent_version,
             font_directories=body.font_directories,
+            capabilities=body.capabilities,
             auto_pull=body.auto_pull,
             auto_push=body.auto_push,
             last_seen_at=datetime.now(timezone.utc),

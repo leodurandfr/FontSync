@@ -183,3 +183,33 @@ def test_harvested_fingerprints_upgrade_downgrade(tmp_path, monkeypatch) -> None
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
         assert "harvested_fingerprints" not in tables
         assert conn.execute("SELECT file_hash FROM fonts").fetchall() == [("h" * 64,)]
+
+
+def test_device_capabilities_upgrade_downgrade(tmp_path, monkeypatch) -> None:
+    """B-32 (P1-6b) : la colonne `devices.capabilities` s'ajoute nulle sur une base
+    peuplée et se retire sans toucher aux appareils (chemin de retour)."""
+    import sqlite3
+
+    db_path = tmp_path / "capabilities.db"
+    _upgrade_to(db_path, monkeypatch, "d81f3c2a6b94")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO devices (id, name, hostname, os, auto_pull, auto_push, "
+            "propagate_deletions, created_at) "
+            "VALUES (?, 'Mac', 'mac', 'macos', 1, 1, 0, '2026-11-25 00:00:00')",
+            ("d" * 32,),
+        )
+
+    _upgrade_head(db_path, monkeypatch)
+    with sqlite3.connect(db_path) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)")}
+        assert "capabilities" in cols
+        assert conn.execute("SELECT capabilities FROM devices").fetchall() == [(None,)]
+
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "alembic"))
+    command.downgrade(cfg, "d81f3c2a6b94")
+    with sqlite3.connect(db_path) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)")}
+        assert "capabilities" not in cols
+        assert conn.execute("SELECT name FROM devices").fetchall() == [("Mac",)]
