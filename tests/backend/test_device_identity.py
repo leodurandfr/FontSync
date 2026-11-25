@@ -105,6 +105,46 @@ async def test_register_does_not_overwrite_server_side_settings(
 
 
 @pytest.mark.asyncio
+async def test_register_stores_capabilities(api_client: AsyncClient) -> None:
+    """B-32 : les capacités annoncées au register sont stockées et exposées."""
+    caps = ["full-declaration", "deactivate", "uninstall"]
+    device = await _register(api_client, capabilities=caps)
+    assert device["capabilities"] == caps
+
+    resp = await api_client.get("/api/devices", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    (listed,) = [d for d in resp.json() if d["id"] == device["id"]]
+    assert listed["capabilities"] == caps
+
+
+@pytest.mark.asyncio
+async def test_register_v001_payload_clears_capabilities(
+    api_client: AsyncClient,
+) -> None:
+    """Un agent antérieur (sans le champ) remplace la valeur par null : une
+    capacité ne survit pas au retour d'un agent qui ne l'a plus."""
+    first = await _register(api_client, capabilities=["deactivate"])
+    assert first["capabilities"] == ["deactivate"]
+
+    again = await _register(api_client, device_id=first["id"])
+    assert again["id"] == first["id"]
+    assert again["capabilities"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [["x" * 65], ["ok"] * 33, "deactivate"])
+async def test_register_rejects_malformed_capabilities(
+    api_client: AsyncClient, bad
+) -> None:
+    resp = await api_client.post(
+        "/api/devices/register",
+        headers=AUTH_HEADERS,
+        json={"name": "Mac", "hostname": "mac", "os": "macos", "capabilities": bad},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_merge_moves_the_font_registry(
     api_client: AsyncClient, font_factory
 ) -> None:
