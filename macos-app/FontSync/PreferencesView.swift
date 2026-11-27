@@ -72,7 +72,6 @@ struct PreferencesView: View {
                     HStack(spacing: 8) {
                         Text(fontsDirectoryLabel)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
                             .lineLimit(1)
                             .truncationMode(.head)
                         Button("Afficher") { revealFontsDirectory() }
