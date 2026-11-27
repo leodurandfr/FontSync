@@ -1,14 +1,14 @@
-fastapi==0.162.0
+fastapi==0.165.0
 starlette==1.10.0
-uvicorn[standard]==0.34.0
-pydantic==2.13.4
-sqlalchemy[asyncio]==2.0.36
-aiosqlite==0.20.0
-alembic==1.14.1
-fonttools==4.60.2
-python-multipart==0.0.32
-websockets==14.1
-pydantic-settings==2.7.1
+uvicorn[standard]==0.54.0
+pydantic==2.14.4
+sqlalchemy[asyncio]==2.1.9
+aiosqlite==0.22.1
+alembic==1.20.1
+fonttools==4.68.0
+python-multipart==0.0.34
+websockets==17.4
+pydantic-settings==2.16.3
 # Hachage des mots de passe des comptes (argon2id).
 argon2-cffi==25.1.0
 aiofiles==25.1.0
