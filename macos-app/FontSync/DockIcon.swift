@@ -15,9 +15,22 @@ import AppKit
 /// menus de l'app) dès qu'une fenêtre apparaît, et on revient en `.accessory`
 /// quand il n'en reste plus. Une fenêtre réduite dans le Dock compte comme
 /// ouverte : sans l'icône, on ne pourrait plus la rouvrir.
+///
+/// Préférence « Garder l'icône dans le Dock » (`keepInDockKey`) : l'app reste
+/// alors en `.regular` en permanence, même sans fenêtre. Un clic sur l'icône du
+/// Dock (persistante, ou épinglée via « Options › Garder dans le Dock ») ouvre
+/// l'interface : cf. `AppDelegate`.
 @MainActor
 final class DockIcon {
     static let shared = DockIcon()
+
+    /// Clé `UserDefaults` de la préférence « Garder l'icône dans le Dock ».
+    static let keepInDockKey = "keepInDock"
+
+    /// Vrai si l'utilisateur veut une icône de Dock permanente.
+    static var keepInDock: Bool {
+        UserDefaults.standard.bool(forKey: keepInDockKey)
+    }
 
     private var observers: [NSObjectProtocol] = []
 
@@ -42,6 +55,15 @@ final class DockIcon {
                 let window = note.object as? NSWindow
                 MainActor.assumeIsolated { DockIcon.shared.update(closing: window) }
             })
+        // La préférence peut changer à tout moment (fenêtre Préférences).
+        observers.append(
+            center.addObserver(
+                forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { DockIcon.shared.update(closing: nil) }
+            })
+        // État initial : icône permanente dès le lancement si demandée.
+        update(closing: nil)
     }
 
     private func update(closing: NSWindow?) {
@@ -49,12 +71,14 @@ final class DockIcon {
             window !== closing && Self.isAppWindow(window)
                 && (window.isVisible || window.isMiniaturized)
         }
-        let policy: NSApplication.ActivationPolicy = hasWindow ? .regular : .accessory
+        let policy: NSApplication.ActivationPolicy =
+            hasWindow || Self.keepInDock ? .regular : .accessory
         guard NSApp.activationPolicy() != policy else { return }
         NSApp.setActivationPolicy(policy)
-        // Passée en `.regular`, l'app doit être réactivée pour que sa barre de
-        // menus et son icône prennent le premier plan.
-        if policy == .regular {
+        // Passée en `.regular` pour une fenêtre, l'app doit être réactivée pour
+        // que sa barre de menus et son icône prennent le premier plan. Pas pour
+        // la seule préférence : on ne vole pas le focus sans fenêtre à montrer.
+        if policy == .regular && hasWindow {
             NSApp.activate(ignoringOtherApps: true)
         }
     }

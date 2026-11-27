@@ -14,6 +14,7 @@ import SwiftUI
 /// fait apparaître tant qu'une de ses fenêtres est ouverte.
 @main
 struct FontSyncApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
     @StateObject private var updater = UpdaterViewModel()
 
@@ -75,7 +76,21 @@ private struct MenuBarLabel: View {
                 if model.shouldPresentOnboarding {
                     NSApp.activate(ignoringOtherApps: true)
                     openWindow(id: FontSyncApp.onboardingWindowID)
+                } else if AppDelegate.consumeLaunchInterfaceRequest() {
+                    openInterface()
                 }
             }
+            // Clic sur l'icône du Dock (cf. `AppDelegate`).
+            .onReceive(NotificationCenter.default.publisher(for: .fontSyncOpenInterface)) { _ in
+                // Une demande de lancement éventuelle est satisfaite ici aussi.
+                _ = AppDelegate.consumeLaunchInterfaceRequest()
+                openInterface()
+            }
+    }
+
+    private func openInterface() {
+        guard model.serverURL != nil, !model.shouldPresentOnboarding else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: FontSyncApp.webWindowID)
     }
 }

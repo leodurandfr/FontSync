@@ -35,6 +35,9 @@ struct PreferencesView: View {
     @State private var agentFeedback: Feedback?
     @State private var agentBusy = false
 
+    /// Icône de Dock permanente (lue par `DockIcon`).
+    @AppStorage(DockIcon.keepInDockKey) private var keepInDock = false
+
     var body: some View {
         Form {
             Section("Compte") {
@@ -105,6 +108,16 @@ struct PreferencesView: View {
                     Button("Désinstaller l'agent") { runAgent { await model.uninstallAgent() } }
                         .disabled(agentBusy || !model.agentAvailable)
                 }
+            }
+
+            Section("Dock") {
+                Toggle("Garder l'icône dans le Dock", isOn: $keepInDock)
+                Text(
+                    "Un clic sur l'icône ouvre l'interface FontSync. Sinon, l'icône "
+                        + "n'apparaît que lorsqu'une fenêtre est ouverte."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
