@@ -4,6 +4,7 @@
 // This file is part of FontSync, a self-hosted font manager.
 
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// Fenêtre de préférences (P3.3 + P3.4).
@@ -37,6 +38,12 @@ struct PreferencesView: View {
 
     @AppStorage(DockIcon.alwaysShowKey) private var alwaysShowInDock = false
 
+    /// Ouverture au démarrage du Mac (`SMAppService.mainApp`). L'état réel vit
+    /// dans les Réglages Système : relu à chaque affichage et après chaque
+    /// changement.
+    @State private var loginItemStatus = SMAppService.mainApp.status
+    @State private var loginItemError: String?
+
     var body: some View {
         Form {
             Section("Compte") {
@@ -67,7 +74,29 @@ struct PreferencesView: View {
                 }
             }
 
-            Section("Dock") {
+            Section("Général") {
+                Toggle(
+                    "Ouvrir au démarrage du Mac",
+                    isOn: Binding(
+                        get: { loginItemStatus == .enabled },
+                        set: { setLaunchAtLogin($0) }))
+
+                if loginItemStatus == .requiresApproval {
+                    HStack {
+                        Text("À autoriser dans les Réglages Système.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Ouvrir les Réglages") {
+                            SMAppService.openSystemSettingsLoginItems()
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+                if let loginItemError {
+                    Feedback.failure(loginItemError).view
+                }
+
                 Toggle("Toujours afficher dans le Dock", isOn: $alwaysShowInDock)
                     .onChange(of: alwaysShowInDock) { _, _ in DockIcon.shared.refresh() }
                 Text(
@@ -123,7 +152,27 @@ struct PreferencesView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear(perform: loadFields)
+        .onAppear {
+            loadFields()
+            loginItemStatus = SMAppService.mainApp.status
+        }
+    }
+
+    // MARK: - Démarrage
+
+    /// Inscrit ou retire l'app des « Ouverture » des Réglages Système.
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        loginItemError = nil
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            loginItemError = error.localizedDescription
+        }
+        loginItemStatus = SMAppService.mainApp.status
     }
 
     // MARK: - Champs

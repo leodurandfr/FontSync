@@ -19,6 +19,7 @@ import AppKit
 /// Préférence « Toujours afficher dans le Dock » (`alwaysShowKey`) : l'app
 /// reste alors en `.regular` en permanence. Un clic sur l'icône sans fenêtre
 /// ouverte affiche l'interface (`handleReopen`, appelé par `AppDelegate`).
+/// Épingler l'icône (« Garder dans le Dock ») coche cette préférence.
 @MainActor
 final class DockIcon {
     static let shared = DockIcon()
@@ -36,6 +37,22 @@ final class DockIcon {
 
     private var alwaysShow: Bool {
         UserDefaults.standard.bool(forKey: Self.alwaysShowKey)
+    }
+
+    /// Icône épinglée avec « Garder dans le Dock ». macOS n'a pas d'API
+    /// publique pour le savoir : on lit les préférences du Dock
+    /// (`com.apple.dock` › `persistent-apps`), en lecture seule. Si leur
+    /// format change un jour, on renvoie `false` et rien ne casse.
+    static var isPinnedInDock: Bool {
+        let domain = "com.apple.dock" as CFString
+        CFPreferencesAppSynchronize(domain)
+        guard let bundleID = Bundle.main.bundleIdentifier,
+            let apps = CFPreferencesCopyAppValue("persistent-apps" as CFString, domain)
+                as? [[String: Any]]
+        else { return false }
+        return apps.contains { tile in
+            (tile["tile-data"] as? [String: Any])?["bundle-identifier"] as? String == bundleID
+        }
     }
 
     /// Réapplique la politique (après un changement de la préférence).
@@ -80,6 +97,13 @@ final class DockIcon {
     }
 
     private func update(closing: NSWindow?) {
+        // Épinglée dans le Dock (souvent pendant qu'une fenêtre est ouverte) :
+        // on coche la préférence, sinon l'icône perdrait son point d'app
+        // active à la fermeture. Dans ce sens seulement : désépingler ne
+        // décoche rien.
+        if !alwaysShow && Self.isPinnedInDock {
+            UserDefaults.standard.set(true, forKey: Self.alwaysShowKey)
+        }
         let hasWindow = NSApp.windows.contains { window in
             window !== closing && Self.isAppWindow(window)
                 && (window.isVisible || window.isMiniaturized)
