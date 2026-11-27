@@ -35,6 +35,8 @@ struct PreferencesView: View {
     @State private var agentFeedback: Feedback?
     @State private var agentBusy = false
 
+    @AppStorage(DockIcon.alwaysShowKey) private var alwaysShowInDock = false
+
     var body: some View {
         Form {
             Section("Compte") {
@@ -63,6 +65,17 @@ struct PreferencesView: View {
                         .keyboardShortcut(.defaultAction)
                         .disabled(testing || trimmedURL.isEmpty || trimmedEmail.isEmpty)
                 }
+            }
+
+            Section("Dock") {
+                Toggle("Toujours afficher dans le Dock", isOn: $alwaysShowInDock)
+                    .onChange(of: alwaysShowInDock) { _, _ in DockIcon.shared.refresh() }
+                Text(
+                    "Sinon, l'icône n'apparaît que lorsqu'une fenêtre de FontSync "
+                        + "est ouverte. Un clic sur l'icône ouvre l'interface."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
             }
 
             Section("Agent") {

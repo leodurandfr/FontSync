@@ -14,6 +14,7 @@ import SwiftUI
 /// fait apparaître tant qu'une de ses fenêtres est ouverte.
 @main
 struct FontSyncApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
     @StateObject private var updater = UpdaterViewModel()
 
@@ -70,6 +71,10 @@ private struct MenuBarLabel: View {
         Image(systemName: model.connection.symbolName)
             .task {
                 // Avant toute fenêtre (dont l'assistant ci-dessous).
+                DockIcon.shared.openMainWindow = {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openWindow(id: FontSyncApp.webWindowID)
+                }
                 DockIcon.shared.start()
                 model.start()
                 if model.shouldPresentOnboarding {
@@ -77,5 +82,15 @@ private struct MenuBarLabel: View {
                     openWindow(id: FontSyncApp.onboardingWindowID)
                 }
             }
+    }
+}
+
+/// Délégué AppKit, limité au clic sur l'icône du Dock (cf. `DockIcon`).
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication, hasVisibleWindows flag: Bool
+    ) -> Bool {
+        // `false` : déjà traité, AppKit/SwiftUI n'ouvrent rien de plus.
+        MainActor.assumeIsolated { !DockIcon.shared.handleReopen() }
     }
 }

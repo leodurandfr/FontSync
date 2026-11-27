@@ -34,7 +34,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 |---|---|
 | `FontSync/FontSyncApp.swift` | `@main`, scènes `MenuBarExtra` (P3.1) + `Window` webview (P3.2) |
 | `FontSync/MenuContent.swift` | Contenu du menu : statut + actions |
-| `FontSync/DockIcon.swift` | Icône dans le Dock tant qu'une fenêtre est ouverte (bascule `.regular` ↔ `.accessory`) |
+| `FontSync/DockIcon.swift` | Icône dans le Dock tant qu'une fenêtre est ouverte, ou toujours (préférence) ; clic sur l'icône → interface |
 | `FontSync/AppModel.swift` | État observable (connexion, fonts, launchd), sonde périodique |
 | `FontSync/ServerClient.swift` | Client `GET /api/stats` avec `Authorization: Bearer` |
 | `FontSync/LaunchdStatus.swift` | État réel des LaunchAgents (`launchctl print`) + décision de réparation au lancement |
