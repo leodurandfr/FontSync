@@ -174,11 +174,13 @@ final class AppModel: ObservableObject {
             // `kickstart` ne fait que relancer le job launchd (ses erreurs
             // restent dans les journaux de l'agent) ; seul le repli `sync`
             // direct nous remonte un code de sortie exploitable (P3.6).
-            var failure: String?
-            if !LaunchdStatus.kickstartSync() {
+            // `let` (et non `var`) : la valeur est capturée par la closure
+            // `MainActor.run` ; Swift 6 refuse d'y capturer une variable mutable.
+            let failure: String? = {
+                if LaunchdStatus.kickstartSync() { return nil }
                 let result = AgentController.sync()
-                if !result.succeeded { failure = result.output }
-            }
+                return result.succeeded ? nil : result.output
+            }()
             await MainActor.run {
                 if let failure {
                     NotificationManager.notifySyncFailed(detail: failure)
