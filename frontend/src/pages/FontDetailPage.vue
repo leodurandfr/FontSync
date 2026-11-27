@@ -514,7 +514,7 @@ onUnmounted(() => {
             class="w-full border-b border-separator bg-transparent px-6 py-3 text-[13px] text-foreground outline-none placeholder:text-foreground-subtle"
           />
           <div
-            class="select-text break-words p-6"
+            class="break-words p-6"
             :style="{
               fontSize: `${previewSize}px`,
               lineHeight: previewLeading,
@@ -545,7 +545,7 @@ onUnmounted(() => {
               {{ size }}px
             </span>
             <span
-              class="min-w-0 select-text break-words"
+              class="min-w-0 break-words"
               :style="{
                 fontSize: `${size}px`,
                 lineHeight: 1.3,

@@ -168,6 +168,21 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * Interface d'app, pas page web : aucun texte n'est sélectionnable, sauf les
+   * champs éditables (saisie, recherche, aperçu modifiable).
+   */
+  html {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable="false"]) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 /*
