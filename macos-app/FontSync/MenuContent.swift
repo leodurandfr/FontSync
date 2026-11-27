@@ -81,8 +81,8 @@ struct MenuContent: View {
         .keyboardShortcut("q")
     }
 
-    /// Ouvre les Préférences au premier plan. L'app n'a pas de Dock : sans
-    /// activation explicite, la fenêtre s'ouvre sous celle de l'app active.
+    /// Ouvre les Préférences au premier plan. Depuis la barre de menus, l'app
+    /// est encore hors Dock (`.accessory`) : sans activation explicite, la fenêtre s'ouvre sous celle de l'app active.
     /// La fenêtre n'existe qu'après `openSettings()`, d'où le second passage.
     private func showSettings() {
         NSApp.activate(ignoringOtherApps: true)

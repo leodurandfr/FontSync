@@ -10,7 +10,8 @@ import SwiftUI
 /// Architecture : une `MenuBarExtra` (P3.1) qui affiche l'état (connecté/sync/
 /// nombre de fonts) et une `Window` « nue » (P3.2) chargeant l'UI web du
 /// serveur dans une `WKWebView`. Pas de fenêtre principale par défaut :
-/// `LSUIElement` (Info.plist) garde l'app hors du Dock.
+/// `LSUIElement` (Info.plist) démarre l'app hors du Dock, et `DockIcon` l'y
+/// fait apparaître tant qu'une de ses fenêtres est ouverte.
 @main
 struct FontSyncApp: App {
     @StateObject private var model = AppModel()
@@ -68,6 +69,8 @@ private struct MenuBarLabel: View {
     var body: some View {
         Image(systemName: model.connection.symbolName)
             .task {
+                // Avant toute fenêtre (dont l'assistant ci-dessous).
+                DockIcon.shared.start()
                 model.start()
                 if model.shouldPresentOnboarding {
                     NSApp.activate(ignoringOtherApps: true)

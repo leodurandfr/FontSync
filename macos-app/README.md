@@ -34,6 +34,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 |---|---|
 | `FontSync/FontSyncApp.swift` | `@main`, scènes `MenuBarExtra` (P3.1) + `Window` webview (P3.2) |
 | `FontSync/MenuContent.swift` | Contenu du menu : statut + actions |
+| `FontSync/DockIcon.swift` | Icône dans le Dock tant qu'une fenêtre est ouverte (bascule `.regular` ↔ `.accessory`) |
 | `FontSync/AppModel.swift` | État observable (connexion, fonts, launchd), sonde périodique |
 | `FontSync/ServerClient.swift` | Client `GET /api/stats` avec `Authorization: Bearer` |
 | `FontSync/LaunchdStatus.swift` | État réel des LaunchAgents (`launchctl print`) + décision de réparation au lancement |
@@ -43,7 +44,7 @@ FontSync. Architecture : voir [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 | `FontSync/AgentController.swift` | Résolution du venv embarqué + `fontsync-agent setup/teardown/sync` |
 | `FontSync/NotificationManager.swift` | Notifications natives (`UNUserNotifications`, P3.6) |
 | `FontSync/Updater.swift` | Pont SwiftUI au-dessus de Sparkle (mises à jour, P3.7) |
-| `Info.plist` | `LSUIElement` (hors Dock) + ATS (HTTP clair) + clés Sparkle (`SUFeedURL`/`SUPublicEDKey`) |
+| `Info.plist` | `LSUIElement` (démarrage hors Dock ; `DockIcon.swift` affiche l'icône tant qu'une fenêtre est ouverte) + ATS (HTTP clair) + clés Sparkle (`SUFeedURL`/`SUPublicEDKey`) |
 | `FontSync.entitlements` | Entitlements de l'app (Hardened Runtime, non sandboxée) |
 | `PythonAgent.entitlements` | Entitlements de l'interpréteur embarqué (libffi/pyobjc) |
 
