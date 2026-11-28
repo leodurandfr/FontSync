@@ -40,7 +40,7 @@ onMounted(() => {
 <template>
   <div
     v-if="phase === 'checking' && !invitationToken"
-    class="min-h-screen bg-background"
+    class="min-h-dvh bg-background"
   />
   <AuthGate
     v-else-if="needsAuth || invitationToken"

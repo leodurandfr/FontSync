@@ -92,7 +92,7 @@ async function emptyTrash() {
 
 <template>
   <div class="scrollbar-thin h-full overflow-y-auto">
-    <div class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-8 sm:py-10">
+    <div class="mx-auto max-w-4xl space-y-8 px-4 pb-8 pt-14 sm:px-8 sm:py-10">
       <header>
         <h1 class="text-3xl font-semibold tracking-tight">
           {{ t("trash.title") }}

@@ -104,7 +104,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-background p-4">
+  <div class="flex min-h-dvh items-center justify-center bg-background p-4">
     <div class="w-full max-w-sm space-y-6 rounded-xl border bg-card p-8">
       <div class="flex flex-col items-center gap-3 text-center">
         <div

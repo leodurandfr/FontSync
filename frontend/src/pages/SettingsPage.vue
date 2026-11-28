@@ -137,7 +137,7 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
 
 <template>
   <div class="scrollbar-thin h-full overflow-y-auto">
-    <div class="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-8 sm:py-10">
+    <div class="mx-auto max-w-4xl space-y-10 px-4 pb-8 pt-14 sm:px-8 sm:py-10">
       <!-- Header -->
       <header>
         <h1 class="text-3xl font-semibold tracking-tight">
@@ -392,7 +392,11 @@ const wsStatusVariant = computed<"default" | "secondary" | "destructive">(
             {{ t("settings.agentDesc") }}
           </p>
 
-          <Button variant="outline" disabled>
+          <Button
+            variant="outline"
+            disabled
+            class="h-auto min-h-9 max-w-full whitespace-normal py-2 text-left"
+          >
             <Download class="mr-2 h-4 w-4" />
             {{ t("settings.downloadAgent") }}
           </Button>

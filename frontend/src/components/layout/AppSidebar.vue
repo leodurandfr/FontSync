@@ -144,7 +144,7 @@ function startResize(e: PointerEvent) {
     -->
     <aside
       data-surface="sidebar"
-      class="flex h-screen flex-col overflow-hidden border-r border-panel-border bg-card text-card-foreground"
+      class="flex h-dvh flex-col overflow-hidden border-r border-panel-border bg-card text-card-foreground"
       :class="isOverlay ? 'relative' : 'absolute right-0 top-0'"
       :style="{ width: `${layout.sidebarWidth}px` }"
     >

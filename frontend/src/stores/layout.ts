@@ -24,7 +24,11 @@ function clampWidth(w: number): number {
 
 /** État de la coquille (sidebar) — persistant entre sessions via localStorage. */
 export const useLayoutStore = defineStore("layout", () => {
-  const sidebarOpen = ref(localStorage.getItem(OPEN_KEY) !== "false");
+  // Sur petit écran (drawer au-dessus du contenu), on démarre toujours replié :
+  // sinon la sidebar masque la page dès l'ouverture.
+  const sidebarOpen = ref(
+    !isSidebarOverlay() && localStorage.getItem(OPEN_KEY) !== "false",
+  );
   const sidebarWidth = ref(
     clampWidth(Number(localStorage.getItem(WIDTH_KEY)) || 220),
   );
@@ -38,7 +42,10 @@ export const useLayoutStore = defineStore("layout", () => {
       ensureWindowWidth(sidebarWidth.value + GUTTER + MIN_CONTENT);
     }
     sidebarOpen.value = value;
-    if (persist) localStorage.setItem(OPEN_KEY, String(value));
+    // L'état du drawer mobile n'écrase pas la préférence du mode large.
+    if (persist && !isSidebarOverlay()) {
+      localStorage.setItem(OPEN_KEY, String(value));
+    }
   }
 
   function toggleSidebar() {
