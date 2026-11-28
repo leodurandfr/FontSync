@@ -352,7 +352,7 @@ onUnmounted(() => {
          page « saute » par l'écran squelette à chaque onglet). -->
     <div
       v-if="loading && !font"
-      class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-8 sm:py-10"
+      class="mx-auto max-w-4xl space-y-8 px-4 pb-8 pt-14 sm:px-8 sm:py-10"
     >
       <Skeleton class="h-8 w-64" />
       <Skeleton class="h-5 w-40" />
@@ -363,7 +363,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-10">
+    <div v-else-if="error" class="mx-auto max-w-4xl px-4 pb-8 pt-14 sm:px-8 sm:py-10">
       <Panel class="p-12 text-center">
         <p class="text-sm text-foreground">{{ t("fontDetail.cannotLoad") }}</p>
         <p class="mt-1 text-[12px] text-muted-foreground">
@@ -384,7 +384,7 @@ onUnmounted(() => {
     <!-- Content -->
     <div
       v-else-if="font"
-      class="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-8 sm:py-10"
+      class="mx-auto max-w-4xl space-y-10 px-4 pb-8 pt-14 sm:px-8 sm:py-10"
     >
       <!-- Header -->
       <header>

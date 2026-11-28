@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted } from "vue";
+import { onUnmounted, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { PanelLeftOpen } from "lucide-vue-next";
@@ -9,11 +9,22 @@ import { useWebSocket } from "@/composables/useWebSocket";
 import { showWindowControls } from "@/composables/useWindowControls";
 import { useSidebarMode } from "@/composables/useSidebarMode";
 import { useLayoutStore } from "@/stores/layout";
+import { useFamilyFiltersStore } from "@/stores/familyFilters";
 
 const { t } = useI18n();
 const layout = useLayoutStore();
 const route = useRoute();
 const { isOverlay } = useSidebarMode();
+const filters = useFamilyFiltersStore();
+
+// En mode drawer (petit écran), la sidebar couvre le contenu : on la referme
+// dès qu'un choix y est fait (page ou catégorie) pour montrer le résultat.
+watch(
+  () => [route.fullPath, filters.classification],
+  () => {
+    if (isOverlay.value && layout.sidebarOpen) layout.setSidebarOpen(false);
+  },
+);
 
 // L'écran de saisie du token (App.vue) démonte cette coquille sur un 401 /
 // WS 1008 : on ferme alors proprement la connexion WebSocket pour ne pas la
@@ -43,8 +54,11 @@ onUnmounted(disconnect);
     la fenêtre native si besoin (layout store → ensureWindowWidth). En dessous :
     elle passe en drawer overlay au-dessus du contenu, avec le backdrop ci-après
     (cf. useSidebarMode + AppSidebar).
+    `h-dvh` et non `h-screen` : sur mobile, 100vh inclut la zone masquée par la
+    barre d'adresse du navigateur, ce qui coupait le bas du contenu et de la
+    sidebar. dvh suit la hauteur réellement visible.
   -->
-  <div class="flex h-screen overflow-hidden bg-background">
+  <div class="flex h-dvh overflow-hidden bg-background">
     <!-- Backdrop du drawer overlay (fenêtre étroite < 740px) -->
     <Transition
       enter-active-class="transition-opacity duration-200"
@@ -62,10 +76,17 @@ onUnmounted(disconnect);
 
     <AppSidebar />
 
-    <!-- Espace réservé + réouverture (la page Fonts l'intègre dans sa toolbar) -->
+    <!--
+      Espace réservé + réouverture (la page Fonts l'intègre dans sa toolbar).
+      Sur petit écran, un fond translucide l'empêche de se superposer au texte
+      qui défile dessous.
+    -->
     <div
       v-if="!layout.sidebarOpen && route.name !== 'fonts'"
       class="absolute left-0 top-0 z-40 flex h-14 items-center gap-3 pl-5 pr-3"
+      :class="
+        isOverlay ? 'rounded-br-xl bg-background/85 backdrop-blur-sm' : ''
+      "
       data-window-drag
     >
       <!-- Espaceur invisible : le vrai exemplaire, fixe, est plus haut dans ce fichier. -->
